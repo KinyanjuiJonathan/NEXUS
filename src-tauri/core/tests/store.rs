@@ -268,3 +268,67 @@ fn categories_and_focus_sessions() {
     assert_eq!(s.list_focus_sessions(0).unwrap().len(), 1);
     assert!(s.add_focus_session(&FocusSession { id: "g".into(), task_id: None, kind: "pomodoro".into(), started_at: 20, ended_at: 10, duration_ms: 0 }).is_err());
 }
+
+#[test]
+fn work_sessions_and_activity_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("nexus.db");
+    {
+        let s = Store::open(&path).unwrap();
+        let w = WorkSession {
+            id: "w1".into(),
+            started_at: 1_000,
+            ended_at: None,
+            pauses: json!([{ "start": 2_000, "end": 3_000, "reason": "idle" }]),
+            note: String::new(),
+            created_at: 1_000,
+            updated_at: 1_000,
+        };
+        s.upsert_work_session(&w).unwrap();
+        s.add_activity(&ActivityEntry { id: "a1".into(), at: 5, kind: "clock_in".into(), title: "Clocked in".into(), detail: String::new(), ref_id: Some("w1".into()) }).unwrap();
+        s.add_activity(&ActivityEntry { id: "a2".into(), at: 9, kind: "task_completed".into(), title: "Report".into(), detail: String::new(), ref_id: None }).unwrap();
+        assert!(s.add_activity(&ActivityEntry { id: "bad".into(), at: 1, kind: "x".into(), title: " ".into(), detail: String::new(), ref_id: None }).is_err());
+        let mut bad = w.clone();
+        bad.ended_at = Some(10);
+        assert!(s.upsert_work_session(&bad).is_err());
+    }
+    let s = Store::open(&path).unwrap();
+    let ws = s.list_work_sessions(0).unwrap();
+    assert_eq!(ws[0].pauses[0]["reason"], json!("idle"));
+    // an open session is always returned, however old
+    assert_eq!(s.list_work_sessions(i64::MAX).unwrap().len(), 1);
+    let ids: Vec<String> = s.list_activity(0, 10).unwrap().into_iter().map(|a| a.id).collect();
+    assert_eq!(ids, vec!["a2", "a1"], "history is newest first");
+    // round-trips through export/import
+    let bundle = s.export_bundle().unwrap();
+    let mut fresh = Store::open_in_memory().unwrap();
+    fresh.import_bundle(&bundle).unwrap();
+    assert_eq!(fresh.list_activity(0, 10).unwrap().len(), 2);
+    assert_eq!(fresh.list_work_sessions(0).unwrap().len(), 1);
+}
+
+#[test]
+fn v3_migration_backfills_history_from_existing_data() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("nexus.db");
+    {
+        let mut conn = rusqlite::Connection::open(&path).unwrap();
+        for (i, sql) in migrations::MIGRATIONS[..2].iter().enumerate() {
+            let tx = conn.transaction().unwrap();
+            tx.execute_batch(sql).unwrap();
+            tx.pragma_update(None, "user_version", i as i64 + 1).unwrap();
+            tx.commit().unwrap();
+        }
+        conn.execute(
+            "INSERT INTO tasks (id, title, priority, category_id, status, completed_at, created_at, updated_at) VALUES ('t1','Old report','high','work','done',500,1,1)",
+            [],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO focus_sessions (id, task_id, kind, started_at, ended_at, duration_ms) VALUES ('f1','t1','pomodoro',0,1500000,1500000)", []).unwrap();
+    }
+    let s = Store::open(&path).unwrap();
+    let log = s.list_activity(0, 10).unwrap();
+    assert_eq!(log.len(), 2);
+    assert!(log.iter().any(|a| a.kind == "task_completed" && a.title == "Old report"));
+    assert!(log.iter().any(|a| a.kind == "focus" && a.title == "Old report" && a.detail == "25 min"));
+}

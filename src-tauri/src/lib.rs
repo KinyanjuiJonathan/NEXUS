@@ -206,6 +206,10 @@ pub fn run() {
             speech::speech_available,
             speech::speech_listen,
             perf::perf_snapshot,
+            commands::work_upsert,
+            commands::work_delete,
+            commands::activity_add,
+            commands::idle_seconds,
             perf::perf_stop,
         ])
         .run(tauri::generate_context!())

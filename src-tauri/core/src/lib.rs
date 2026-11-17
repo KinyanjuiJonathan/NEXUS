@@ -126,7 +126,72 @@ impl Store {
             timers: self.list_timers()?,
             focus_sessions: self.list_focus_sessions(focus_since)?,
             settings: self.all_settings()?,
+            work_sessions: self.list_work_sessions(focus_since)?,
+            activity: self.list_activity(now_ms() - 400 * 24 * 3600 * 1000, 5000)?,
         })
+    }
+
+    // ------------------------------------------------------------ work sessions & history
+
+    pub fn list_work_sessions(&self, since: i64) -> Result<Vec<WorkSession>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, started_at, ended_at, pauses, note, created_at, updated_at FROM work_sessions WHERE started_at >= ?1 OR ended_at IS NULL ORDER BY started_at",
+        )?;
+        let rows = stmt.query_map([since], |r| {
+            Ok(WorkSession {
+                id: r.get(0)?,
+                started_at: r.get(1)?,
+                ended_at: r.get(2)?,
+                pauses: serde_json::from_str(&r.get::<_, String>(3)?).unwrap_or(Value::Array(vec![])),
+                note: r.get(4)?,
+                created_at: r.get(5)?,
+                updated_at: r.get(6)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn upsert_work_session(&self, w: &WorkSession) -> Result<()> {
+        if let Some(end) = w.ended_at {
+            if end < w.started_at {
+                return Err(Error::Invalid("a work session cannot end before it starts".into()));
+            }
+        }
+        if !w.pauses.is_array() {
+            return Err(Error::Invalid("pauses must be a list".into()));
+        }
+        self.conn.execute(
+            r#"INSERT INTO work_sessions (id, started_at, ended_at, pauses, note, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7)
+               ON CONFLICT(id) DO UPDATE SET started_at=excluded.started_at, ended_at=excluded.ended_at, pauses=excluded.pauses,
+                 note=excluded.note, updated_at=excluded.updated_at"#,
+            params![w.id, w.started_at, w.ended_at, w.pauses.to_string(), w.note, w.created_at, w.updated_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_work_session(&self, id: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM work_sessions WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    pub fn add_activity(&self, a: &ActivityEntry) -> Result<()> {
+        if a.title.trim().is_empty() || a.kind.trim().is_empty() {
+            return Err(Error::Invalid("activity entries need a kind and a title".into()));
+        }
+        self.conn.execute(
+            "INSERT OR REPLACE INTO activity_log (id, at, kind, title, detail, ref_id) VALUES (?1,?2,?3,?4,?5,?6)",
+            params![a.id, a.at, a.kind, a.title, a.detail, a.ref_id],
+        )?;
+        Ok(())
+    }
+
+    /// Newest-first history since `since`, at most `limit` entries.
+    pub fn list_activity(&self, since: i64, limit: i64) -> Result<Vec<ActivityEntry>> {
+        let mut stmt = self.conn.prepare("SELECT id, at, kind, title, detail, ref_id FROM activity_log WHERE at >= ?1 ORDER BY at DESC LIMIT ?2")?;
+        let rows = stmt.query_map(params![since, limit], |r| {
+            Ok(ActivityEntry { id: r.get(0)?, at: r.get(1)?, kind: r.get(2)?, title: r.get(3)?, detail: r.get(4)?, ref_id: r.get(5)? })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// Permanently remove items that sat in the trash longer than 30 days and
@@ -626,6 +691,8 @@ impl Store {
                 timers: self.list_timers()?,
                 focus_sessions: self.list_focus_sessions(0)?,
                 settings: self.all_settings()?,
+                work_sessions: self.list_work_sessions(0)?,
+                activity: self.list_activity(0, i64::MAX)?,
             },
             reminders,
         })
@@ -637,7 +704,7 @@ impl Store {
             return Err(Error::Invalid("that file is not a NEXUS export".into()));
         }
         let tx = self.conn.transaction()?;
-        for table in ["subtasks", "tasks", "events", "timers", "focus_sessions", "reminders", "settings"] {
+        for table in ["subtasks", "tasks", "events", "timers", "focus_sessions", "reminders", "settings", "work_sessions", "activity_log"] {
             tx.execute(&format!("DELETE FROM {table}"), [])?;
         }
         tx.execute("DELETE FROM categories WHERE builtin = 0", [])?;
@@ -659,6 +726,12 @@ impl Store {
         }
         for (k, v) in &b.data.settings {
             self.set_setting(k, v)?;
+        }
+        for w in &b.data.work_sessions {
+            self.upsert_work_session(w)?;
+        }
+        for a in &b.data.activity {
+            self.add_activity(a)?;
         }
         for r in &b.reminders {
             self.conn.execute(

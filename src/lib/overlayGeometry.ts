@@ -9,9 +9,9 @@ export interface Rect {
 
 /** Default logical size of each overlay mode. */
 export const MODE_SIZES: Record<OverlayMode, { w: number; h: number }> = {
-  mini: { w: 300, h: 64 },
-  standard: { w: 360, h: 236 },
-  expanded: { w: 400, h: 560 },
+  mini: { w: 300, h: 72 },
+  standard: { w: 360, h: 270 },
+  expanded: { w: 400, h: 620 },
 };
 
 export const MIN_SIZE = { w: 220, h: 56 };

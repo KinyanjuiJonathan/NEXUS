@@ -138,6 +138,38 @@ pub const MIGRATIONS: &[&str] = &[
         value  TEXT NOT NULL
     );
     "#,
+    // v3 — clock in/out work sessions and an activity history log.
+    // Existing completed tasks and focus sessions are back-filled into the log.
+    r#"
+    CREATE TABLE work_sessions (
+        id          TEXT PRIMARY KEY,
+        started_at  INTEGER NOT NULL,
+        ended_at    INTEGER,
+        pauses      TEXT NOT NULL DEFAULT '[]',
+        note        TEXT NOT NULL DEFAULT '',
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL
+    );
+    CREATE INDEX idx_work_started ON work_sessions(started_at);
+
+    CREATE TABLE activity_log (
+        id      TEXT PRIMARY KEY,
+        at      INTEGER NOT NULL,
+        kind    TEXT NOT NULL,
+        title   TEXT NOT NULL,
+        detail  TEXT NOT NULL DEFAULT '',
+        ref_id  TEXT
+    );
+    CREATE INDEX idx_activity_at ON activity_log(at);
+
+    INSERT INTO activity_log (id, at, kind, title, detail, ref_id)
+        SELECT 'bf-task-' || id, completed_at, 'task_completed', title, '', id
+        FROM tasks WHERE completed_at IS NOT NULL;
+    INSERT INTO activity_log (id, at, kind, title, detail, ref_id)
+        SELECT 'bf-focus-' || f.id, f.ended_at, 'focus', COALESCE(t.title, 'Focus session'),
+               CAST(f.duration_ms / 60000 AS TEXT) || ' min', f.task_id
+        FROM focus_sessions f LEFT JOIN tasks t ON t.id = f.task_id;
+    "#,
 ];
 
 pub const LATEST: i64 = MIGRATIONS.len() as i64;

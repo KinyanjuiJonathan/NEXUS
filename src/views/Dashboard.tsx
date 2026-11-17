@@ -11,6 +11,7 @@ import { eventStatus, formatClock, humanDuration, progress, remainingMs, elapsed
 import { formatTime, formatWithZone, KENYA_ZONE, zoneAbbr } from "@/lib/time";
 import { DualClock } from "@/components/DualClock";
 import { GettingStarted } from "@/components/GettingStarted";
+import { WorkClockCard } from "@/components/WorkClock";
 import { BarChart, DayTimeline } from "@/components/Charts";
 import { TaskRow } from "@/components/TaskRow";
 import { Button, Card, CardHeader, EmptyState, ProgressBar, ProgressRing, Stat } from "@/components/ui";
@@ -52,6 +53,7 @@ export default function Dashboard() {
           </h1>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" icon={<Wand2 size={15} />} onClick={() => ui.openAutoPlan(true)} title="Fit open tasks into your free working time">Auto-plan</Button>
           <Button variant="outline" icon={<CalendarClock size={15} />} onClick={() => ui.openEvent(null)}>Schedule</Button>
           <Button variant="primary" icon={<Plus size={15} />} onClick={() => ui.openTask(null)}>New task</Button>
         </div>
@@ -60,6 +62,8 @@ export default function Dashboard() {
       <DualClock hour12={settings.hour12} texasZone={settings.texasZone} />
 
       <GettingStarted />
+
+      <WorkClockCard />
 
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <Stat label="Tasks today" value={stats.totalToday} icon={<ListTodo size={18} />} sub={`${stats.pendingToday} pending`} />

@@ -36,6 +36,9 @@ Both windows hold their own copy of the app store. After every successful mutati
 | `lib/voice/execute.ts` | Applies intents to the store; fuzzy target matching; confirmation descriptions |
 | `lib/voice/engine.ts` | Speech capture: WinRT (desktop) → Web Speech → keyboard |
 | `lib/assistant.ts` | Offline assistant heuristics + compact AI context |
+| `lib/work.ts` | Work-clock maths: worked/paused time, splitting across days |
+| `lib/planner.ts` | Auto-placement into free working intervals (deadline-first, chunking, no tiny fragments, late flags) |
+| `lib/insights.ts` | Productivity analysis for the Insights page |
 | `lib/overlayGeometry.ts` | Mode sizes, opacity bounds, multi-monitor `ensureVisible` |
 | `lib/ticker.ts` | Shared second-aligned clock; pauses when hidden, re-syncs on resume |
 
@@ -64,7 +67,7 @@ scheduler thread (own SQLite connection, WAL):
 
 Snooze sets `fire_at = now + m` and clears `fired_at`. Recurring events get two weeks of reminders, refreshed hourly and at startup.
 
-## Database schema (SQLite, schema v2)
+## Database schema (SQLite, schema v3)
 
 All timestamps are UTC epoch milliseconds (`INTEGER`). JSON columns are UTF-8 text.
 
@@ -109,6 +112,12 @@ Indexes: `due_at`; `(status, deleted_at, archived_at)`; `completed_at`.
 
 ### `settings`
 `key` TEXT PK · `value` TEXT (JSON) · `updated_at`. Holds preferences, time zones, overlay mode/opacity/per-mode sizes/visibility/pin/click-through (+ `overlayAllowClickThrough`, `overlayPerf`, `overlayFps`), shortcuts, reminder defaults, the active task, and so on. Window **positions** are persisted by `tauri-plugin-window-state` (validated against connected monitors).
+
+### `work_sessions` (v3)
+`id` PK · `started_at` · `ended_at` (NULL while clocked in) · `pauses` (JSON `[{start, end|null, reason: "idle"|"manual", timerIds?}]`) · `note` · `created_at` · `updated_at`. Worked time = span − pauses, computed from timestamps (`src/lib/work.ts`). Idle pauses start at the time of the last input, which is reported by Rust `GetLastInputInfo` and polled every 15 s by the main window.
+
+### `activity_log` (v3)
+`id` PK · `at` · `kind` (`task_completed`, `focus`, `clock_in`, `auto_paused`, `event_moved`, `auto_planned`, …) · `title` · `detail` · `ref_id`. Append-only history behind the History and Insights pages. The v3 migration back-fills it from existing completed tasks and focus sessions.
 
 ### `app_meta` (v2)
 `key` PK · `value`: internal bookkeeping, e.g. `last_auto_backup`.

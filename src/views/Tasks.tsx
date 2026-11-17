@@ -4,7 +4,7 @@ import { AnimatePresence } from "framer-motion";
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Archive, CalendarDays, CheckCircle2, Inbox, ListTodo, Plus, Search, Sun, Trash2, TriangleAlert, CalendarRange, History } from "lucide-react";
+import { Wand2, Archive, CalendarDays, CheckCircle2, Inbox, ListTodo, Plus, Search, Sun, Trash2, TriangleAlert, CalendarRange, History } from "lucide-react";
 import type { Priority, Task } from "@/data/types";
 import { PRIORITIES } from "@/data/types";
 import { useNexus, nexus } from "@/store";
@@ -145,6 +145,9 @@ export default function Tasks() {
       <div className="flex-1 min-w-0 flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="font-display text-2xl font-semibold mr-auto">{VIEWS.find((v) => v.id === view)!.label}</h1>
+          {view !== "trash" && view !== "archive" && view !== "completed" && (
+            <Button size="sm" variant="outline" icon={<Wand2 size={14} />} onClick={() => useUI.getState().openAutoPlan(true)}>Auto-plan</Button>
+          )}
           {view === "completed" && counts.completed > 0 && (
             <Button size="sm" variant="soft" icon={<Archive size={14} />} onClick={async () => { const n = await s.archiveCompleted(); s.toast({ kind: "success", title: `Archived ${n} completed task${n === 1 ? "" : "s"}` }); }}>
               Archive all completed

@@ -291,9 +291,9 @@ describe("overlay positioning & settings", () => {
   });
 
   it("mode sizes, cycling and opacity bounds", () => {
-    expect(sizeForMode("mini")).toEqual({ w: 300, h: 64 });
+    expect(sizeForMode("mini")).toEqual({ w: 300, h: 72 });
     expect(sizeForMode("standard", { standard: { w: 500, h: 300 } })).toEqual({ w: 500, h: 300 });
-    expect(sizeForMode("standard", { standard: { w: 5, h: 5 } })).toEqual({ w: 360, h: 236 });
+    expect(sizeForMode("standard", { standard: { w: 5, h: 5 } })).toEqual({ w: 360, h: 270 });
     expect([nextMode("mini"), nextMode("standard"), nextMode("expanded")]).toEqual(["standard", "expanded", "mini"]);
     expect(clampOpacity(0.05)).toBe(0.25);
     expect(clampOpacity(2)).toBe(1);
@@ -301,10 +301,10 @@ describe("overlay positioning & settings", () => {
   });
 
   it("grows each mode to fit the performance strip, without shrinking custom sizes", () => {
-    expect(sizeForMode("mini", {}, true)).toEqual({ w: 300, h: 64 + PERF_EXTRA.mini });
-    expect(sizeForMode("standard", { standard: { w: 420, h: 250 } }, true)).toEqual({ w: 420, h: 236 + PERF_EXTRA.standard });
+    expect(sizeForMode("mini", {}, true)).toEqual({ w: 300, h: 72 + PERF_EXTRA.mini });
+    expect(sizeForMode("standard", { standard: { w: 420, h: 250 } }, true)).toEqual({ w: 420, h: 270 + PERF_EXTRA.standard });
     expect(sizeForMode("standard", { standard: { w: 420, h: 400 } }, true)).toEqual({ w: 420, h: 400 });
-    expect(sizeForMode("standard", undefined, false)).toEqual({ w: 360, h: 236 });
+    expect(sizeForMode("standard", undefined, false)).toEqual({ w: 360, h: 270 });
   });
 
   it("formats memory sizes for the stats strip", () => {
@@ -343,5 +343,104 @@ describe("overlay positioning & settings", () => {
     const s2 = makeStore(shared);
     await s2.getState().init();
     expect(s2.getState().settings.texasZone).toBe("America/Denver");
+  });
+});
+
+describe("work clock with idle auto-pause", () => {
+  it("clocks in, auto-pauses at the last input, resumes, and never counts idle time", async () => {
+    const store = makeStore();
+    await store.getState().init();
+    const { workedMs, activeSession } = await import("@/lib/work");
+    await store.getState().clockIn();
+    const timer = await store.getState().startTimer({ kind: "countdown", minutes: 60 });
+
+    // 20 minutes of work, then 7 minutes without input (threshold 5 min)
+    clock += 27 * 60_000;
+    await store.getState().handleIdle(7 * 60);
+    let w = activeSession(store.getState().workSessions)!;
+    expect(w.pauses).toHaveLength(1);
+    expect(w.pauses[0]).toMatchObject({ reason: "idle", end: null, start: clock - 7 * 60_000 });
+    const t = store.getState().timers.find((x) => x.id === timer.id)!;
+    expect(t.state).toBe("paused");
+    expect(t.accumulatedMs).toBe(20 * 60_000); // timer stopped at the last input, not at detection
+
+    // still idle later: no duplicate pause
+    clock += 10 * 60_000;
+    await store.getState().handleIdle(17 * 60);
+    expect(activeSession(store.getState().workSessions)!.pauses).toHaveLength(1);
+
+    // user is back (input 3 s ago)
+    clock += 60_000;
+    await store.getState().handleIdle(3);
+    w = activeSession(store.getState().workSessions)!;
+    expect(w.pauses[0].end).toBe(clock - 3000);
+    expect(store.getState().timers.find((x) => x.id === timer.id)!.state).toBe("running");
+
+    clock += 10 * 60_000;
+    await store.getState().clockOut();
+    const done = store.getState().workSessions[0];
+    // 20 min before idle + ~10 min after return (+3 s)
+    expect(Math.round(workedMs(done, clock) / 60_000)).toBe(30);
+    const kinds = store.getState().activity.map((a) => a.kind);
+    expect(kinds).toEqual(expect.arrayContaining(["clock_in", "auto_paused", "resumed", "clock_out"]));
+  });
+
+  it("manual pauses are not auto-resumed", async () => {
+    const store = makeStore();
+    await store.getState().init();
+    const { openPause, activeSession } = await import("@/lib/work");
+    await store.getState().clockIn();
+    clock += 5 * 60_000;
+    await store.getState().pauseWork();
+    await store.getState().handleIdle(1);
+    expect(openPause(activeSession(store.getState().workSessions))?.reason).toBe("manual");
+    await store.getState().resumeWork();
+    expect(openPause(activeSession(store.getState().workSessions))).toBeNull();
+  });
+
+  it("work sessions and history survive a restart", async () => {
+    const store = makeStore();
+    await store.getState().init();
+    await store.getState().clockIn();
+    const t = await store.getState().addTask({ title: "Ship it" }, { autoPlace: false });
+    await store.getState().setTaskDone(t.id, true);
+    const reopened = makeStore(kv);
+    await reopened.getState().init();
+    expect(reopened.getState().workSessions).toHaveLength(1);
+    expect(reopened.getState().activity.map((a) => a.kind)).toEqual(expect.arrayContaining(["clock_in", "task_created", "task_completed"]));
+  });
+});
+
+describe("auto-placement in the store", () => {
+  it("reserves a time block for a new task with an estimate, with undo", async () => {
+    const store = makeStore();
+    await store.getState().init();
+    await store.getState().setSetting("homeZone", NBO);
+    // Tuesday 10:00 Nairobi; working hours 9–17
+    const t = await store.getState().addTask({ title: "Write proposal", estimateMin: 90, dueAt: at("2026-11-18T17:00") });
+    const blocks = store.getState().events.filter((e) => e.taskId === t.id);
+    expect(blocks).toHaveLength(1);
+    expect(DateTime.fromMillis(blocks[0].startAt, { zone: NBO }).toFormat("HH:mm")).toBe("10:00");
+    expect(blocks[0].endAt - blocks[0].startAt).toBe(90 * 60_000);
+    const toast = store.getState().toasts.find((x) => x.title === "Time reserved automatically")!;
+    toast.action!.run();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(store.getState().events.filter((e) => e.taskId === t.id && !e.deletedAt)).toHaveLength(0);
+  });
+
+  it("can be turned off, and Auto-plan fits several tasks without overlaps", async () => {
+    const store = makeStore();
+    await store.getState().init();
+    await store.getState().setSetting("homeZone", NBO);
+    await store.getState().setSetting("autoPlaceNewTasks", false);
+    await store.getState().addTask({ title: "A", estimateMin: 60 });
+    await store.getState().addTask({ title: "B", estimateMin: 60, priority: "critical" });
+    expect(store.getState().events).toHaveLength(0);
+    const plan = store.getState().autoPlan();
+    expect(plan.blocks).toHaveLength(2);
+    await store.getState().applyPlan(plan.blocks);
+    const { conflictPairs } = await import("@/lib/schedule");
+    expect(conflictPairs(store.getState().events, clock, clock + 7 * 86_400_000)).toHaveLength(0);
+    expect(store.getState().activity[0].kind).toBe("auto_planned");
   });
 });

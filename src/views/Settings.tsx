@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Bell, Brain, Database, Download, Globe, Keyboard, Mic, Monitor, Moon, PanelTop, Power, RefreshCw, Shield, Sun, Target, Upload } from "lucide-react";
+import { Clock, Wand2, Bell, Brain, Database, Download, Globe, Keyboard, Mic, Monitor, Moon, PanelTop, Power, RefreshCw, Shield, Sun, Target, Upload } from "lucide-react";
 import { DEFAULT_SHORTCUTS, type Settings, type Shortcuts } from "@/data/types";
 import { useNexus, nexus } from "@/store";
 import { DEFAULT_SETTINGS } from "@/store/store";
@@ -191,6 +191,24 @@ export default function SettingsView() {
         <p className="text-[11px] text-muted">Reminders are delivered by NEXUS's background scheduler while it runs in the system tray — even with every window closed. Turn on “Launch at startup” so reminders keep working after a reboot. Reminders missed while the PC was off are summarised once on the next start.</p>
       </Section>
 
+      <Section id="workclock" title="Work clock & inactivity" icon={<Clock size={16} />}>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Field label="Auto-pause after (minutes without keyboard/mouse)" hint="Paused time starts at your last input, so idle minutes are never counted.">
+            <Input type="number" min={1} max={120} value={settings.idleMinutes} onChange={(e) => set("idleMinutes", Math.max(1, Math.min(120, Number(e.target.value) || 5)))} />
+          </Field>
+        </div>
+        <Toggle checked={settings.idleAutoResume} onChange={(v) => set("idleAutoResume", v)} label="Resume automatically when I'm back" description="Off: stay paused until you press Resume. Manual breaks are never resumed automatically." />
+        <Toggle checked={settings.idlePauseTimers} onChange={(v) => set("idlePauseTimers", v)} label="Also pause running focus timers when idle" />
+      </Section>
+
+      <Section id="planning" title="Auto-placement" icon={<Wand2 size={16} />}>
+        <Toggle checked={settings.autoPlaceNewTasks} onChange={(v) => set("autoPlaceNewTasks", v)} label="Automatically reserve time for new tasks with an estimate" description="Finds the best free slot(s) in your working hours before the deadline. Every placement can be undone, and existing appointments are never moved." />
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Field label="Buffer around blocks (minutes)"><Input type="number" min={0} max={60} value={settings.planBufferMin} onChange={(e) => set("planBufferMin", Math.max(0, Math.min(60, Number(e.target.value) || 0)))} /></Field>
+          <Field label="Longest single block (minutes)" hint="Longer tasks are split across several blocks."><Input type="number" min={30} max={480} value={settings.planChunkMaxMin} onChange={(e) => set("planChunkMaxMin", Math.max(30, Math.min(480, Number(e.target.value) || 120)))} /></Field>
+        </div>
+      </Section>
+
       <Section id="focus" title="Focus (Pomodoro)" icon={<Target size={16} />}>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <Field label="Focus (min)"><Input type="number" min={1} value={settings.pomodoroFocusMin} onChange={(e) => set("pomodoroFocusMin", Math.max(1, Number(e.target.value)))} /></Field>
@@ -217,6 +235,11 @@ export default function SettingsView() {
           label="Show FPS of the foreground game/app"
           description="Counts DirectX frames like Game Bar. Windows only allows this for administrators or members of the “Performance Log Users” group — a lock icon means permission is missing (see README → FPS)."
         />
+        <Toggle checked={settings.overlayTemp} disabled={!settings.overlayPerf} onChange={(v) => set("overlayTemp", v)} label="Show temperature gauge (GPU & CPU)" description="GPU temperature works on most modern graphics drivers. CPU temperature is only available when the PC's firmware exposes it to Windows (often requires running as administrator)." />
+        <div className="flex items-center gap-3">
+          <span className="text-sm">Temperature unit</span>
+          <Segmented size="sm" value={settings.tempUnit} onChange={(v) => set("tempUnit", v)} options={[{ value: "C", label: "°C" }, { value: "F", label: "°F" }]} />
+        </div>
         <div className="h-px bg-line my-1" />
         <Toggle
           checked={settings.overlayAllowClickThrough}
@@ -317,7 +340,7 @@ export default function SettingsView() {
         <div className="grid sm:grid-cols-2 gap-x-8 gap-y-1.5 text-sm">
           {[
             ["Ctrl K", "Command center"], ["N / Ctrl N", "New task"], ["E", "New appointment"], ["V", "Voice command"], ["/", "Search tasks"],
-            ["1 – 6", "Switch views"], [",", "Settings"], ["Esc", "Close dialog"], ["← / →, T", "Calendar: previous/next, today"], ["D / W / M", "Calendar: day/week/month"],
+            ["1 – 8", "Switch views"], [",", "Settings"], ["Esc", "Close dialog"], ["← / →, T", "Calendar: previous/next, today"], ["D / W / M", "Calendar: day/week/month"],
             [settings.shortcuts.toggleOverlay.replace("CommandOrControl", "Ctrl"), "Show/hide overlay (global)"], [settings.shortcuts.toggleClickThrough.replace("CommandOrControl", "Ctrl"), "Overlay click-through (global)"],
             [settings.shortcuts.quickAdd.replace("CommandOrControl", "Ctrl"), "Quick add (global)"], [settings.shortcuts.voice.replace("CommandOrControl", "Ctrl"), "Voice (global)"],
           ].map(([k, d]) => (

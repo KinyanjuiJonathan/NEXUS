@@ -9,9 +9,10 @@ import { TaskEditor } from "@/components/TaskEditor";
 import { EventEditor } from "@/components/EventEditor";
 import { CommandPalette } from "@/components/CommandBar";
 import { SmartReschedule } from "@/components/SmartReschedule";
+import { AutoPlanDialog } from "@/components/AutoPlanDialog";
 import { useTheme } from "@/lib/useTheme";
 import { onTick } from "@/lib/ticker";
-import { listenTo, playChime, signalReady } from "@/lib/platform";
+import { idleSeconds, listenTo, playChime, signalReady } from "@/lib/platform";
 import type { ReminderItem } from "@/data/types";
 import Dashboard from "@/views/Dashboard";
 
@@ -21,6 +22,8 @@ const Focus = lazy(() => import("@/views/Focus"));
 const Clocks = lazy(() => import("@/views/Clocks"));
 const Assistant = lazy(() => import("@/views/Assistant"));
 const SettingsView = lazy(() => import("@/views/Settings"));
+const Insights = lazy(() => import("@/views/Insights"));
+const History = lazy(() => import("@/views/History"));
 
 const VIEWS: Record<View, React.ComponentType> = {
   dashboard: Dashboard,
@@ -29,6 +32,8 @@ const VIEWS: Record<View, React.ComponentType> = {
   focus: Focus,
   clocks: Clocks,
   assistant: Assistant,
+  insights: Insights,
+  history: History,
   settings: SettingsView,
 };
 
@@ -39,7 +44,7 @@ function isTyping(e: KeyboardEvent) {
 
 function anyModalOpen() {
   const u = useUI.getState();
-  return u.taskEditor.open || u.eventEditor.open || u.command.open || !!u.reschedule || !!document.querySelector("[role=dialog]");
+  return u.taskEditor.open || u.eventEditor.open || u.command.open || !!u.reschedule || u.autoPlan || !!document.querySelector("[role=dialog]");
 }
 
 export default function App() {
@@ -86,6 +91,24 @@ export default function App() {
       }
     });
     return off;
+  }, []);
+
+  // Idle detection for the work clock / focus timers (main window only, so it runs once).
+  useEffect(() => {
+    let alive = true;
+    const check = async () => {
+      if (!alive) return;
+      try {
+        await nexus().handleIdle(await idleSeconds());
+      } catch {
+        /* ignore */
+      }
+    };
+    const iv = setInterval(() => void check(), 15_000);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
   }, []);
 
   // In-app keyboard shortcuts.
@@ -152,6 +175,7 @@ export default function App() {
         <EventEditor />
         <CommandPalette />
         <SmartReschedule />
+        <AutoPlanDialog />
         <ConfirmHost />
         <Toasts />
       </div>

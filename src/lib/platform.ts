@@ -97,6 +97,29 @@ export interface PerfSnapshot {
   fps: number | null;
   fpsApp: string | null;
   fpsStatus: "ok" | "idle" | "off" | "no_permission" | "unsupported";
+  gpuTemp: number | null;
+  cpuTemp: number | null;
+}
+
+// ---------------------------------------------------------------- idle detection
+
+let lastLocalInput = Date.now();
+if (typeof window !== "undefined") {
+  for (const ev of ["mousemove", "mousedown", "keydown", "wheel", "touchstart"]) {
+    window.addEventListener(ev, () => (lastLocalInput = Date.now()), { passive: true, capture: true });
+  }
+}
+
+/**
+ * Seconds since the last keyboard/mouse input anywhere in Windows. In a plain
+ * browser only input inside this page can be seen, so it's an approximation.
+ */
+export async function idleSeconds(): Promise<number> {
+  if (native) {
+    const v = await invokeSafe<number | null>("idle_seconds").catch(() => null);
+    if (v != null) return v;
+  }
+  return Math.floor((Date.now() - lastLocalInput) / 1000);
 }
 
 /** Live system stats (desktop app only; null in a plain browser). */

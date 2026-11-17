@@ -49,13 +49,21 @@ More screens: [Calendar](docs/screenshots/calendar.png) · [Tasks](docs/screensh
 
 **Reminders**: at time, 5/15/30/60 minutes before, or custom offsets · Windows toast notifications plus an optional chime · snooze for 5/10/30 minutes · delivered while minimized to the tray.
 
+**Work clock & inactivity**: Clock in and out from the Dashboard or the overlay, and take manual breaks. When there's no keyboard or mouse input anywhere in Windows for **5 minutes** (configurable), the clock **auto-pauses**. The pause is backdated to your last input, so idle minutes are never counted, and running focus timers pause too. When you're back, it resumes automatically (optional), and the "Welcome back" message tells you how much idle time was excluded.
+
+**Auto-placement**: *Auto-plan* (Dashboard, Tasks, Calendar) fits your open tasks into **free working time** (your working hours and days, around existing appointments, with a buffer). It places the earliest deadline first, then by priority; it subtracts time already tracked, splits long tasks into blocks, never leaves tiny leftover blocks, and flags anything that would finish after its deadline. You get a preview and choose what to apply. New tasks that have an estimate are placed automatically, with an **Undo** button; this can be turned off in Settings. Existing appointments are never moved.
+
+**Insights** (main app): clocked hours, focus minutes and completions per day · on-time rate · estimate accuracy (actual vs. estimated time) · your most productive hours and weekdays · focus by category · idle time excluded · completion streak · written findings such as "Tasks take ~47% longer than you estimate". Ranges are 7, 30 or 90 days, with optional coaching from Claude.
+
+**History** (main app): a searchable, filterable timeline of everything done, including completed tasks (on time or late, time tracked), focus sessions, clock-ins and outs, auto-pauses and resumes, schedule changes and auto-planning. You can reopen completed tasks from it. Existing completed tasks and focus sessions were imported when upgrading.
+
 **Dashboard**: tasks today, completed, pending and overdue · next appointment with countdown · active timer · focus time today · progress ring · 7-day completion and focus-minute charts · a timeline of today's appointments and deadlines · up-next list · missed items.
 
 **Voice and natural language**: a microphone button and global shortcut capture **one command at a time** (never continuous recording), with keyboard input always available. Commands become structured actions. Destructive or ambiguous actions, and anything created by voice, show the recognized text and a preview first.
 
 **AI assistant (optional)**: a summary of your day, what to do next, free slots, conflicts, project breakdown into subtasks, realistic time estimates, and reorganizing overdue work. All of this **works offline** with local heuristics; Claude can enhance it if you add an API key.
 
-**Floating overlay**: always-on-top, draggable, resizable, adjustable opacity, pin/unpin, Mini/Standard/Expanded modes, **live CPU / GPU / VRAM / RAM / FPS** (like Xbox Game Bar), optional click-through with a global shortcut to disable it (or switch the feature off entirely), and it remembers its position and size per mode across monitors. See [below](#the-floating-overlay).
+**Floating overlay**: always-on-top, draggable, resizable, adjustable opacity, pin/unpin, Mini/Standard/Expanded modes, **live CPU / GPU / VRAM / RAM / FPS and a temperature gauge** (like Xbox Game Bar), a **✓ button to complete the active task in every mode** (and checkboxes on every task in Expanded, plus a "Done today" list), work-clock controls, optional click-through with a global shortcut to disable it (or switch the feature off entirely), and it remembers its position and size per mode across monitors. See [below](#the-floating-overlay).
 
 ## Install (Windows)
 
@@ -98,7 +106,7 @@ A "Getting started" checklist on the dashboard tracks these steps for you.
 | `E` | New appointment |
 | `V` | Voice command |
 | `/` | Search tasks |
-| `1`–`6` | Dashboard, Tasks, Calendar, Focus, Clocks, Assistant |
+| `1`–`8` | Dashboard, Tasks, Calendar, Focus, Clocks, Assistant, Insights, History |
 | `,` | Settings |
 | `Esc` | Close dialog |
 | Calendar: `←` / `→`, `T`, `D` / `W` / `M` | Previous/next, today, day/week/month |
@@ -139,6 +147,9 @@ Toggle it with `Ctrl+Shift+Space`, the title-bar button, or the tray menu.
     ```
 
     Alternatively, turn FPS off in Settings and keep the other stats.
+- **Temperature gauge**: GPU temperature comes from the graphics driver's adapter performance data (the value Task Manager shows), which works on most modern NVIDIA, AMD and Intel GPUs. **CPU temperature** is read from the sensors Windows exposes (ACPI thermal zones). Many PCs only expose these to administrators, or not at all, so CPU may show "—"; hover the tile for details. The gauge turns amber at 70 °C and red at 85 °C. You can choose °C or °F in Settings.
+- **Complete tasks from the overlay**: the green ✓ next to the active task completes it, with Undo. In Expanded mode every task has a checkbox and "Done today" lists what you finished.
+- **Work clock**: the Standard and Expanded modes show clock in/out, break/resume and the session timer, and Mini shows the session time.
 - **Click-through** lets mouse clicks pass to the app underneath. Press **`Ctrl+Shift+X`** (configurable) to turn it off again; the tray menu and *Settings → Floating overlay → Click-through is on* also switch it. To **disable click-through completely** (so it can never get turned on by accident), switch off *Settings → Floating overlay → Allow click-through*; the overlay button, global shortcut and tray option then do nothing.
 - **Multi-monitor**: if the monitor it was on is disconnected, or the resolution changes, the overlay is moved back onto a visible screen (top-right of the primary monitor).
 - **Performance**: it renders once per second and stops completely while hidden. Animations are minimal, with no video or polling, to avoid affecting games, calls or remote desktop.
@@ -254,6 +265,8 @@ src-tauri/
 | **Can't click through to my app / can't click the overlay** | Press `Ctrl+Shift+X` (or use the tray menu → *Overlay click-through*). |
 | **FPS shows a 🔒** | Windows blocks the frame-rate events for normal users. Add yourself to *Performance Log Users* (see [The floating overlay](#the-floating-overlay)) and sign out/in, or turn FPS off. |
 | **FPS shows "—" in a game** | Nothing is drawing frames, or the game uses Vulkan/OpenGL without DirectX presentation. CPU/GPU/RAM still work. |
+| **CPU temperature shows "—"** | Your PC's firmware doesn't expose CPU temperature to Windows for normal users. Running NEXUS as administrator may help on some PCs; GPU temperature still works. |
+| **Work clock paused while I was reading** | No keyboard/mouse input for the idle limit counts as inactivity. Raise *Settings → Work clock → Auto-pause after*, or press Resume. |
 | **GPU / VRAM show "—"** | Your graphics driver doesn't expose GPU performance counters (very old drivers, some virtual machines or remote sessions). Update the GPU driver. |
 | **Overlay is off-screen** | Press `Ctrl+Shift+Space` twice. It's moved back onto a connected monitor when shown. |
 | **A global shortcut does nothing** | Another app owns that combination. Settings flags it; pick a different one. |

@@ -2,6 +2,9 @@ import { createStore } from "zustand/vanilla";
 import type { Backend } from "@/data/backend";
 import {
   DEFAULT_SHORTCUTS,
+  type ActivityEntry,
+  type ActivityKind,
+  type WorkSession,
   type CalendarEvent,
   type Category,
   type FocusSession,
@@ -18,6 +21,10 @@ import { KENYA_ZONE, TEXAS_CENTRAL, localZone, normalizeZone } from "@/lib/time"
 import { nextOccurrence } from "@/lib/recurrence";
 import * as cd from "@/lib/countdown";
 import { reminderForTimer, remindersForEvent, remindersForTask } from "@/lib/reminders";
+import { activeSession, openPause } from "@/lib/work";
+import { planTasks, type PlanBlock, type PlanOptions, type PlanResult } from "@/lib/planner";
+import { humanDuration } from "@/lib/countdown";
+import { formatWithZone } from "@/lib/time";
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: "dark",
@@ -46,6 +53,14 @@ export const DEFAULT_SETTINGS: Settings = {
   overlayPerf: true,
   overlayFps: true,
   overlayAllowClickThrough: true,
+  overlayTemp: true,
+  tempUnit: "C",
+  idleMinutes: 5,
+  idleAutoResume: true,
+  idlePauseTimers: true,
+  autoPlaceNewTasks: true,
+  planBufferMin: 10,
+  planChunkMaxMin: 120,
   closeToTray: true,
   startMinimized: true,
   shortcuts: DEFAULT_SHORTCUTS,
@@ -86,12 +101,14 @@ export interface NexusState {
   focusSessions: FocusSession[];
   settings: Settings;
   toasts: Toast[];
+  workSessions: WorkSession[];
+  activity: ActivityEntry[];
 
   init(): Promise<void>;
   reload(): Promise<void>;
 
   // tasks
-  addTask(input: NewTask): Promise<Task>;
+  addTask(input: NewTask, opts?: { autoPlace?: boolean }): Promise<Task>;
   updateTask(id: string, patch: Partial<Task>): Promise<Task | null>;
   setTaskDone(id: string, done: boolean): Promise<void>;
   deleteTask(id: string): Promise<void>;
@@ -117,7 +134,7 @@ export interface NexusState {
 
   // timers
   startTimer(opts: { kind: TimerKind; minutes?: number; taskId?: string | null; label?: string }): Promise<Timer>;
-  pauseTimer(id: string): Promise<void>;
+  pauseTimer(id: string, at?: number): Promise<void>;
   resumeTimer(id: string): Promise<void>;
   resetTimer(id: string): Promise<void>;
   stopTimer(id: string): Promise<void>;
@@ -130,6 +147,19 @@ export interface NexusState {
 
   // settings
   setSetting<K extends keyof Settings>(key: K, value: Settings[K]): Promise<void>;
+
+  // work clock & history
+  clockIn(): Promise<void>;
+  clockOut(): Promise<void>;
+  pauseWork(): Promise<void>;
+  resumeWork(): Promise<void>;
+  /** Feed the system idle time; auto-pauses/resumes per settings. */
+  handleIdle(idleSeconds: number): Promise<void>;
+  log(kind: ActivityKind, title: string, detail?: string, refId?: string | null): void;
+
+  // planning
+  autoPlan(opts?: PlanOptions): PlanResult;
+  applyPlan(blocks: PlanBlock[]): Promise<CalendarEvent[]>;
 
   // reminders
   resyncAllReminders(): Promise<void>;
@@ -226,6 +256,8 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
       const s: FocusSession = { id: id(), taskId: t.taskId, kind: t.kind, startedAt: end - elapsed, endedAt: end, durationMs: elapsed };
       set({ focusSessions: [...get().focusSessions, s] });
       await backend.addFocus(s);
+      const task = t.taskId ? get().tasks.find((x) => x.id === t.taskId) : undefined;
+      get().log("focus", task?.title ?? t.label ?? "Focus session", humanDuration(elapsed), t.taskId);
       if (t.taskId) {
         const task = get().tasks.find((x) => x.id === t.taskId);
         if (task) await saveTask({ ...task, spentMs: task.spentMs + elapsed, updatedAt: end });
@@ -241,7 +273,19 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         timers: snap.timers,
         focusSessions: snap.focusSessions,
         settings,
+        workSessions: snap.workSessions ?? [],
+        activity: snap.activity ?? [],
       });
+    };
+
+    const saveWork = async (w: WorkSession) => {
+      set({ workSessions: get().workSessions.some((x) => x.id === w.id) ? get().workSessions.map((x) => (x.id === w.id ? w : x)) : [...get().workSessions, w] });
+      await backend.upsertWork(w);
+    };
+
+    const wh = () => {
+      const s = get().settings;
+      return { zone: s.homeZone, startHour: s.workStartHour, endHour: s.workEndHour, days: s.workDays };
     };
 
     return {
@@ -254,6 +298,8 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
       focusSessions: [],
       settings: DEFAULT_SETTINGS,
       toasts: [],
+      workSessions: [],
+      activity: [],
 
       async init() {
         try {
@@ -273,7 +319,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
       },
 
       // ------------------------------------------------------------ tasks
-      async addTask(input) {
+      async addTask(input, opts) {
         const ts = now();
         const s = get().settings;
         const minOrder = get().tasks.reduce((m, t) => Math.min(m, t.sortOrder), 0);
@@ -307,6 +353,23 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           fail(e, "add the task");
         }
         await syncTask(t);
+        get().log("task_created", t.title, t.dueAt ? `Due ${formatWithZone(t.dueAt, t.dueTz ?? s.homeZone, s.hour12)}` : "", t.id);
+        // Auto-placement: reserve time in the best free working slot(s).
+        if ((opts?.autoPlace ?? true) && s.autoPlaceNewTasks && t.estimateMin && t.status !== "done") {
+          const plan = get().autoPlan({ onlyTaskIds: [t.id] });
+          if (plan.blocks.length) {
+            const created = await get().applyPlan(plan.blocks);
+            get().toast({
+              kind: plan.lateTaskIds.length ? "warning" : "info",
+              title: plan.lateTaskIds.length ? "Placed, but it ends after the deadline" : "Time reserved automatically",
+              body: `${t.title}: ${plan.blocks.map((b) => formatWithZone(b.start, s.homeZone, s.hour12)).join(", ")}`,
+              action: { label: "Undo", run: () => created.forEach((e) => void get().deleteEvent(e.id)) },
+              ttl: 8000,
+            });
+          } else if (plan.unplaced.length) {
+            get().toast({ kind: "warning", title: "No free time found", body: `Couldn't fit “${t.title}” into your working hours in the next 2 weeks.` });
+          }
+        }
         return t;
       },
 
@@ -315,6 +378,9 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         if (!cur) return null;
         const next: Task = { ...cur, ...patch, id: cur.id, updatedAt: now() };
         await saveTask(next);
+        if (patch.dueAt !== undefined && patch.dueAt !== cur.dueAt && next.dueAt != null) {
+          get().log("task_rescheduled", next.title, `→ ${formatWithZone(next.dueAt, next.dueTz ?? get().settings.homeZone, get().settings.hour12)}`, next.id);
+        }
         return next;
       },
 
@@ -324,9 +390,16 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         const ts = now();
         if (!done) {
           await saveTask({ ...cur, status: "todo", completedAt: null, updatedAt: ts });
+          get().log("task_reopened", cur.title, "", cur.id);
           return;
         }
         await saveTask({ ...cur, status: "done", completedAt: ts, updatedAt: ts });
+        get().log(
+          "task_completed",
+          cur.title,
+          [cur.dueAt != null ? (ts <= cur.dueAt ? "on time" : `${humanDuration(ts - cur.dueAt)} late`) : "", cur.spentMs ? `${humanDuration(cur.spentMs)} tracked` : ""].filter(Boolean).join(" · "),
+          cur.id,
+        );
         if (get().settings.activeTaskId === taskId) await get().setActiveTask(null);
         // Recurring task → spawn the next instance.
         if (cur.recurrence && cur.dueAt != null) {
@@ -345,7 +418,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
                 recurrence: { ...cur.recurrence, count: remainingCount },
                 reminders: cur.reminders,
                 sortOrder: cur.sortOrder,
-              });
+              }, { autoPlace: false });
             }
           }
         }
@@ -355,6 +428,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         const cur = get().tasks.find((t) => t.id === taskId);
         if (!cur) return;
         await saveTask({ ...cur, deletedAt: now(), updatedAt: now() });
+        get().log("task_deleted", cur.title, "", cur.id);
         if (get().settings.activeTaskId === taskId) await get().setActiveTask(null);
         get().toast({
           kind: "info",
@@ -367,7 +441,10 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
 
       async restoreTask(taskId) {
         const cur = get().tasks.find((t) => t.id === taskId);
-        if (cur) await saveTask({ ...cur, deletedAt: null, updatedAt: now() });
+        if (cur) {
+          await saveTask({ ...cur, deletedAt: null, updatedAt: now() });
+          get().log("task_restored", cur.title, "", cur.id);
+        }
       },
 
       async purgeTask(taskId) {
@@ -444,6 +521,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         };
         if (!e.title) throw new Error("An appointment needs a title");
         await saveEvent(e);
+        get().log("event_created", e.title, formatWithZone(e.startAt, e.tz, get().settings.hour12), e.id);
         return e;
       },
 
@@ -452,6 +530,9 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         if (!cur) return null;
         const next = { ...cur, ...patch, id: cur.id, updatedAt: now() };
         await saveEvent(next);
+        if (patch.startAt !== undefined && patch.startAt !== cur.startAt) {
+          get().log("event_moved", next.title, `→ ${formatWithZone(next.startAt, next.tz, get().settings.hour12)}`, next.id);
+        }
         return next;
       },
 
@@ -459,6 +540,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         const cur = get().events.find((e) => e.id === evId);
         if (!cur) return;
         await saveEvent({ ...cur, deletedAt: now() });
+        get().log("event_deleted", cur.title, "", cur.id);
         get().toast({
           kind: "info",
           title: "Appointment deleted",
@@ -480,6 +562,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           const shift = newStart - occ.start;
           const dur = newEnd - newStart;
           await saveEvent({ ...ev, startAt: ev.startAt + shift, endAt: ev.startAt + shift + dur, updatedAt: now() });
+          if (shift) get().log("event_moved", ev.title, `→ ${formatWithZone(newStart, ev.tz, get().settings.hour12)}`, ev.id);
           return;
         }
         // Detach this occurrence: exclude it from the series and create a standalone copy.
@@ -517,10 +600,10 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         return t;
       },
 
-      async pauseTimer(tid) {
+      async pauseTimer(tid, at) {
         const t = get().timers.find((x) => x.id === tid);
         if (!t) return;
-        const ts = now();
+        const ts = Math.max(t.startedAt ?? 0, at ?? now());
         const elapsedThisSegment = t.startedAt != null ? ts - t.startedAt : 0;
         await saveTimer(cd.pause(t, ts));
         await logFocus(t, elapsedThisSegment);
@@ -626,6 +709,117 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
 
       async dismissReminder(r) {
         await backend.dismissReminder(r.id);
+      },
+
+      // ------------------------------------------------------------ work clock
+      async clockIn() {
+        if (activeSession(get().workSessions)) return;
+        const ts = now();
+        const w: WorkSession = { id: id(), startedAt: ts, endedAt: null, pauses: [], note: "", createdAt: ts, updatedAt: ts };
+        await saveWork(w);
+        get().log("clock_in", "Clocked in", "", w.id);
+      },
+
+      async clockOut() {
+        const w = activeSession(get().workSessions);
+        if (!w) return;
+        const ts = now();
+        const pauses = w.pauses.map((p) => (p.end == null ? { ...p, end: ts } : p));
+        const done = { ...w, pauses, endedAt: ts, updatedAt: ts };
+        await saveWork(done);
+        const { workedMs } = await import("@/lib/work");
+        get().log("clock_out", "Clocked out", `${humanDuration(workedMs(done, ts))} worked`, w.id);
+      },
+
+      async pauseWork() {
+        const w = activeSession(get().workSessions);
+        if (!w || openPause(w)) return;
+        const ts = now();
+        await saveWork({ ...w, pauses: [...w.pauses, { start: ts, end: null, reason: "manual" }], updatedAt: ts });
+        get().log("paused", "Work paused", "", w.id);
+      },
+
+      async resumeWork() {
+        const w = activeSession(get().workSessions);
+        const p = openPause(w);
+        if (!w || !p) return;
+        const ts = now();
+        await saveWork({ ...w, pauses: w.pauses.map((x) => (x === p ? { ...x, end: ts } : x)), updatedAt: ts });
+        for (const tid of p.timerIds ?? []) {
+          const t = get().timers.find((x) => x.id === tid);
+          if (t && t.state === "paused") await get().resumeTimer(tid);
+        }
+        get().log("resumed", "Work resumed", `after ${humanDuration(ts - p.start)}`, w.id);
+      },
+
+      async handleIdle(idleSeconds) {
+        const s = get().settings;
+        const ts = now();
+        const threshold = Math.max(1, s.idleMinutes) * 60;
+        const w = activeSession(get().workSessions);
+        const p = openPause(w);
+        const lastInput = ts - idleSeconds * 1000;
+        if (idleSeconds >= threshold) {
+          const running = s.idlePauseTimers ? get().timers.filter((t) => t.state === "running") : [];
+          if ((!w || p) && !running.length) return;
+          // The pause starts at the last input, so idle minutes are never counted as work.
+          for (const t of running) await get().pauseTimer(t.id, lastInput);
+          if (w && !p) {
+            const start = Math.max(w.startedAt, lastInput);
+            await saveWork({ ...w, pauses: [...w.pauses, { start, end: null, reason: "idle", timerIds: running.map((t) => t.id) }], updatedAt: ts });
+            get().log("auto_paused", "Auto-paused (no activity)", `${s.idleMinutes} min without keyboard or mouse input`, w.id);
+          } else if (p && p.reason === "idle") {
+            await saveWork({ ...w!, pauses: w!.pauses.map((x) => (x === p ? { ...x, timerIds: [...(x.timerIds ?? []), ...running.map((t) => t.id)] } : x)) });
+          }
+          get().toast({ kind: "info", title: "Paused — no activity", body: `Nothing was counted after ${formatWithZone(lastInput, s.homeZone, s.hour12)}.`, ttl: 0 });
+          return;
+        }
+        // Activity is back: resume an idle pause (not a manual one).
+        if (w && p && p.reason === "idle" && idleSeconds < 30 && s.idleAutoResume) {
+          const resumeAt = Math.max(p.start, lastInput);
+          await saveWork({ ...w, pauses: w.pauses.map((x) => (x === p ? { ...x, end: resumeAt } : x)), updatedAt: ts });
+          for (const tid of p.timerIds ?? []) {
+            const t = get().timers.find((x) => x.id === tid);
+            if (t && t.state === "paused") await get().resumeTimer(tid);
+          }
+          get().log("resumed", "Resumed after inactivity", `${humanDuration(resumeAt - p.start)} idle not counted`, w.id);
+          set({ toasts: get().toasts.filter((x) => x.title !== "Paused — no activity") });
+          get().toast({ kind: "success", title: "Welcome back", body: `${humanDuration(resumeAt - p.start)} of inactivity wasn't counted.`, ttl: 6000 });
+        }
+      },
+
+      log(kind, title, detail = "", refId = null) {
+        const entry: ActivityEntry = { id: id(), at: now(), kind, title, detail, refId };
+        set({ activity: [entry, ...get().activity].slice(0, 5000) });
+        void backend.addActivity(entry).catch(() => {});
+      },
+
+      // ------------------------------------------------------------ planning
+      autoPlan(opts) {
+        const s = get().settings;
+        return planTasks(get().tasks, get().events, wh(), now(), { bufferMin: s.planBufferMin, chunkMaxMin: s.planChunkMaxMin, ...opts });
+      },
+
+      async applyPlan(blocks) {
+        const created: CalendarEvent[] = [];
+        for (const b of blocks) {
+          created.push(
+            await get().addEvent({
+              title: b.parts > 1 ? `${b.title} (${b.part}/${b.parts})` : b.title,
+              startAt: b.start,
+              endAt: b.end,
+              taskId: b.taskId,
+              tz: get().settings.homeZone,
+              reminders: [5],
+              color: "#22d3ee",
+            }),
+          );
+        }
+        if (blocks.length) {
+          const tasks = new Set(blocks.map((b) => b.taskId)).size;
+          get().log("auto_planned", `Auto-planned ${tasks} task${tasks === 1 ? "" : "s"}`, `${blocks.length} time block${blocks.length === 1 ? "" : "s"}`);
+        }
+        return created;
       },
 
       // ------------------------------------------------------------ toasts

@@ -1,4 +1,6 @@
 import type {
+  ActivityEntry,
+  WorkSession,
   CalendarEvent,
   Category,
   FocusSession,
@@ -30,6 +32,9 @@ export interface Backend {
   deleteTimer(id: string): Promise<void>;
   addFocus(s: FocusSession): Promise<void>;
   setSetting(key: string, value: unknown): Promise<void>;
+  upsertWork(w: WorkSession): Promise<void>;
+  deleteWork(id: string): Promise<void>;
+  addActivity(a: ActivityEntry): Promise<void>;
   syncReminders(kind: ReminderItem["ownerKind"], ownerId: string, items: PlannedReminder[]): Promise<void>;
   clearReminders(kind: ReminderItem["ownerKind"], ownerId: string): Promise<void>;
   snoozeReminder(id: string, minutes: number): Promise<void>;
@@ -75,6 +80,9 @@ export async function createTauriBackend(): Promise<Backend> {
     deleteTimer: (id) => invoke("timer_delete", { id }),
     addFocus: (session) => invoke("focus_add", { session }),
     setSetting: (key, value) => invoke("setting_set", { key, value }),
+    upsertWork: (session) => invoke("work_upsert", { session }),
+    deleteWork: (id) => invoke("work_delete", { id }),
+    addActivity: (entry) => invoke("activity_add", { entry }),
     syncReminders: (ownerKind, ownerId, items) => invoke("reminders_sync", { ownerKind, ownerId, items }),
     clearReminders: (ownerKind, ownerId) => invoke("reminders_clear", { ownerKind, ownerId }),
     snoozeReminder: (id, minutes) => invoke("reminder_snooze", { id, minutes }),
@@ -103,6 +111,8 @@ const KEY = "nexus.v1";
 
 interface LocalDB extends Snapshot {
   reminders: ReminderItem[];
+  workSessions: WorkSession[];
+  activity: ActivityEntry[];
 }
 
 /**
@@ -114,11 +124,16 @@ export function createLocalBackend(kv: KV = memoryKV(), opts: { label?: string; 
   const read = (): LocalDB => {
     try {
       const raw = kv.getItem(KEY);
-      if (raw) return JSON.parse(raw) as LocalDB;
+      if (raw) {
+        const d = JSON.parse(raw) as LocalDB;
+        d.workSessions ??= [];
+        d.activity ??= [];
+        return d;
+      }
     } catch {
       /* corrupted → start fresh */
     }
-    return { tasks: [], categories: [...BUILTIN_CATEGORIES], events: [], timers: [], focusSessions: [], settings: {}, reminders: [] };
+    return { tasks: [], categories: [...BUILTIN_CATEGORIES], events: [], timers: [], focusSessions: [], settings: {}, reminders: [], workSessions: [], activity: [] };
   };
   let db = read();
   const write = () => kv.setItem(KEY, JSON.stringify(db));
@@ -162,7 +177,11 @@ export function createLocalBackend(kv: KV = memoryKV(), opts: { label?: string; 
       ensureTicker();
       const { reminders: _r, ...snap } = db;
       void _r;
-      return structuredClone({ ...snap, tasks: [...snap.tasks].sort((a, b) => a.sortOrder - b.sortOrder) });
+      return structuredClone({
+        ...snap,
+        tasks: [...snap.tasks].sort((a, b) => a.sortOrder - b.sortOrder),
+        activity: [...snap.activity].sort((a, b) => b.at - a.at),
+      });
     },
     async upsertTask(t) {
       if (!t.title.trim()) throw new Error("a task needs a title");
@@ -214,6 +233,19 @@ export function createLocalBackend(kv: KV = memoryKV(), opts: { label?: string; 
     },
     async setSetting(key, value) {
       (db.settings as Record<string, unknown>)[key] = value;
+      return ok();
+    },
+    async upsertWork(w) {
+      if (w.endedAt != null && w.endedAt < w.startedAt) throw new Error("a work session cannot end before it starts");
+      upsert(db.workSessions, w);
+      return ok();
+    },
+    async deleteWork(id) {
+      db.workSessions = db.workSessions.filter((w) => w.id !== id);
+      return ok();
+    },
+    async addActivity(a) {
+      upsert(db.activity, a);
       return ok();
     },
     async syncReminders(kind, ownerId, items) {

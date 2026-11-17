@@ -144,6 +144,54 @@ export interface ReminderItem {
   dismissedAt: number | null;
 }
 
+export interface WorkPause {
+  start: number;
+  /** null while the pause is ongoing. */
+  end: number | null;
+  reason: "idle" | "manual";
+  /** Timers that were paused together with the clock (resumed with it). */
+  timerIds?: string[];
+}
+
+/** A clock-in period. */
+export interface WorkSession {
+  id: string;
+  startedAt: number;
+  endedAt: number | null;
+  pauses: WorkPause[];
+  note: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type ActivityKind =
+  | "task_created"
+  | "task_completed"
+  | "task_reopened"
+  | "task_deleted"
+  | "task_restored"
+  | "task_rescheduled"
+  | "event_created"
+  | "event_moved"
+  | "event_deleted"
+  | "focus"
+  | "clock_in"
+  | "clock_out"
+  | "auto_paused"
+  | "paused"
+  | "resumed"
+  | "auto_planned";
+
+/** One entry of the history of what has been done. */
+export interface ActivityEntry {
+  id: string;
+  at: number;
+  kind: ActivityKind;
+  title: string;
+  detail: string;
+  refId: string | null;
+}
+
 export type OverlayMode = "mini" | "standard" | "expanded";
 /** America/Denver = Mountain time used by El Paso (tzdb has no America/El_Paso). */
 export type TexasZone = "America/Chicago" | "America/Denver";
@@ -181,6 +229,21 @@ export interface Settings {
   overlayFps: boolean;
   /** When false, click-through can't be turned on at all (button, shortcut and tray). */
   overlayAllowClickThrough: boolean;
+  /** Show CPU/GPU temperature in the overlay. */
+  overlayTemp: boolean;
+  tempUnit: "C" | "F";
+  /** Minutes without keyboard/mouse input before the work clock auto-pauses. */
+  idleMinutes: number;
+  /** Resume automatically when activity returns after an auto-pause. */
+  idleAutoResume: boolean;
+  /** Also pause running focus timers when idle. */
+  idlePauseTimers: boolean;
+  /** Automatically reserve a time block for new tasks that have an estimate. */
+  autoPlaceNewTasks: boolean;
+  /** Gap kept around planned blocks (minutes). */
+  planBufferMin: number;
+  /** Longest single block the planner creates (minutes); longer tasks are split. */
+  planChunkMaxMin: number;
   closeToTray: boolean;
   startMinimized: boolean;
   shortcuts: Shortcuts;
@@ -216,6 +279,8 @@ export interface Snapshot {
   timers: Timer[];
   focusSessions: FocusSession[];
   settings: Partial<Settings>;
+  workSessions?: WorkSession[];
+  activity?: ActivityEntry[];
 }
 
 export const BUILTIN_CATEGORIES: Category[] = [

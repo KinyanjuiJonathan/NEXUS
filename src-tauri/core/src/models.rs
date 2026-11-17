@@ -130,6 +130,38 @@ pub struct PlannedReminder {
     pub body: String,
 }
 
+/// A clock-in period. `pauses` is a JSON array of `{start, end|null, reason}`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkSession {
+    pub id: String,
+    pub started_at: i64,
+    pub ended_at: Option<i64>,
+    #[serde(default = "empty_array")]
+    pub pauses: Value,
+    #[serde(default)]
+    pub note: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+fn empty_array() -> Value {
+    Value::Array(vec![])
+}
+
+/// One entry of the "what has been done" history.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityEntry {
+    pub id: String,
+    pub at: i64,
+    pub kind: String,
+    pub title: String,
+    #[serde(default)]
+    pub detail: String,
+    pub ref_id: Option<String>,
+}
+
 /// Everything the UI needs at startup, in one round-trip.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -140,6 +172,10 @@ pub struct Snapshot {
     pub timers: Vec<Timer>,
     pub focus_sessions: Vec<FocusSession>,
     pub settings: BTreeMap<String, Value>,
+    #[serde(default)]
+    pub work_sessions: Vec<WorkSession>,
+    #[serde(default)]
+    pub activity: Vec<ActivityEntry>,
 }
 
 /// Portable JSON export (schema-versioned).

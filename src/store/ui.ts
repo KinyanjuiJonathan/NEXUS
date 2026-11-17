@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { MissedItem } from "@/lib/schedule";
 
-export type View = "dashboard" | "tasks" | "calendar" | "focus" | "clocks" | "assistant" | "settings";
+export type View = "dashboard" | "tasks" | "calendar" | "focus" | "clocks" | "assistant" | "insights" | "history" | "settings";
 
 export interface EventDraft {
   startAt: number;
@@ -16,6 +16,8 @@ interface UIState {
   eventEditor: { open: boolean; eventId: string | null; draft?: EventDraft; occurrenceStart?: number };
   command: { open: boolean; listen: boolean; initial?: string };
   reschedule: MissedItem | null;
+  autoPlan: boolean;
+  openAutoPlan(open: boolean): void;
   setView(v: View): void;
   openTask(taskId: string | null, defaults?: UIState["taskEditor"]["defaults"]): void;
   closeTask(): void;
@@ -32,6 +34,8 @@ export const useUI = create<UIState>((set) => ({
   eventEditor: { open: false, eventId: null },
   command: { open: false, listen: false },
   reschedule: null,
+  autoPlan: false,
+  openAutoPlan: (autoPlan) => set({ autoPlan }),
   setView: (view) => set({ view }),
   openTask: (taskId, defaults) => set({ taskEditor: { open: true, taskId, defaults } }),
   closeTask: () => set((s) => ({ taskEditor: { ...s.taskEditor, open: false } })),

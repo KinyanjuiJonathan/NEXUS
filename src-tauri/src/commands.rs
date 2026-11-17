@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use nexus_core::{now_ms, CalendarEvent, Category, ExportBundle, FocusSession, PlannedReminder, Reminder, Snapshot, Task, Timer};
+use nexus_core::{now_ms, ActivityEntry, CalendarEvent, Category, ExportBundle, FocusSession, PlannedReminder, Reminder, Snapshot, Task, Timer, WorkSession};
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, State, WebviewWindow};
@@ -96,6 +96,48 @@ pub fn setting_set(app: AppHandle, win: WebviewWindow, state: State<AppState>, k
     store!(state).set_setting(&key, &value).map_err(friendly)?;
     broadcast_change(&app, win.label(), "settings");
     Ok(())
+}
+
+#[tauri::command]
+pub fn work_upsert(app: AppHandle, win: WebviewWindow, state: State<AppState>, session: WorkSession) -> CmdResult<()> {
+    store!(state).upsert_work_session(&session).map_err(friendly)?;
+    broadcast_change(&app, win.label(), "work");
+    Ok(())
+}
+
+#[tauri::command]
+pub fn work_delete(app: AppHandle, win: WebviewWindow, state: State<AppState>, id: String) -> CmdResult<()> {
+    store!(state).delete_work_session(&id).map_err(friendly)?;
+    broadcast_change(&app, win.label(), "work");
+    Ok(())
+}
+
+#[tauri::command]
+pub fn activity_add(app: AppHandle, win: WebviewWindow, state: State<AppState>, entry: ActivityEntry) -> CmdResult<()> {
+    store!(state).add_activity(&entry).map_err(friendly)?;
+    broadcast_change(&app, win.label(), "activity");
+    Ok(())
+}
+
+/// Seconds since the last keyboard/mouse input anywhere in Windows (None where unsupported).
+#[tauri::command]
+pub fn idle_seconds() -> Option<u64> {
+    #[cfg(windows)]
+    {
+        use windows::Win32::System::SystemInformation::GetTickCount64;
+        use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+        let mut info = LASTINPUTINFO { cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
+        if unsafe { GetLastInputInfo(&mut info) }.as_bool() {
+            // dwTime is a 32-bit tick count; wrapping arithmetic handles the 49-day rollover.
+            let now = unsafe { GetTickCount64() } as u32;
+            return Some((now.wrapping_sub(info.dwTime) / 1000) as u64);
+        }
+        None
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
 }
 
 // ------------------------------------------------------------------ reminders

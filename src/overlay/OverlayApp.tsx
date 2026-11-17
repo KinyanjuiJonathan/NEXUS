@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CalendarClock, Check, ChevronDown, Expand, Mic, MousePointerClick, Pause, Pin, PinOff, Play, Plus, Shrink, X } from "lucide-react";
+import { CalendarClock, Check, CheckCircle2, ChevronDown, Expand, LogIn, LogOut, Mic, MousePointerClick, Pause, Pin, PinOff, Play, Plus, Shrink, X } from "lucide-react";
+import { useWorkClock } from "@/components/WorkClock";
 import type { OverlayMode, ReminderItem } from "@/data/types";
 import { useNexus, nexus, getBackend } from "@/store";
 import { useNow } from "@/lib/ticker";
@@ -71,6 +72,11 @@ export default function OverlayApp() {
   const perfOn = settings.overlayPerf;
   const allowCT = settings.overlayAllowClickThrough;
   const perf = usePerf(perfOn && (ov.visible || !native), settings.overlayFps);
+  const work = useWorkClock();
+  const completeTask = async (id: string, title: string) => {
+    await nexus().setTaskDone(id, true);
+    nexus().toast({ kind: "success", title: "Completed ✓", body: title, action: { label: "Undo", run: () => void nexus().setTaskDone(id, false) }, ttl: 5000 });
+  };
 
   // Sync with the native window state & other windows.
   useEffect(() => {
@@ -141,6 +147,10 @@ export default function OverlayApp() {
   const upcoming = useMemo(() => expandEvents(events, now - 3600_000, now + 7 * 86_400_000).filter((o) => o.end > now).slice(0, 3), [events, minute]); // eslint-disable-line react-hooks/exhaustive-deps
   const top = useMemo(() => openTasks(tasks).sort((a, b) => scoreTask(b, now) - scoreTask(a, now)).slice(0, 8), [tasks, minute]); // eslint-disable-line react-hooks/exhaustive-deps
   const missed = useMemo(() => findMissed(tasks, events, now).length, [tasks, events, minute]); // eslint-disable-line react-hooks/exhaustive-deps
+  const doneToday = useMemo(
+    () => tasks.filter((t) => t.status === "done" && !t.deletedAt && t.completedAt != null && t.completedAt >= work.dayStart).sort((a, b) => b.completedAt! - a.completedAt!),
+    [tasks, work.dayStart],
+  );
   const next = upcoming[0];
   const s = nexus();
   const opacity = clampOpacity(settings.overlayOpacity);
@@ -204,6 +214,16 @@ export default function OverlayApp() {
           {timer ? `${timer.kind === "stopwatch" ? "elapsed" : timer.state === "paused" ? "paused" : "remaining"}${activeDl && activeDl.urgency !== "none" ? ` · ${activeDl.label}` : ""}` : activeDl && activeDl.urgency !== "none" ? activeDl.label : "Pick a task with ▶ in NEXUS"}
         </p>
       </div>
+      {active && active.status !== "done" && (
+        <button
+          aria-label={`Mark “${active.title}” complete`}
+          title="Mark the active task complete"
+          onClick={() => void completeTask(active.id, active.title)}
+          className="no-drag h-7 w-7 shrink-0 rounded-full flex items-center justify-center text-success bg-[color-mix(in_oklab,var(--success)_16%,transparent)] hover:bg-success hover:text-white transition"
+        >
+          <Check size={14} strokeWidth={3} />
+        </button>
+      )}
     </div>
   );
 
@@ -222,7 +242,13 @@ export default function OverlayApp() {
               <Btn label="Hide overlay" onClick={() => void setOverlayVisible(false)}><X size={12} /></Btn>
             </div>
           </div>
-          {perfOn && <PerfStrip snap={perf} compact showFps={settings.overlayFps} />}
+          {perfOn && <PerfStrip snap={perf} compact showFps={settings.overlayFps} showTemp={settings.overlayTemp} unit={settings.tempUnit} />}
+          {work.active && (
+            <div className="flex items-center gap-1.5 text-[10px] text-muted">
+              <span className={cx("h-1.5 w-1.5 rounded-full", work.pause ? "bg-warning" : "bg-success")} />
+              <span className="font-mono tabular text-fg-2">{formatClock(work.sessionMs)}</span> {work.pause ? "paused" : "clocked in"}
+            </div>
+          )}
         </div>
       ) : (
         <>
@@ -233,7 +259,7 @@ export default function OverlayApp() {
               <div className="w-px bg-line" />
               <MiniClock zone={settings.texasZone} tag={settings.texasZone === "America/Denver" ? "EL PASO" : "TEXAS"} hour12={settings.hour12} color="#a78bfa" />
             </div>
-            {perfOn && <PerfStrip snap={perf} showFps={settings.overlayFps} />}
+            {perfOn && <PerfStrip snap={perf} showFps={settings.overlayFps} showTemp={settings.overlayTemp} unit={settings.tempUnit} />}
             <div className="rounded-xl bg-hover px-2.5 py-2">
               {TimerLine}
               {timer && timer.kind !== "stopwatch" && <ProgressBar value={progress(timer, now)} className="mt-1.5 !h-1" />}
@@ -261,6 +287,25 @@ export default function OverlayApp() {
                 </button>
               )}
             </div>
+            <div className="no-drag flex items-center gap-1.5 text-[11px]">
+              {!work.active ? (
+                <button onClick={() => void s.clockIn()} className="flex-1 h-7 rounded-lg font-medium flex items-center justify-center gap-1.5 bg-hover hover:text-success transition" aria-label="Clock in">
+                  <LogIn size={12} /> Clock in <span className="text-muted tabular">· {formatClock(work.todayMs)} today</span>
+                </button>
+              ) : (
+                <>
+                  <span className={cx("h-2 w-2 rounded-full shrink-0", work.pause ? "bg-warning" : "bg-success animate-pulse")} />
+                  <span className="tabular font-mono font-semibold text-fg">{formatClock(work.sessionMs)}</span>
+                  <span className="text-muted truncate flex-1">{work.pause ? (work.pause.reason === "idle" ? "auto-paused (idle)" : "on break") : "working"}</span>
+                  <button onClick={() => void (work.pause ? s.resumeWork() : s.pauseWork())} className="h-6 px-2 rounded-md bg-hover hover:text-accent" aria-label={work.pause ? "Resume work" : "Take a break"}>
+                    {work.pause ? <Play size={11} /> : <Pause size={11} />}
+                  </button>
+                  <button onClick={() => void s.clockOut()} className="h-6 px-2 rounded-md bg-hover hover:text-danger inline-flex items-center gap-1" aria-label="Clock out">
+                    <LogOut size={11} /> Out
+                  </button>
+                </>
+              )}
+            </div>
 
             {mode === "expanded" && (
               <div className="no-drag flex-1 min-h-0 flex flex-col gap-2 overflow-hidden">
@@ -281,8 +326,8 @@ export default function OverlayApp() {
                     const dl = deadlineInfo(t.dueAt, now, settings.deadlineWarningMin);
                     return (
                       <div key={t.id} className={cx("group flex items-center gap-2 rounded-lg px-1.5 py-1 text-[11px]", t.id === settings.activeTaskId ? "bg-[color-mix(in_oklab,var(--accent)_12%,transparent)]" : "hover:bg-hover")}>
-                        <button aria-label="Complete" onClick={() => void s.setTaskDone(t.id, true)} className="h-3.5 w-3.5 rounded-full border border-line-strong hover:border-success hover:bg-success/30 shrink-0 flex items-center justify-center">
-                          <Check size={8} className="opacity-0 group-hover:opacity-100" />
+                        <button aria-label={`Complete “${t.title}”`} title="Mark complete" onClick={() => void completeTask(t.id, t.title)} className="h-4 w-4 rounded-full border-2 border-line-strong hover:border-success hover:bg-success/30 shrink-0 flex items-center justify-center text-success">
+                          <Check size={9} strokeWidth={3} className="opacity-30 group-hover:opacity-100" />
                         </button>
                         <span className="flex-1 truncate">{t.title}</span>
                         {t.dueAt != null && <span className="shrink-0 tabular text-[10px]" style={{ color: URGENCY_COLOR[dl.urgency] }}>{dl.urgency === "overdue" ? "overdue" : humanDuration(dl.remaining)}</span>}
@@ -292,6 +337,20 @@ export default function OverlayApp() {
                   })}
                   {top.length === 0 && <p className="text-[11px] text-muted">No open tasks.</p>}
                 </div>
+                {doneToday.length > 0 && (
+                  <>
+                    <p className="text-[9px] uppercase tracking-widest text-muted">Done today · {doneToday.length}</p>
+                    <div className="flex flex-col gap-0.5 max-h-20 overflow-y-auto scroll-y pr-1">
+                      {doneToday.map((t) => (
+                        <div key={t.id} className="group flex items-center gap-2 text-[11px] text-muted">
+                          <CheckCircle2 size={12} className="text-success shrink-0" />
+                          <span className="flex-1 truncate line-through">{t.title}</span>
+                          <button className="opacity-0 group-hover:opacity-100 text-[10px] text-accent" onClick={() => void s.setTaskDone(t.id, false)}>undo</button>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
                 {upcoming.length > 1 && (
                   <>
                     <p className="text-[9px] uppercase tracking-widest text-muted">Schedule</p>

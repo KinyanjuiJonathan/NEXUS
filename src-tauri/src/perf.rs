@@ -15,7 +15,7 @@
 use std::sync::Mutex;
 
 use serde::Serialize;
-use sysinfo::System;
+use sysinfo::{Components, System};
 use tauri::{AppHandle, Manager, State};
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -36,10 +36,16 @@ pub struct PerfSnapshot {
     pub fps_app: Option<String>,
     /// "ok" | "idle" (no app presenting) | "off" | "no_permission" | "unsupported"
     pub fps_status: String,
+    /// °C. GPU from the WDDM adapter performance data (what Task Manager shows).
+    pub gpu_temp: Option<f32>,
+    /// °C. CPU from ACPI thermal zones / sensors when Windows exposes them (often needs admin).
+    pub cpu_temp: Option<f32>,
 }
 
 pub struct PerfState {
     sys: Mutex<System>,
+    /// Temperature sensors; refreshed at most every 5 s (the WMI query is comparatively slow).
+    components: Mutex<Option<(Components, std::time::Instant, Option<f32>)>>,
     #[cfg(windows)]
     win: Mutex<Option<win::WinPerf>>,
 }
@@ -48,6 +54,7 @@ impl PerfState {
     pub fn new() -> Self {
         Self {
             sys: Mutex::new(System::new()),
+            components: Mutex::new(None),
             #[cfg(windows)]
             win: Mutex::new(None),
         }
@@ -62,10 +69,12 @@ impl PerfState {
             snap.ram_used = sys.used_memory();
             snap.ram_total = sys.total_memory();
         }
+        snap.cpu_temp = self.cpu_temp();
         #[cfg(windows)]
         {
             if let Ok(mut guard) = self.win.lock() {
                 let w = guard.get_or_insert_with(win::WinPerf::new);
+                snap.gpu_temp = w.gpu_temp();
                 let g = w.gpu();
                 snap.gpu = g.load;
                 snap.vram_used = g.vram_used;
@@ -93,6 +102,20 @@ impl PerfState {
         snap
     }
 
+    fn cpu_temp(&self) -> Option<f32> {
+        let mut guard = self.components.lock().ok()?;
+        if let Some((_, at, last)) = guard.as_ref() {
+            if at.elapsed().as_secs() < 5 {
+                return *last;
+            }
+        }
+        let (comps, at, last) = guard.get_or_insert_with(|| (Components::new_with_refreshed_list(), std::time::Instant::now(), None));
+        comps.refresh(true);
+        *at = std::time::Instant::now();
+        *last = pick_cpu_temp(comps.list().iter().filter_map(|c| c.temperature().map(|t| (c.label().to_string(), t))));
+        *last
+    }
+
     pub fn stop_fps(&self) {
         #[cfg(windows)]
         if let Ok(mut guard) = self.win.lock() {
@@ -106,6 +129,37 @@ impl PerfState {
 impl Default for PerfState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Prefer CPU-labelled sensors; fall back to the hottest plausible thermal zone.
+pub(crate) fn pick_cpu_temp(readings: impl Iterator<Item = (String, f32)>) -> Option<f32> {
+    let plausible: Vec<(bool, f32)> = readings
+        .filter(|(_, t)| (5.0..=125.0).contains(t))
+        .map(|(l, t)| {
+            let l = l.to_ascii_lowercase();
+            (["cpu", "package", "tctl", "tdie", "core", "k10temp", "coretemp"].iter().any(|k| l.contains(k)), t)
+        })
+        .collect();
+    let max = |it: &mut dyn Iterator<Item = f32>| it.fold(None, |m: Option<f32>, t| Some(m.map_or(t, |m| m.max(t))));
+    max(&mut plausible.iter().filter(|(cpu, _)| *cpu).map(|(_, t)| *t)).or_else(|| max(&mut plausible.iter().map(|(_, t)| *t)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pick_cpu_temp;
+
+    #[test]
+    fn picks_cpu_sensor_over_other_zones() {
+        let r = vec![("ACPI\\ThermalZone\\TZ00".to_string(), 35.0), ("CPU Package".to_string(), 61.5), ("GPU".to_string(), 70.0)];
+        assert_eq!(pick_cpu_temp(r.into_iter()), Some(61.5));
+    }
+
+    #[test]
+    fn falls_back_to_hottest_zone_and_ignores_garbage() {
+        let r = vec![("TZ00".to_string(), 41.0), ("TZ01".to_string(), 47.0), ("bogus".to_string(), -273.0), ("bogus2".to_string(), 3000.0)];
+        assert_eq!(pick_cpu_temp(r.into_iter()), Some(47.0));
+        assert_eq!(pick_cpu_temp(std::iter::empty()), None);
     }
 }
 
@@ -132,6 +186,11 @@ mod win {
     use ferrisetw::trace::{stop_trace_by_name, UserTrace};
     use ferrisetw::{EventRecord, SchemaLocator};
     use windows::core::w;
+    use windows::Wdk::Graphics::Direct3D::{
+        D3DKMTCloseAdapter, D3DKMTOpenAdapterFromLuid, D3DKMTQueryAdapterInfo, D3DKMT_ADAPTER_PERFDATA, D3DKMT_CLOSEADAPTER,
+        D3DKMT_OPENADAPTERFROMLUID, D3DKMT_QUERYADAPTERINFO, KMTQAITYPE_ADAPTERPERFDATA,
+    };
+    use windows::Win32::Foundation::LUID;
     use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE};
     use windows::Win32::System::Performance::{
         PdhAddEnglishCounterW, PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterArrayW, PdhOpenQueryW,
@@ -156,6 +215,7 @@ mod win {
         dedicated: u64,
         /// Matches the "luid_0x…_0x…" part of PDH instance names.
         luid: String,
+        raw_luid: LUID,
     }
 
     #[derive(Default)]
@@ -204,7 +264,7 @@ mod win {
             let dedicated = d.DedicatedVideoMemory as u64;
             let luid = format!("luid_0x{:08x}_0x{:08x}", d.AdapterLuid.HighPart as u32, d.AdapterLuid.LowPart);
             if best.as_ref().map_or(true, |b| dedicated > b.dedicated) {
-                best = Some(Adapter { name, dedicated, luid });
+                best = Some(Adapter { name, dedicated, luid, raw_luid: d.AdapterLuid });
             }
         }
         best
@@ -256,6 +316,28 @@ mod win {
 
         pub fn vram_total(&self) -> Option<u64> {
             self.adapter.as_ref().map(|a| a.dedicated).filter(|&v| v > 0)
+        }
+
+        /// GPU temperature via D3DKMT adapter performance data (WDDM 2.4+; reported in deci-°C).
+        pub fn gpu_temp(&self) -> Option<f32> {
+            let a = self.adapter.as_ref()?;
+            unsafe {
+                let mut open = D3DKMT_OPENADAPTERFROMLUID { AdapterLuid: a.raw_luid, hAdapter: 0 };
+                if D3DKMTOpenAdapterFromLuid(&mut open).is_err() {
+                    return None;
+                }
+                let mut perf = D3DKMT_ADAPTER_PERFDATA { PhysicalAdapterIndex: 0, ..Default::default() };
+                let mut q = D3DKMT_QUERYADAPTERINFO {
+                    hAdapter: open.hAdapter,
+                    Type: KMTQAITYPE_ADAPTERPERFDATA,
+                    pPrivateDriverData: &mut perf as *mut _ as *mut core::ffi::c_void,
+                    PrivateDriverDataSize: std::mem::size_of::<D3DKMT_ADAPTER_PERFDATA>() as u32,
+                };
+                let ok = D3DKMTQueryAdapterInfo(&mut q).is_ok();
+                let _ = D3DKMTCloseAdapter(&D3DKMT_CLOSEADAPTER { hAdapter: open.hAdapter });
+                let c = perf.Temperature as f32 / 10.0;
+                (ok && c > 1.0 && c < 125.0).then_some(c)
+            }
         }
 
         pub fn gpu(&mut self) -> GpuSample {

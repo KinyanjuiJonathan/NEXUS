@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DateTime } from "luxon";
-import { ChevronLeft, ChevronRight, Plus, Repeat, Star } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Repeat, Star, Wand2 } from "lucide-react";
 import type { CalendarEvent, Occurrence, Task } from "@/data/types";
 import { useNexus, nexus } from "@/store";
 import { useUI } from "@/store/ui";
@@ -398,6 +398,7 @@ export default function Calendar() {
             ]}
           />
           <Segmented size="sm" value={mode} onChange={setMode} options={[{ value: "day", label: "Day" }, { value: "week", label: "Week" }, { value: "month", label: "Month" }]} />
+          <Button size="sm" variant="outline" icon={<Wand2 size={14} />} onClick={() => useUI.getState().openAutoPlan(true)} title="Fit open tasks into free working time">Auto-plan</Button>
           <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={() => useUI.getState().openEvent(null)}>New</Button>
         </div>
       </div>

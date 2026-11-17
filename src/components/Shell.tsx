@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { motion } from "framer-motion";
-import { CalendarDays, Globe, LayoutDashboard, ListTodo, Mic, Minus, PanelTop, Plus, Settings, Sparkles, Square, Timer, X } from "lucide-react";
+import { CalendarDays, Globe, History, LayoutDashboard, LineChart, ListTodo, Mic, Minus, PanelTop, Plus, Settings, Sparkles, Square, Timer, X } from "lucide-react";
 import { useUI, type View } from "@/store/ui";
 import { useNexus } from "@/store";
 import { closeWindow, minimizeWindow, native, toggleMaximize, toggleOverlay } from "@/lib/platform";
@@ -16,6 +16,8 @@ export const NAV: { view: View; label: string; icon: ReactNode; key: string }[] 
   { view: "focus", label: "Focus & Timers", icon: <Timer size={18} />, key: "4" },
   { view: "clocks", label: "World Clocks", icon: <Globe size={18} />, key: "5" },
   { view: "assistant", label: "Assistant", icon: <Sparkles size={18} />, key: "6" },
+  { view: "insights", label: "Insights", icon: <LineChart size={18} />, key: "7" },
+  { view: "history", label: "History", icon: <History size={18} />, key: "8" },
 ];
 
 function ActiveTimerPill() {

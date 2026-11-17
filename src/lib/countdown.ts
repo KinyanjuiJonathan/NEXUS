@@ -92,6 +92,15 @@ export function formatClock(ms: number): string {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
+/** Durations of work: always hours, e.g. "51 h 20 min" (never days). */
+export function hoursMinutes(ms: number): string {
+  const min = Math.round(Math.abs(ms) / 60_000);
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (!h) return `${m} min`;
+  return m ? `${h} h ${m} min` : `${h} h`;
+}
+
 /** Compact human duration: "45 min", "2 h 5 min", "3 days". */
 export function humanDuration(ms: number): string {
   const abs = Math.abs(ms);
