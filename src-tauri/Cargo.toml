@@ -7,7 +7,7 @@ name = "nexus"
 version = "1.0.0"
 description = "NEXUS — futuristic AI productivity & time management command center"
 authors = ["NEXUS contributors"]
-license = "MIT"
+
 edition = "2021"
 default-run = "nexus"
 

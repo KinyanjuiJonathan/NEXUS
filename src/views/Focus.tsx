@@ -3,6 +3,7 @@ import { Coffee, Hourglass, Pause, Play, Plus, RotateCcw, SkipForward, Square, T
 import type { Timer, TimerKind } from "@/data/types";
 import { useNexus, nexus } from "@/store";
 import { useNow } from "@/lib/ticker";
+import { formatTime, startOfDay } from "@/lib/time";
 import { elapsedMs, formatClock, progress, remainingMs, spentVsEstimate } from "@/lib/countdown";
 import { Button, Card, CardHeader, EmptyState, Field, Input, ProgressBar, ProgressRing, Segmented, Select, cx } from "@/components/ui";
 
@@ -63,7 +64,7 @@ export default function Focus() {
   const [label, setLabel] = useState("");
   const open = tasks.filter((t) => !t.deletedAt && !t.archivedAt && t.status !== "done");
   const s = nexus();
-  const sod = new Date(now).setHours(0, 0, 0, 0);
+  const sod = startOfDay(now, settings.homeZone);
   const todayFocus = focus.filter((f) => f.startedAt >= sod);
 
   return (
@@ -126,7 +127,7 @@ export default function Focus() {
           {todayFocus.length === 0 && <p className="text-sm text-muted">Sessions longer than 30 seconds are logged automatically.</p>}
           {[...todayFocus].reverse().slice(0, 10).map((f) => (
             <div key={f.id} className="flex items-center gap-3 text-sm">
-              <span className="text-muted tabular w-28">{new Date(f.startedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: settings.hour12 })}</span>
+              <span className="text-muted tabular w-28">{formatTime(f.startedAt, settings.homeZone, settings.hour12)}</span>
               <span className="flex-1 truncate">{tasks.find((t) => t.id === f.taskId)?.title ?? (f.kind === "pomodoro" ? "Focus session" : f.kind)}</span>
               <span className="tabular text-fg-2">{formatClock(f.durationMs)}</span>
             </div>

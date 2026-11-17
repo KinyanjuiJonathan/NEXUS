@@ -175,7 +175,7 @@ pub async fn ai_request(app: tauri::AppHandle, req: AiRequest) -> CmdResult<Valu
         return Err(match status.as_u16() {
             401 => "The API key was rejected. Check it in Settings → AI.".into(),
             429 => "The AI service is rate-limiting requests. Try again in a minute.".into(),
-            529 | 500..=599 => "The AI service is temporarily unavailable. Try again shortly.".into(),
+            500..=599 => "The AI service is temporarily unavailable. Try again shortly.".into(),
             _ => format!("AI request failed: {msg}"),
         });
     }

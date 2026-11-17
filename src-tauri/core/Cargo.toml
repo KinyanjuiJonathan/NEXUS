@@ -3,7 +3,7 @@ name = "nexus-core"
 version = "1.0.0"
 edition = "2021"
 description = "NEXUS persistence layer: SQLite schema, migrations, repositories, reminder queue, backup/restore"
-license = "MIT"
+
 
 [dependencies]
 rusqlite = { version = "0.32", features = ["bundled", "backup"] }
