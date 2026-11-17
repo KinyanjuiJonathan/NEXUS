@@ -1,0 +1,16 @@
+[package]
+name = "nexus-core"
+version = "1.0.0"
+edition = "2021"
+description = "NEXUS persistence layer: SQLite schema, migrations, repositories, reminder queue, backup/restore"
+license = "MIT"
+
+[dependencies]
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"

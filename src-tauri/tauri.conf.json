@@ -1,0 +1,75 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "NEXUS",
+  "version": "1.0.0",
+  "identifier": "com.nexus.productivity",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "NEXUS",
+        "url": "index.html",
+        "width": 1320,
+        "height": 840,
+        "minWidth": 920,
+        "minHeight": 600,
+        "center": true,
+        "decorations": false,
+        "resizable": true,
+        "visible": false,
+        "backgroundColor": "#070a12"
+      },
+      {
+        "label": "overlay",
+        "title": "NEXUS Overlay",
+        "url": "index.html?window=overlay",
+        "width": 360,
+        "height": 236,
+        "minWidth": 220,
+        "minHeight": 56,
+        "x": 40,
+        "y": 40,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": true,
+        "visible": false,
+        "focus": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; media-src 'self' data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "category": "Productivity",
+    "shortDescription": "AI productivity & time management command center",
+    "longDescription": "NEXUS combines tasks, scheduling, Kenya/Texas dual clocks, countdowns, focus timers, reminders, voice commands and an always-on-top overlay.",
+    "copyright": "MIT License",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "windows": {
+      "webviewInstallMode": { "type": "embedBootstrapper" },
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false
+      }
+    }
+  }
+}
