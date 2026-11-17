@@ -60,6 +60,8 @@ pub fn set_visible(app: &AppHandle, visible: bool) -> tauri::Result<()> {
             w.set_always_on_top(pinned(app))?;
         } else {
             w.hide()?;
+            // No performance sampling / FPS tracing while nobody can see it.
+            app.state::<crate::perf::PerfState>().stop_fps();
         }
     }
     persist(app, "overlayVisible", json!(visible));
@@ -72,7 +74,21 @@ pub fn toggle(app: &AppHandle) -> tauri::Result<()> {
     set_visible(app, !visible)
 }
 
+/// Users can turn the click-through feature off entirely (Settings → Overlay).
+fn click_through_allowed(app: &AppHandle) -> bool {
+    let st = app.state::<AppState>();
+    let allowed = st
+        .store
+        .lock()
+        .ok()
+        .and_then(|s| s.get_setting("overlayAllowClickThrough").ok().flatten())
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    allowed
+}
+
 pub fn set_click_through(app: &AppHandle, enabled: bool) -> tauri::Result<()> {
+    let enabled = enabled && click_through_allowed(app);
     let st = app.state::<AppState>();
     st.click_through.store(enabled, Ordering::SeqCst);
     if let Some(w) = app.get_webview_window(LABEL) {

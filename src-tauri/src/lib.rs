@@ -3,6 +3,7 @@
 mod ai;
 mod commands;
 mod overlay;
+mod perf;
 mod scheduler;
 mod shortcuts;
 mod speech;
@@ -124,6 +125,7 @@ pub fn run() {
             if let Err(e) = store.auto_backup(data_dir.join("backups"), 7, now) {
                 log::warn!("automatic backup failed: {e}");
             }
+            app.manage(perf::PerfState::new());
             app.manage(AppState {
                 store: Mutex::new(store),
                 data_dir: data_dir.clone(),
@@ -203,6 +205,8 @@ pub fn run() {
             ai::ai_request,
             speech::speech_available,
             speech::speech_listen,
+            perf::perf_snapshot,
+            perf::perf_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running NEXUS");

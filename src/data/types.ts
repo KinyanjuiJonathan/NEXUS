@@ -175,6 +175,12 @@ export interface Settings {
   overlayClickThrough: boolean;
   overlaySizes: Partial<Record<OverlayMode, { w: number; h: number }>>;
   overlayOnStartup: boolean;
+  /** Show CPU / GPU / VRAM / RAM in the overlay. */
+  overlayPerf: boolean;
+  /** Also measure FPS of the foreground app (needs ETW permission on Windows). */
+  overlayFps: boolean;
+  /** When false, click-through can't be turned on at all (button, shortcut and tray). */
+  overlayAllowClickThrough: boolean;
   closeToTray: boolean;
   startMinimized: boolean;
   shortcuts: Shortcuts;

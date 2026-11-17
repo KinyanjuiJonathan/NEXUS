@@ -10,6 +10,8 @@ It is a real application: data is stored in a local SQLite database, reminders a
 |---|---|---|
 | ![Overlay standard](docs/screenshots/overlay-standard.png) | ![Overlay expanded](docs/screenshots/overlay-expanded.png) | ![Overlay mini](docs/screenshots/overlay-mini.png) |
 
+<sub>Overlay screenshots use sample performance values from the browser preview; the desktop app shows your real CPU, GPU, VRAM, RAM and FPS.</sub>
+
 More screens: [Calendar](docs/screenshots/calendar.png) · [Tasks](docs/screenshots/tasks.png) · [Focus](docs/screenshots/focus.png) · [World clocks](docs/screenshots/clocks.png) · [Voice/command preview](docs/screenshots/command.png) · [Light mode](docs/screenshots/dashboard-light.png)
 
 ---
@@ -53,7 +55,7 @@ More screens: [Calendar](docs/screenshots/calendar.png) · [Tasks](docs/screensh
 
 **AI assistant (optional)**: a summary of your day, what to do next, free slots, conflicts, project breakdown into subtasks, realistic time estimates, and reorganizing overdue work. All of this **works offline** with local heuristics; Claude can enhance it if you add an API key.
 
-**Floating overlay**: always-on-top, draggable, resizable, adjustable opacity, pin/unpin, Mini/Standard/Expanded modes, click-through with a global shortcut to disable it, and it remembers its position and size per mode across monitors. See [below](#the-floating-overlay).
+**Floating overlay**: always-on-top, draggable, resizable, adjustable opacity, pin/unpin, Mini/Standard/Expanded modes, **live CPU / GPU / VRAM / RAM / FPS** (like Xbox Game Bar), optional click-through with a global shortcut to disable it (or switch the feature off entirely), and it remembers its position and size per mode across monitors. See [below](#the-floating-overlay).
 
 ## Install (Windows)
 
@@ -126,7 +128,18 @@ Toggle it with `Ctrl+Shift+Space`, the title-bar button, or the tray menu.
 - **Modes**: *Mini* shows the active task and countdown. *Standard* adds both clocks, progress, the next event, and voice/add buttons. *Expanded* adds quick add, a compact task list you can tick off, voice commands, and your schedule. Double-click the header, or use the expand button, to cycle modes.
 - **Move** it by dragging the header. **Resize** it with the bottom-right grip. Size is remembered **per mode** and position across restarts.
 - **Pin** keeps it on top; unpin to let other windows cover it. Set **opacity** in Settings.
-- **Click-through** lets mouse clicks pass to the app underneath. Press **`Ctrl+Shift+X`** (configurable) to turn it off again; the tray menu also has a toggle.
+- **Performance stats**: CPU, GPU, VRAM (used / total), RAM (used / total) and FPS appear in every mode, updated once a second. Values at 90% or more turn amber. Turn them off with *Settings → Floating overlay → Show system performance*. Sampling only runs while the overlay is visible.
+  - **CPU / RAM**: whole-system usage.
+  - **GPU / VRAM**: the GPU with the most dedicated memory, read from the same Windows performance counters Task Manager uses (NVIDIA, AMD and Intel; Windows 10 1709+). GPU % is the busiest engine (3D, copy, video…), matching Task Manager.
+  - **FPS**: the frame rate of the app in the foreground (or the busiest app drawing frames if NEXUS itself is focused), measured by counting DirectX 9–12 present calls, as PresentMon and Game Bar do. Hover the value to see which app it belongs to. Vulkan/OpenGL titles that don't present through DirectX show "—".
+  - **FPS permission (one-time):** Windows only lets administrators or members of the **Performance Log Users** group read these events. Without it, FPS shows a 🔒. To fix it without running NEXUS as admin, open **Terminal (Admin)**, run the command below, then **sign out and back in**:
+
+    ```bat
+    net localgroup "Performance Log Users" "%USERNAME%" /add
+    ```
+
+    Alternatively, turn FPS off in Settings and keep the other stats.
+- **Click-through** lets mouse clicks pass to the app underneath. Press **`Ctrl+Shift+X`** (configurable) to turn it off again; the tray menu and *Settings → Floating overlay → Click-through is on* also switch it. To **disable click-through completely** (so it can never get turned on by accident), switch off *Settings → Floating overlay → Allow click-through*; the overlay button, global shortcut and tray option then do nothing.
 - **Multi-monitor**: if the monitor it was on is disconnected, or the resolution changes, the overlay is moved back onto a visible screen (top-right of the primary monitor).
 - **Performance**: it renders once per second and stops completely while hidden. Animations are minimal, with no video or polling, to avoid affecting games, calls or remote desktop.
 - **Limits** (by design): it won't draw over **exclusive-fullscreen** games (use borderless/windowed mode), the lock screen, UAC prompts, or DRM-protected content. NEXUS deliberately doesn't try to bypass these OS security boundaries.
@@ -239,6 +252,9 @@ src-tauri/
 | **Reminders stop after restart** | Enable *Launch NEXUS when Windows starts*. Reminders need NEXUS running (in the tray is fine). |
 | **Overlay is invisible over a game** | The game is in exclusive fullscreen. Switch it to borderless/windowed fullscreen. |
 | **Can't click through to my app / can't click the overlay** | Press `Ctrl+Shift+X` (or use the tray menu → *Overlay click-through*). |
+| **FPS shows a 🔒** | Windows blocks the frame-rate events for normal users. Add yourself to *Performance Log Users* (see [The floating overlay](#the-floating-overlay)) and sign out/in, or turn FPS off. |
+| **FPS shows "—" in a game** | Nothing is drawing frames, or the game uses Vulkan/OpenGL without DirectX presentation. CPU/GPU/RAM still work. |
+| **GPU / VRAM show "—"** | Your graphics driver doesn't expose GPU performance counters (very old drivers, some virtual machines or remote sessions). Update the GPU driver. |
 | **Overlay is off-screen** | Press `Ctrl+Shift+Space` twice. It's moved back onto a connected monitor when shown. |
 | **A global shortcut does nothing** | Another app owns that combination. Settings flags it; pick a different one. |
 | **Voice: "privacy policy was not accepted"** | Windows Settings → Privacy & security → Speech → turn on *Online speech recognition*. Or type the command. |

@@ -15,6 +15,7 @@
 | `main` window | React 19, TypeScript, Tailwind 4, Framer Motion | Full app UI. Also the only window that finishes expired timers (`processTimers`), so expiry is processed exactly once. |
 | `overlay` window | Same bundle (`index.html?window=overlay`) | Transparent, undecorated, `alwaysOnTop`, `skipTaskbar`, `focus: false`. Renders `OverlayApp`. |
 | Rust shell (`src-tauri/src`) | Tauri 2 | IPC commands, tray, global shortcuts, overlay state (pin / click-through via `set_ignore_cursor_events`), autostart, single instance, window-state persistence, reminder scheduler, AI proxy, WinRT speech. |
+| `perf.rs` (`src-tauri/src`) | sysinfo, PDH, DXGI, ETW (ferrisetw) | Overlay stats. CPU/RAM via `sysinfo`; GPU load and VRAM via PDH counters `\GPU Engine(*)\Utilization Percentage` and `\GPU Adapter Memory(*)\Dedicated Usage`, filtered to the DXGI adapter with the most dedicated memory; FPS by counting `Microsoft-Windows-DXGI` (event 42, Present start) and `Microsoft-Windows-D3D9` (event 1) ETW events for the foreground process over the last second. Sampled on demand (~1 Hz) only while the overlay is visible; the ETW session runs only while FPS is shown and is stopped when the overlay hides. Starting the ETW session requires admin or the *Performance Log Users* group; otherwise FPS reports `no_permission` and retries at most once a minute. |
 | `nexus-core` (`src-tauri/core`) | rusqlite (bundled SQLite) | Schema, migrations, repositories, reminder queue, backup/restore/export. No Tauri dependency, so it's unit-tested headless. |
 
 Both windows hold their own copy of the app store. After every successful mutation the backend emits `nexus://data-changed` with the origin window label, and the *other* window reloads its snapshot. Personal data volumes (hundreds to low thousands of rows) make a full in-memory snapshot cheap.
@@ -107,7 +108,7 @@ Indexes: `due_at`; `(status, deleted_at, archived_at)`; `completed_at`.
 `id` PK · `owner_kind` (`task`/`event`/`timer`/`custom`) · `owner_id` · `title` · `body` · `fire_at` · `fired_at` · `snoozed_until` · `dismissed_at` · `created_at`. Indexes: `(fired_at, dismissed_at, fire_at)`, `(owner_kind, owner_id)`.
 
 ### `settings`
-`key` TEXT PK · `value` TEXT (JSON) · `updated_at`. Holds preferences, time zones, overlay mode/opacity/per-mode sizes/visibility/pin/click-through, shortcuts, reminder defaults, the active task, and so on. Window **positions** are persisted by `tauri-plugin-window-state` (validated against connected monitors).
+`key` TEXT PK · `value` TEXT (JSON) · `updated_at`. Holds preferences, time zones, overlay mode/opacity/per-mode sizes/visibility/pin/click-through (+ `overlayAllowClickThrough`, `overlayPerf`, `overlayFps`), shortcuts, reminder defaults, the active task, and so on. Window **positions** are persisted by `tauri-plugin-window-state` (validated against connected monitors).
 
 ### `app_meta` (v2)
 `key` PK · `value`: internal bookkeeping, e.g. `last_auto_backup`.

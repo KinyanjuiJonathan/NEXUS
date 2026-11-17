@@ -4,7 +4,7 @@ import { createLocalBackend, memoryKV, readLocalReminders, type KV } from "@/dat
 import { createNexusStore } from "./store";
 import { executeIntent, findTarget } from "@/lib/voice/execute";
 import { parseCommand } from "@/lib/voice/parser";
-import { clampOpacity, ensureVisible, nextMode, sizeForMode } from "@/lib/overlayGeometry";
+import { clampOpacity, ensureVisible, formatBytes, nextMode, PERF_EXTRA, sizeForMode } from "@/lib/overlayGeometry";
 import { dayStats, history } from "@/lib/stats";
 import { suggestNext, proposeReorganization, breakdownLocally } from "@/lib/assistant";
 
@@ -298,6 +298,30 @@ describe("overlay positioning & settings", () => {
     expect(clampOpacity(0.05)).toBe(0.25);
     expect(clampOpacity(2)).toBe(1);
     expect(clampOpacity(NaN)).toBe(0.86);
+  });
+
+  it("grows each mode to fit the performance strip, without shrinking custom sizes", () => {
+    expect(sizeForMode("mini", {}, true)).toEqual({ w: 300, h: 64 + PERF_EXTRA.mini });
+    expect(sizeForMode("standard", { standard: { w: 420, h: 250 } }, true)).toEqual({ w: 420, h: 236 + PERF_EXTRA.standard });
+    expect(sizeForMode("standard", { standard: { w: 420, h: 400 } }, true)).toEqual({ w: 420, h: 400 });
+    expect(sizeForMode("standard", undefined, false)).toEqual({ w: 360, h: 236 });
+  });
+
+  it("formats memory sizes for the stats strip", () => {
+    expect(formatBytes(512 * 1024 ** 2)).toBe("512 MB");
+    expect(formatBytes(3.24 * 1024 ** 3)).toBe("3.2 GB");
+    expect(formatBytes(16 * 1024 ** 3)).toBe("16 GB");
+    expect(formatBytes(null)).toBe("—");
+  });
+
+  it("defaults: performance stats and FPS on, click-through allowed", async () => {
+    const store = makeStore();
+    await store.getState().init();
+    expect(store.getState().settings).toMatchObject({ overlayPerf: true, overlayFps: true, overlayAllowClickThrough: true });
+    await store.getState().setSetting("overlayAllowClickThrough", false);
+    const reopened = makeStore(kv);
+    await reopened.getState().init();
+    expect(reopened.getState().settings.overlayAllowClickThrough).toBe(false);
   });
 
   it("persists overlay settings", async () => {

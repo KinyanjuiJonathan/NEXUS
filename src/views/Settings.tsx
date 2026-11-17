@@ -5,7 +5,7 @@ import { useNexus, nexus } from "@/store";
 import { DEFAULT_SETTINGS } from "@/store/store";
 import { KENYA_ZONE, TEXAS_CENTRAL, TEXAS_MOUNTAIN, isValidZone, localZone } from "@/lib/time";
 import {
-  aiClearKey, aiHasKey, aiSetKey, applyShortcuts, dataInfo, ensureNotificationPermission, getAutostart, invokeSafe, native,
+  aiClearKey, aiHasKey, aiSetKey, applyShortcuts, dataInfo, ensureNotificationPermission, getAutostart, getOverlayState, invokeSafe, native, onOverlayState, setClickThrough,
   pickOpenPath, pickSavePath, playChime, relaunch, setAutostart, setOverlayVisible, testNotification, type DataInfo,
 } from "@/lib/platform";
 import { voiceSupported, webSpeechAvailable } from "@/lib/voice/engine";
@@ -68,6 +68,14 @@ export default function SettingsView() {
   const [shortcutDraft, setShortcutDraft] = useState<Shortcuts>(settings.shortcuts);
   const [failed, setFailed] = useState<string[]>([]);
   const [customZone, setCustomZone] = useState("");
+  const [clickThroughOn, setClickThroughOn] = useState(false);
+
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    void getOverlayState().then((s) => setClickThroughOn(s.clickThrough));
+    void onOverlayState((s) => setClickThroughOn(s.clickThrough)).then((u) => (off = u));
+    return () => off?.();
+  }, []);
 
   useEffect(() => {
     void getAutostart().then(setAuto).catch(() => {});
@@ -201,6 +209,31 @@ export default function SettingsView() {
           <input type="range" min={25} max={100} value={Math.round(settings.overlayOpacity * 100)} onChange={(e) => set("overlayOpacity", clampOpacity(Number(e.target.value) / 100))} className="accent-sky-500" />
         </Field>
         <Toggle checked={settings.overlayOnStartup} onChange={(v) => set("overlayOnStartup", v)} label="Show the overlay when NEXUS starts" />
+        <Toggle checked={settings.overlayPerf} onChange={(v) => set("overlayPerf", v)} label="Show system performance (CPU, GPU, VRAM, RAM)" description="Sampled about once a second, only while the overlay is visible." />
+        <Toggle
+          checked={settings.overlayFps}
+          disabled={!settings.overlayPerf}
+          onChange={(v) => set("overlayFps", v)}
+          label="Show FPS of the foreground game/app"
+          description="Counts DirectX frames like Game Bar. Windows only allows this for administrators or members of the “Performance Log Users” group — a lock icon means permission is missing (see README → FPS)."
+        />
+        <div className="h-px bg-line my-1" />
+        <Toggle
+          checked={settings.overlayAllowClickThrough}
+          onChange={async (v) => {
+            await s.setSetting("overlayAllowClickThrough", v);
+            if (!v) await setClickThrough(false);
+          }}
+          label="Allow click-through"
+          description="Turn off to disable click-through completely: the overlay button, the global shortcut and the tray option will no longer enable it."
+        />
+        <Toggle
+          checked={clickThroughOn}
+          disabled={!native || !settings.overlayAllowClickThrough}
+          onChange={(v) => void setClickThrough(v)}
+          label="Click-through is on"
+          description="When on, mouse clicks pass through the overlay to the app underneath."
+        />
         <p className="text-[11px] text-muted">
           The overlay stays above normal windows and remembers its position, size and monitor. Click-through lets clicks pass to the app underneath — press {settings.shortcuts.toggleClickThrough.replace("CommandOrControl", "Ctrl")} to turn it off again. Like any desktop overlay it can't appear over exclusive-fullscreen games, the lock/UAC screen, or protected content; use borderless/windowed mode in games.
         </p>

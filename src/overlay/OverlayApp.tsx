@@ -12,6 +12,7 @@ import { parseCommand } from "@/lib/voice/parser";
 import { clampOpacity, ensureVisible, nextMode, sizeForMode } from "@/lib/overlayGeometry";
 import { getOverlayState, listenTo, native, onOverlayState, playChime, setClickThrough, setOverlayVisible, setPinned, type OverlayState } from "@/lib/platform";
 import { CommandPanel } from "@/components/CommandBar";
+import { PerfStrip, usePerf } from "./PerfStrip";
 import { Toasts } from "@/components/Toasts";
 import { ProgressBar, cx } from "@/components/ui";
 import { URGENCY_COLOR } from "@/components/meta";
@@ -67,6 +68,9 @@ export default function OverlayApp() {
   const modeRef = useRef(mode);
   modeRef.current = mode;
   useTheme(settings.theme, true);
+  const perfOn = settings.overlayPerf;
+  const allowCT = settings.overlayAllowClickThrough;
+  const perf = usePerf(perfOn && (ov.visible || !native), settings.overlayFps);
 
   // Sync with the native window state & other windows.
   useEffect(() => {
@@ -98,7 +102,7 @@ export default function OverlayApp() {
     (async () => {
       const { getCurrentWindow, availableMonitors, primaryMonitor, PhysicalPosition, LogicalSize } = await import("@tauri-apps/api/window");
       const w = getCurrentWindow();
-      const size = sizeForMode(mode, nexus().settings.overlaySizes);
+      const size = sizeForMode(mode, nexus().settings.overlaySizes, nexus().settings.overlayPerf);
       await w.setSize(new LogicalSize(size.w, size.h));
       const [pos, outer, mons, prim, scale] = await Promise.all([w.outerPosition(), w.outerSize(), availableMonitors(), primaryMonitor(), w.scaleFactor()]);
       const rects = mons.map((m) => ({ x: m.position.x, y: m.position.y, w: m.size.width, h: m.size.height }));
@@ -110,7 +114,7 @@ export default function OverlayApp() {
         resizeTimer.current = setTimeout(async () => {
           const sf = await w.scaleFactor();
           const logical = { w: Math.round(payload.width / sf), h: Math.round(payload.height / sf) };
-          const cur = sizeForMode(modeRef.current, nexus().settings.overlaySizes);
+          const cur = sizeForMode(modeRef.current, nexus().settings.overlaySizes, nexus().settings.overlayPerf);
           if (Math.abs(cur.w - logical.w) > 2 || Math.abs(cur.h - logical.h) > 2) {
             await nexus().setSetting("overlaySizes", { ...nexus().settings.overlaySizes, [modeRef.current]: logical });
           }
@@ -118,7 +122,7 @@ export default function OverlayApp() {
       });
     })();
     return () => off?.();
-  }, [mode]);
+  }, [mode, perfOn]);
 
   const switchMode = (m: OverlayMode) => {
     setMode(m);
@@ -165,9 +169,11 @@ export default function OverlayApp() {
         <Btn label={ov.pinned ? "Unpin (stop staying on top)" : "Pin on top"} active={ov.pinned} onClick={() => void setPinned(!ov.pinned)}>
           {ov.pinned ? <Pin size={12} /> : <PinOff size={12} />}
         </Btn>
-        <Btn label={`Click-through (${settings.shortcuts.toggleClickThrough.replace("CommandOrControl", "Ctrl")} to undo)`} active={ov.clickThrough} onClick={() => void setClickThrough(!ov.clickThrough)}>
-          <MousePointerClick size={12} />
-        </Btn>
+        {allowCT && (
+          <Btn label={`Click-through (${settings.shortcuts.toggleClickThrough.replace("CommandOrControl", "Ctrl")} to undo)`} active={ov.clickThrough} onClick={() => void setClickThrough(!ov.clickThrough)}>
+            <MousePointerClick size={12} />
+          </Btn>
+        )}
         <Btn label={mode === "expanded" ? "Collapse to mini" : "Expand"} onClick={() => switchMode(nextMode(mode))}>
           {mode === "expanded" ? <Shrink size={12} /> : <Expand size={12} />}
         </Btn>
@@ -208,12 +214,15 @@ export default function OverlayApp() {
       onDoubleClick={(e) => (e.target as HTMLElement).dataset.tauriDragRegion !== undefined && switchMode(nextMode(mode))}
     >
       {mode === "mini" ? (
-        <div data-tauri-drag-region className="drag-region flex-1 flex items-center gap-2 px-2.5">
-          <div className="no-drag flex-1 min-w-0">{TimerLine}</div>
-          <div className="no-drag flex items-center">
-            <Btn label="Expand" onClick={() => switchMode("standard")}><ChevronDown size={13} /></Btn>
-            <Btn label="Hide overlay" onClick={() => void setOverlayVisible(false)}><X size={12} /></Btn>
+        <div data-tauri-drag-region className="drag-region flex-1 flex flex-col justify-center gap-1 px-2.5">
+          <div data-tauri-drag-region className="flex items-center gap-2">
+            <div className="no-drag flex-1 min-w-0">{TimerLine}</div>
+            <div className="no-drag flex items-center">
+              <Btn label="Expand" onClick={() => switchMode("standard")}><ChevronDown size={13} /></Btn>
+              <Btn label="Hide overlay" onClick={() => void setOverlayVisible(false)}><X size={12} /></Btn>
+            </div>
           </div>
+          {perfOn && <PerfStrip snap={perf} compact showFps={settings.overlayFps} />}
         </div>
       ) : (
         <>
@@ -224,6 +233,7 @@ export default function OverlayApp() {
               <div className="w-px bg-line" />
               <MiniClock zone={settings.texasZone} tag={settings.texasZone === "America/Denver" ? "EL PASO" : "TEXAS"} hour12={settings.hour12} color="#a78bfa" />
             </div>
+            {perfOn && <PerfStrip snap={perf} showFps={settings.overlayFps} />}
             <div className="rounded-xl bg-hover px-2.5 py-2">
               {TimerLine}
               {timer && timer.kind !== "stopwatch" && <ProgressBar value={progress(timer, now)} className="mt-1.5 !h-1" />}

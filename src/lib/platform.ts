@@ -84,6 +84,31 @@ export async function resizeOverlay(mode: OverlayMode, size: { w: number; h: num
   void mode;
 }
 
+// ---------------------------------------------------------------- performance
+
+export interface PerfSnapshot {
+  cpu: number;
+  ramUsed: number;
+  ramTotal: number;
+  gpu: number | null;
+  gpuName: string | null;
+  vramUsed: number | null;
+  vramTotal: number | null;
+  fps: number | null;
+  fpsApp: string | null;
+  fpsStatus: "ok" | "idle" | "off" | "no_permission" | "unsupported";
+}
+
+/** Live system stats (desktop app only; null in a plain browser). */
+export async function perfSnapshot(fps: boolean): Promise<PerfSnapshot | null> {
+  if (!native) return null;
+  return invokeSafe<PerfSnapshot>("perf_snapshot", { fps });
+}
+
+export async function perfStop() {
+  if (native) await invokeSafe("perf_stop").catch(() => {});
+}
+
 // ---------------------------------------------------------------- shortcuts / autostart
 
 export async function applyShortcuts(shortcuts: Shortcuts): Promise<string[]> {

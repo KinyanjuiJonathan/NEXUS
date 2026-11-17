@@ -16,10 +16,21 @@ export const MODE_SIZES: Record<OverlayMode, { w: number; h: number }> = {
 
 export const MIN_SIZE = { w: 220, h: 56 };
 
-export function sizeForMode(mode: OverlayMode, saved?: Partial<Record<OverlayMode, { w: number; h: number }>>): { w: number; h: number } {
+/** Extra height needed by the performance strip in each mode. */
+export const PERF_EXTRA: Record<OverlayMode, number> = { mini: 26, standard: 50, expanded: 50 };
+
+export function sizeForMode(mode: OverlayMode, saved?: Partial<Record<OverlayMode, { w: number; h: number }>>, perf = false): { w: number; h: number } {
+  const base = MODE_SIZES[mode];
+  const minH = base.h + (perf ? PERF_EXTRA[mode] : 0);
   const s = saved?.[mode];
-  if (s && s.w >= MIN_SIZE.w && s.h >= MIN_SIZE.h && s.w <= 4000 && s.h <= 3000) return s;
-  return MODE_SIZES[mode];
+  if (s && s.w >= MIN_SIZE.w && s.h >= MIN_SIZE.h && s.w <= 4000 && s.h <= 3000) return { w: s.w, h: Math.max(s.h, minH) };
+  return { w: base.w, h: minH };
+}
+
+export function formatBytes(bytes: number | null | undefined): string {
+  if (bytes == null) return "—";
+  const gb = bytes / 1024 ** 3;
+  return gb >= 10 ? `${gb.toFixed(0)} GB` : gb >= 1 ? `${gb.toFixed(1)} GB` : `${Math.round(bytes / 1024 ** 2)} MB`;
 }
 
 export function nextMode(mode: OverlayMode): OverlayMode {
