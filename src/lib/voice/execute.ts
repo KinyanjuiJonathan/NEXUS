@@ -50,7 +50,8 @@ export function describeIntent(intent: Intent, s: NexusState, now: number): stri
       return `Schedule “${intent.title}” ${both(intent.startAt)} for ${humanDuration(intent.endAt - intent.startAt)}`;
     case "reschedule": {
       const t = findTarget(s, intent.query, now);
-      return t ? `Move “${t.title}” to ${both(intent.newStart)}${intent.dateOnly ? " (keeping its time)" : ""}` : `No task or appointment matches “${intent.query}”`;
+      const series = t?.kind === "event" && s.events.find((e) => e.id === t.id)?.recurrence ? " (next occurrence only)" : "";
+      return t ? `Move “${t.title}”${series} to ${both(intent.newStart)}${intent.dateOnly ? " (keeping its time)" : ""}` : `No task or appointment matches “${intent.query}”`;
     }
     case "complete_current": {
       const t = s.tasks.find((x) => x.id === s.settings.activeTaskId);
@@ -113,7 +114,21 @@ export async function executeIntent(intent: Intent, deps: ExecDeps): Promise<Exe
         }
         const dur = ev.endAt - ev.startAt;
         const conflicts = findConflicts(s.events, { start, end: start + dur }, ev.id);
-        await s.updateEvent(ev.id, { startAt: start, endAt: start + dur, recurrence: ev.recurrence });
+        if (ev.recurrence) {
+          // Recurring series: move only the next upcoming occurrence; the series stays intact.
+          const occ = expandEvents([ev], now - dur, now + 400 * 86_400_000).find((o) => o.end > now);
+          if (!occ) return { ok: false, message: `“${ev.title}” has no upcoming occurrence to move.` };
+          if (intent.dateOnly) {
+            const orig = DateTime.fromMillis(occ.start, { zone: ev.tz });
+            start = DateTime.fromMillis(intent.newStart, { zone: ev.tz }).set({ hour: orig.hour, minute: orig.minute }).toMillis();
+          }
+          await s.moveOccurrence(occ, start, start + dur, "single");
+          return {
+            ok: true,
+            message: `Moved the next “${ev.title}” to ${formatWithZone(start, ev.tz, h12)} (the rest of the series is unchanged)` + (conflicts.length ? ` ⚠ overlaps “${conflicts[0].event.title}”` : ""),
+          };
+        }
+        await s.updateEvent(ev.id, { startAt: start, endAt: start + dur });
         return {
           ok: true,
           message: `Moved “${ev.title}” to ${formatWithZone(start, ev.tz, h12)}` + (conflicts.length ? ` ⚠ overlaps “${conflicts[0].event.title}”` : ""),

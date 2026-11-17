@@ -218,6 +218,23 @@ describe("voice commands end-to-end", () => {
     expect(r.lines).toHaveLength(1);
   });
 
+  it("voice-rescheduling a recurring meeting moves only the next occurrence", async () => {
+    const store = makeStore();
+    await store.getState().init();
+    await store.getState().setSetting("homeZone", NBO);
+    await store.getState().addEvent({
+      title: "Team meeting", startAt: at("2026-11-16T15:00"), endAt: at("2026-11-16T15:30"), tz: NBO,
+      recurrence: { freq: "daily", interval: 1 },
+    });
+    const r = await executeIntent(parseCommand("Move my meeting to Friday at 3 PM Texas time", ctx()).intent, { state: store.getState, now: () => clock });
+    expect(r.message).toContain("rest of the series is unchanged");
+    const { expandEvents } = await import("@/lib/schedule");
+    const fmt = (ms: number) => DateTime.fromMillis(ms, { zone: NBO }).toFormat("ccc dd HH:mm");
+    const week = expandEvents(store.getState().events, at("2026-11-17T00:00"), at("2026-11-22T00:00")).map((o) => fmt(o.start));
+    // Today's 15:00 occurrence (next upcoming) moved to Fri 3 PM CST = Sat 00:00 EAT; others untouched
+    expect(week).toEqual(["Wed 18 15:00", "Thu 19 15:00", "Fri 20 15:00", "Sat 21 00:00", "Sat 21 15:00"]);
+  });
+
   it("target matching prefers the closest title", async () => {
     const store = makeStore();
     await store.getState().init();

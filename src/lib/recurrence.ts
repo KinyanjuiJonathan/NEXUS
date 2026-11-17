@@ -69,7 +69,7 @@ export function iterate(
     return;
   }
 
-  let dt = first;
+  let dt: DateTime = first;
   // Keep the original day-of-month for monthly rules (Jan 31 -> Feb 28 -> Mar 31).
   for (let guard = 0; guard < MAX_ITER; guard++) {
     if (!emit(dt)) return;

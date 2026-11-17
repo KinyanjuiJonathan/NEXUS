@@ -119,6 +119,8 @@ export interface NexusState {
   resetTimer(id: string): Promise<void>;
   stopTimer(id: string): Promise<void>;
   removeTimer(id: string): Promise<void>;
+  /** Pomodoro: end the current phase now and move to the next one (not started). */
+  skipPhase(id: string): Promise<void>;
   /** Called every second by the main window: finishes expired timers. */
   processTimers(now?: number): Promise<void>;
   activeTimer(): Timer | null;
@@ -550,6 +552,17 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         set({ timers: get().timers.filter((t) => t.id !== tid) });
         await backend.deleteTimer(tid);
         await backend.clearReminders("timer", tid).catch(() => {});
+      },
+
+      async skipPhase(tid) {
+        const t = get().timers.find((x) => x.id === tid);
+        if (!t || t.kind !== "pomodoro") return;
+        const ts = now();
+        if (t.state === "running" && t.startedAt != null) await logFocus(t, Math.min(ts - t.startedAt, Math.max(0, t.durationMs - t.accumulatedMs)));
+        const s = get().settings;
+        await saveTimer(
+          cd.nextPomodoroPhase(t, { focusMin: s.pomodoroFocusMin, shortBreakMin: s.pomodoroShortBreakMin, longBreakMin: s.pomodoroLongBreakMin, longEvery: s.pomodoroLongEvery }, ts),
+        );
       },
 
       async processTimers(at) {
