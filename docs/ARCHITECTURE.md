@@ -43,6 +43,8 @@ Both windows hold their own copy of the app store. After every successful mutati
 | `lib/insights.ts` | Productivity analysis for the Insights page |
 | `lib/overlayGeometry.ts` | Mode sizes, opacity bounds, multi-monitor `ensureVisible` |
 | `lib/smart/parse.ts` | Offline reader for scheduling requests: separates day window, part of day, duration, exact/approximate start, deadline and zone, and returns clarification questions for ambiguous wording |
+| `lib/smart/title.ts` | Task title from a request once its scheduling phrases are removed: strips lead-ins, turns a leading "-ing" verb into its base form, drops needless articles, keeps names and acronyms, caps the length |
+| `lib/smart/agenda.ts` | The schedule list shown in the overlay, computed from the stored tasks and events on every render (no separate copy): live and upcoming occurrences, unfinished blocks and due tasks, skipping blocks whose task is done, deleted or archived |
 | `lib/smart/slots.ts` | Slot finder: every event is busy (with buffer); searches the requested day/period (in the request's zone) or working hours, and returns the closest alternatives when nothing fits |
 | `lib/smart/reschedule.ts` | Decides moves for unfinished flexible blocks (priority, then deadline) and for blocks displaced by a new fixed appointment; never moves fixed events, stops after `MAX_AUTO_MOVES`, never proposes a slot past a future deadline. Applied by `store.autoReschedule` / `makeRoomFor`, which keep `sched.history` on the event |
 | `lib/calendarTasks.ts` | Which To-Do tasks appear on which calendar day, their pending / overdue / completed state, and the due time after a drag to another day |

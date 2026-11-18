@@ -39,9 +39,9 @@ describe("smart scheduling in the app", () => {
     const { created } = await say("Rooting Mineh's phone today, around three hours, preferably in the evening Kenya time");
     expect(created).not.toBeNull();
     const { task, event } = created!;
-    expect(task).toMatchObject({ title: "Rooting Mineh's Phone", estimateMin: 180, status: "todo" });
-    expect(store.getState().tasks.map((t) => t.title)).toContain("Rooting Mineh's Phone"); // To-Do list
-    expect(event).toMatchObject({ title: "Rooting Mineh's Phone", taskId: task!.id, fixed: false, tz: NBO });
+    expect(task).toMatchObject({ title: "Root Mineh's Phone", estimateMin: 180, status: "todo" });
+    expect(store.getState().tasks.map((t) => t.title)).toContain("Root Mineh's Phone"); // To-Do list
+    expect(event).toMatchObject({ title: "Root Mineh's Phone", taskId: task!.id, fixed: false, tz: NBO });
     expect([fmt(event.startAt), fmt(event.endAt)]).toEqual(["Wed 18 Nov 17:00", "Wed 18 Nov 20:00"]);
     expect(fmt(event.startAt, CHI)).toBe("Wed 18 Nov 08:00"); // the same instant in Texas
     expect(expandEvents(live(), at("2026-11-18T00:00"), at("2026-11-19T00:00")).map((o) => o.event.id)).toContain(event.id); // calendar
@@ -216,6 +216,9 @@ describe("smart scheduling in the app", () => {
     const base = { notes: "", tz: NBO, recurrence: null, important: false, reminders: [], color: null, createdAt: 1, updatedAt: 1, deletedAt: null };
     // written by a version that had no `fixed` / `sched`
     await backend.upsertEvent({ ...base, id: "old-meeting", title: "Old meeting", startAt: at("2026-11-18T08:00"), endAt: at("2026-11-18T09:00"), taskId: null } as never);
+    const seed = createNexusStore({ backend, now: () => at("2026-11-18T09:00"), id: () => "t1" });
+    await seed.getState().init();
+    await seed.getState().addTask({ title: "Old task" }, { autoPlace: false });
     await backend.upsertEvent({ ...base, id: "old-block", title: "Old block", startAt: at("2026-11-19T08:00"), endAt: at("2026-11-19T09:00"), taskId: "t1" } as never);
     const { store } = await setup(kv);
     const get = (id: string) => store.getState().events.find((e) => e.id === id)!;

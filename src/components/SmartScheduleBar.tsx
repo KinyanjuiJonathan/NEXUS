@@ -34,10 +34,13 @@ export function SmartScheduleBar({ className }: { className?: string }) {
   const [answers, setAnswers] = useState<Partial<Record<Clarification["id"], string>>>({});
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<{ task: Task | null; event: CalendarEvent } | null>(null);
+  /** The title as corrected by hand; null = use the generated one. */
+  const [titleEdit, setTitleEdit] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
 
   const zone = settings.smartZone === "home" ? settings.homeZone : settings.smartZone;
-  const req = useMemo(() => (text.trim() ? parseScheduleRequest(text, { now, defaultZone: zone, texasZone: settings.texasZone }, answers) : null), [text, answers, now, zone, settings.texasZone]);
+  const parsed = useMemo(() => (text.trim() ? parseScheduleRequest(text, { now, defaultZone: zone, texasZone: settings.texasZone }, answers) : null), [text, answers, now, zone, settings.texasZone]);
+  const req = useMemo(() => (parsed && titleEdit != null ? { ...parsed, title: titleEdit.trim() } : parsed), [parsed, titleEdit]);
   const res = useMemo(
     () => (req && req.title && !req.questions.length ? resolveRequest(req, events, nexus().slotSettings(), now) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -56,6 +59,7 @@ export function SmartScheduleBar({ className }: { className?: string }) {
       setCreated(made);
       setText("");
       setAnswers({});
+      setTitleEdit(null);
     } catch (e) {
       nexus().toast({ kind: "error", title: "Couldn't schedule that", body: String(e instanceof Error ? e.message : e) });
     } finally {
@@ -94,6 +98,7 @@ export function SmartScheduleBar({ className }: { className?: string }) {
           onChange={(e) => {
             setText(e.target.value);
             setAnswers({});
+            setTitleEdit(null);
             if (created) setCreated(null);
           }}
           aria-label="Describe what to schedule"
@@ -106,7 +111,24 @@ export function SmartScheduleBar({ className }: { className?: string }) {
       {req && (
         <div className="flex flex-col gap-2.5" aria-live="polite">
           <div className="flex flex-wrap items-center gap-1.5">
-            {req.title ? <span className="text-sm font-semibold text-fg mr-1">{req.title}</span> : <span className="text-sm text-muted">Say what it is, then when — for example “Write report tomorrow morning for 2 hours”.</span>}
+            {parsed!.title || titleEdit != null ? (
+              <input
+                value={titleEdit ?? parsed!.title}
+                onChange={(e) => setTitleEdit(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && ready) {
+                    e.preventDefault();
+                    void schedule(res!.slot!);
+                  }
+                }}
+                aria-label="Task title (generated, editable)"
+                title="Generated title — click to change it"
+                size={Math.max(8, (titleEdit ?? parsed!.title).length + 1)}
+                className="max-w-full rounded-lg bg-transparent border border-transparent hover:border-line focus:border-accent focus:bg-hover px-1.5 py-0.5 -ml-1.5 mr-1 text-sm font-semibold text-fg outline-none transition"
+              />
+            ) : (
+              <span className="text-sm text-muted">Say what it is, then when — for example “Write report tomorrow morning for 2 hours”.</span>
+            )}
             {req.fixed && <Chip icon={<Lock size={12} />} tone="accent">Fixed appointment</Chip>}
             {req.window && <Chip icon={<CalendarCheck size={12} />}>{req.window.label}</Chip>}
             {req.period && <Chip icon={<Sun size={12} />}>{req.later ? "later, " : ""}{req.period}</Chip>}

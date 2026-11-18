@@ -137,7 +137,12 @@ export interface NexusState {
   addTask(input: NewTask, opts?: { autoPlace?: boolean }): Promise<Task>;
   updateTask(id: string, patch: Partial<Task>): Promise<Task | null>;
   setTaskDone(id: string, done: boolean): Promise<void>;
-  deleteTask(id: string): Promise<void>;
+  /**
+   * Move a task to the trash, together with the calendar time reserved for it.
+   * For a repeating task, "occurrence" removes only this one and schedules the
+   * next; "series" (the default) ends the repetition.
+   */
+  deleteTask(id: string, scope?: "occurrence" | "series"): Promise<void>;
   restoreTask(id: string): Promise<void>;
   purgeTask(id: string): Promise<void>;
   emptyTrash(): Promise<void>;
@@ -420,6 +425,58 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
       await saveWork({ ...w, pauses: [...w.pauses, { start, end: null, reason: "idle" }], updatedAt: ts });
     };
 
+    // ---- one source of truth: a task's reserved calendar time follows the task
+    const blocksOf = (taskId: string) => get().events.filter((e) => e.taskId === taskId);
+    const removeBlock = (e: CalendarEvent, why: "task-deleted" | "task-done") =>
+      saveEvent({ ...e, deletedAt: now(), updatedAt: now(), sched: { ...(e.sched ?? {}), removed: why } });
+    /** Bring back blocks that left with their task, unless their time has already passed. */
+    const restoreBlocks = async (taskId: string, why: "task-deleted" | "task-done") => {
+      const ts = now();
+      for (const e of blocksOf(taskId)) {
+        if (e.deletedAt && e.sched?.removed === why && (e.endAt > ts || !!e.recurrence)) await saveEvent({ ...e, deletedAt: null, updatedAt: ts, sched: { ...e.sched, removed: null } });
+      }
+    };
+
+    /** A repeating task: create its next occurrence. */
+    const spawnNext = async (cur: Task, ts: number) => {
+      if (!cur.recurrence || cur.dueAt == null) return;
+      const zone = cur.dueTz || get().settings.homeZone;
+      const nextDue = nextOccurrence(cur.dueAt, zone, cur.recurrence, Math.max(cur.dueAt, ts));
+      if (nextDue == null) return;
+      const remainingCount = cur.recurrence.count != null ? cur.recurrence.count - 1 : null;
+      if (remainingCount != null && remainingCount <= 0) return;
+      await get().addTask(
+        {
+          ...cur,
+          title: cur.title,
+          status: "todo",
+          dueAt: nextDue,
+          spentMs: 0,
+          subtasks: cur.subtasks.map((s) => ({ ...s, id: id(), done: false })),
+          recurrence: { ...cur.recurrence, count: remainingCount },
+          reminders: cur.reminders,
+          sortOrder: cur.sortOrder,
+        },
+        { autoPlace: false },
+      );
+    };
+
+    /**
+     * Calendar blocks left behind by older versions: time reserved for a task
+     * that is in the trash, was removed for good, or was completed before the
+     * block began. They are taken off the calendar so no view shows them.
+     */
+    const tidySchedule = async () => {
+      const ts = now();
+      const byId = new Map(get().tasks.map((t) => [t.id, t]));
+      for (const e of get().events) {
+        if (e.deletedAt || !e.taskId) continue;
+        const t = byId.get(e.taskId);
+        if (!t || t.deletedAt) await removeBlock(e, "task-deleted");
+        else if (t.status === "done" && !e.recurrence && e.startAt > ts) await removeBlock(e, "task-done");
+      }
+    };
+
     let activityQueue: Promise<void> = Promise.resolve();
     let rescheduling = false;
 
@@ -499,6 +556,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           apply(snap);
           set({ ready: true, error: null });
           await reconcileWork((snap.settings as Record<string, unknown> | undefined)?.workHeartbeat).catch(() => {});
+          await tidySchedule().catch(() => {});
         } catch (e) {
           set({ ready: true, error: e instanceof Error ? e.message : String(e) });
         }
@@ -575,6 +633,13 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         if (patch.dueAt !== undefined && patch.dueAt !== cur.dueAt && next.dueAt != null) {
           get().log("task_rescheduled", next.title, `→ ${formatWithZone(next.dueAt, next.dueTz ?? get().settings.homeZone, get().settings.hour12)}`, next.id);
         }
+        // A renamed task keeps one name everywhere: its calendar blocks are renamed with it.
+        if (next.title !== cur.title) {
+          for (const e of blocksOf(taskId)) {
+            const title = e.title === cur.title ? next.title : e.title.startsWith(`${cur.title} (`) ? next.title + e.title.slice(cur.title.length) : null;
+            if (title) await saveEvent({ ...e, title, updatedAt: now() });
+          }
+        }
         return next;
       },
 
@@ -585,9 +650,12 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         if (!done) {
           await saveTask({ ...cur, status: "todo", completedAt: null, updatedAt: ts });
           get().log("task_reopened", cur.title, "", cur.id);
+          await restoreBlocks(taskId, "task-done");
           return;
         }
         await saveTask({ ...cur, status: "done", completedAt: ts, updatedAt: ts });
+        // Time still reserved for it is no longer needed. A block already under way or over stays as a record.
+        for (const e of blocksOf(taskId)) if (!e.deletedAt && !e.recurrence && e.startAt > ts) await removeBlock(e, "task-done");
         get().log(
           "task_completed",
           cur.title,
@@ -596,33 +664,17 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         );
         if (get().settings.activeTaskId === taskId) await get().setActiveTask(null);
         // Recurring task → spawn the next instance.
-        if (cur.recurrence && cur.dueAt != null) {
-          const zone = cur.dueTz || get().settings.homeZone;
-          const nextDue = nextOccurrence(cur.dueAt, zone, cur.recurrence, Math.max(cur.dueAt, ts));
-          if (nextDue != null) {
-            const remainingCount = cur.recurrence.count != null ? cur.recurrence.count - 1 : null;
-            if (remainingCount == null || remainingCount > 0) {
-              await get().addTask({
-                ...cur,
-                title: cur.title,
-                status: "todo",
-                dueAt: nextDue,
-                spentMs: 0,
-                subtasks: cur.subtasks.map((s) => ({ ...s, id: id(), done: false })),
-                recurrence: { ...cur.recurrence, count: remainingCount },
-                reminders: cur.reminders,
-                sortOrder: cur.sortOrder,
-              }, { autoPlace: false });
-            }
-          }
-        }
+        await spawnNext(cur, ts);
       },
 
-      async deleteTask(taskId) {
+      async deleteTask(taskId, scope = "series") {
         const cur = get().tasks.find((t) => t.id === taskId);
         if (!cur) return;
+        // Only this occurrence of a repeating task: the next one is scheduled before this one goes.
+        if (scope === "occurrence") await spawnNext(cur, now());
         await saveTask({ ...cur, deletedAt: now(), updatedAt: now() });
-        get().log("task_deleted", cur.title, "", cur.id);
+        for (const e of blocksOf(taskId)) if (!e.deletedAt) await removeBlock(e, "task-deleted");
+        get().log("task_deleted", cur.title, scope === "occurrence" && cur.recurrence ? "This occurrence only" : "", cur.id);
         if (get().settings.activeTaskId === taskId) await get().setActiveTask(null);
         get().toast({
           kind: "info",
@@ -638,12 +690,15 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         if (cur) {
           await saveTask({ ...cur, deletedAt: null, updatedAt: now() });
           get().log("task_restored", cur.title, "", cur.id);
+          await restoreBlocks(taskId, "task-deleted");
         }
       },
 
       async purgeTask(taskId) {
-        set({ tasks: get().tasks.filter((t) => t.id !== taskId) });
+        const blocks = blocksOf(taskId);
+        set({ tasks: get().tasks.filter((t) => t.id !== taskId), events: get().events.filter((e) => e.taskId !== taskId) });
         await backend.deleteTask(taskId);
+        for (const e of blocks) await backend.deleteEvent(e.id).catch(() => {});
       },
 
       async emptyTrash() {
@@ -733,6 +788,11 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         await saveEvent(next);
         if (patch.startAt !== undefined && patch.startAt !== cur.startAt) {
           get().log("event_moved", next.title, `→ ${formatWithZone(next.startAt, next.tz, get().settings.hour12)}`, next.id);
+        }
+        // Renaming a task's block renames the task (when they carried the same name).
+        if (next.title !== cur.title && cur.taskId) {
+          const task = get().tasks.find((t) => t.id === cur.taskId);
+          if (task && task.title === cur.title) await saveTask({ ...task, title: next.title, updatedAt: now() });
         }
         if (retimed || (next.fixed && !cur.fixed)) await makeRoomFor(next);
         return next;
@@ -1009,14 +1069,16 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         const title = req.title.trim();
         if (!title) throw new Error("Say what should be scheduled");
         const sched = { origin: "smart" as const, period: req.period, zone: req.zone, request: req.text };
+        // The request as typed stays with the task for reference.
+        const notes = `Requested: “${req.text.trim()}”`;
         if (req.fixed) {
-          const event = await get().addEvent({ title, startAt: slot.start, endAt: slot.end, tz: req.zone, fixed: true, sched });
+          const event = await get().addEvent({ title, notes, startAt: slot.start, endAt: slot.end, tz: req.zone, fixed: true, sched });
           get().log("smart_scheduled", title, `Fixed appointment · ${formatWithZone(slot.start, req.zone, get().settings.hour12)}`, event.id);
           return { task: null, event };
         }
         // Flexible work: a To-Do task plus the time reserved for it on the calendar.
         const task = await get().addTask(
-          { title, estimateMin: durationMin, dueAt: req.deadline, dueTz: req.deadline != null ? req.zone : null, priority: req.priority ?? undefined, reminders: req.deadline != null ? undefined : [] },
+          { title, notes, estimateMin: durationMin, dueAt: req.deadline, dueTz: req.deadline != null ? req.zone : null, priority: req.priority ?? undefined, reminders: req.deadline != null ? undefined : [] },
           { autoPlace: false },
         );
         const event = await get().addEvent({ title, startAt: slot.start, endAt: slot.end, tz: req.zone, taskId: task.id, fixed: false, reminders: [5], color: "#22d3ee", sched });

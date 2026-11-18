@@ -3,6 +3,7 @@ import { DateTime } from "luxon";
 import type { DayPeriod, Priority } from "@/data/types";
 import { KENYA_ZONE } from "@/lib/time";
 import { extractZone } from "@/lib/voice/parser";
+import { generateTitle } from "./title";
 
 /**
  * Reads a scheduling request written in plain language, entirely offline.
@@ -98,28 +99,6 @@ class Text {
   has(re: RegExp) {
     return re.test(this.s);
   }
-}
-
-function titleCase(s: string): string {
-  const small = new Set(["a", "an", "the", "of", "to", "in", "on", "for", "and", "or", "with", "at", "by", "my"]);
-  return s
-    .split(" ")
-    .map((w, i) => (i > 0 && small.has(w.toLowerCase()) ? w.toLowerCase() : /^[a-z]/.test(w) ? w[0].toUpperCase() + w.slice(1) : w))
-    .join(" ");
-}
-
-function cleanTitle(s: string): string {
-  let t = s
-    .replace(/^(?:please\s+)?(?:can you\s+|could you\s+)?(?:schedule|plan|add|create|book|set up|put)\s+(?:a\s+|an\s+)?(?:task\s+|time\s+|slot\s+|block\s+)?(?:to\s+|for\s+)?/i, "")
-    .replace(/^(?:remind me to|i need to|i have to|i want to|i must|i should|i'?ll|let me)\s+/i, "")
-    .replace(/\b(?:preferably|ideally|if possible|sometime|some time|please|probably|maybe|hopefully)\b/gi, " ")
-    .replace(/\s*[,;]+\s*/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  // prepositions left hanging once the time phrases are gone
-  for (let i = 0; i < 4; i++) t = t.replace(/\s+(?:in|on|at|by|for|during|the|and|around|about|from|to|this|of|it should take|should take|it takes|takes|taking|every|each)$/i, "").replace(/^(?:in|on|at|and|the)\s+(?=(?:in|on|at|the)\b)/i, "").trim();
-  t = t.replace(/[\s.,;:!-]+$/g, "").replace(/^[\s.,;:!-]+/g, "");
-  return titleCase(t);
 }
 
 interface Clock {
@@ -376,7 +355,7 @@ export function parseScheduleRequest(input: string, ctx: SmartContext, answers: 
   }
 
   // ---- what is left is the title
-  const title = cleanTitle(t.s);
+  const title = generateTitle(t.s);
   if (!fixed && startAt != null && !startApprox && FIXED_WORDS.test(title)) {
     fixed = true;
     notes.push("A commitment at a set time, so it is a fixed appointment.");

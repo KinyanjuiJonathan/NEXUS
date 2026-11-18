@@ -38,7 +38,7 @@ describe("understanding a request", () => {
       "Rooting Mineh's phone today, around three hours, preferably in the evening Kenya time",
     ]) {
       const r = parse(text);
-      expect(r.title).toMatch(/^(Repairing|Rooting) Mineh's Phone$/);
+      expect(r.title).toMatch(/^(Repair|Root) Mineh's Phone$/);
       expect(r).toMatchObject({ durationMin: 180, durationApprox: true, period: "evening", zone: NBO, zoneLabel: "Kenya time", startAt: null, deadline: null, fixed: false });
       expect(r.window).toMatchObject({ start: at("2026-11-18T00:00"), end: at("2026-11-19T00:00"), label: "today" });
       expect(r.questions).toEqual([]);
@@ -46,18 +46,18 @@ describe("understanding a request", () => {
   });
 
   it("tells a length, a start time, a deadline and a preferred period apart", () => {
-    expect(parse("Write the report tomorrow morning for 2 hours")).toMatchObject({ title: "Write the Report", durationMin: 120, period: "morning", startAt: null, deadline: null });
-    expect(parse("Finish proposal by Friday 5pm, takes 90 minutes, urgent")).toMatchObject({ title: "Finish Proposal", durationMin: 90, deadline: at("2026-11-20T17:00"), startAt: null, window: null, priority: "critical" });
+    expect(parse("Write the report tomorrow morning for 2 hours")).toMatchObject({ title: "Write Report", durationMin: 120, period: "morning", startAt: null, deadline: null });
+    expect(parse("Finish proposal by Friday 5pm, takes 90 minutes, urgent")).toMatchObject({ title: "Complete Proposal", durationMin: 90, deadline: at("2026-11-20T17:00"), startAt: null, window: null, priority: "critical" });
     expect(parse("Fix bug around 4pm for half an hour")).toMatchObject({ title: "Fix Bug", durationMin: 30, startAt: at("2026-11-18T16:00"), startApprox: true });
     expect(parse("Team sync at 3pm for 30 minutes")).toMatchObject({ startAt: at("2026-11-18T15:00"), startApprox: false, durationMin: 30 });
     expect(parse("Pay rent by tomorrow")).toMatchObject({ title: "Pay Rent", deadline: at("2026-11-19T23:59:59.999"), startAt: null });
   });
 
   it("handles the everyday expressions", () => {
-    expect(parse("Call the bank later tonight")).toMatchObject({ title: "Call the Bank", period: "night", later: true, window: { label: "today" } });
+    expect(parse("Call the bank later tonight")).toMatchObject({ title: "Call Bank", period: "night", later: true, window: { label: "today" } });
     expect(parse("Submit tax form in two hours")).toMatchObject({ title: "Submit Tax Form", startAt: NOW + 2 * 3600_000, startApprox: true, durationMin: null });
     const weekend = parse("Clean the garage sometime this weekend, about 2 hours");
-    expect(weekend).toMatchObject({ title: "Clean the Garage", durationMin: 120 });
+    expect(weekend).toMatchObject({ title: "Clean Garage", durationMin: 120 });
     expect([fmt(weekend.window!.start), fmt(weekend.window!.end)]).toEqual(["Sat 21 Nov 00:00", "Mon 23 Nov 00:00"]);
     expect(parse("Prepare slides before my next meeting, 45 minutes")).toMatchObject({ title: "Prepare Slides", beforeNextMeeting: true, durationMin: 45 });
     expect(fmt(parse("Deploy on 25 November in the afternoon, 1h30").window!.start)).toBe("Wed 25 Nov 00:00");

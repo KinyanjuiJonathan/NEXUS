@@ -125,6 +125,12 @@ export interface SchedMeta {
   history?: SchedMove[];
   /** Set when NEXUS could not move it by itself and the user has to decide. */
   attention?: string | null;
+  /**
+   * Why this block was taken off the calendar together with its task: the task
+   * went to the trash, or was completed before the block began. It comes back
+   * with the task (restore / reopen) if its time has not passed.
+   */
+  removed?: "task-deleted" | "task-done" | null;
 }
 
 /** A concrete occurrence of an event (recurring series are expanded). */

@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, CalendarClock, Check, CheckCircle2, ChevronDown, Expand, LogIn, LogOut, Mic, MousePointerClick, Pause, Pin, PinOff, Play, Plus, Shrink, X } from "lucide-react";
+import { Activity, CalendarCheck, CalendarClock, Check, CheckCircle2, Flag, Lock, RotateCcw, ChevronDown, Expand, LogIn, LogOut, Mic, MousePointerClick, Pause, Pin, PinOff, Play, Plus, Shrink, X } from "lucide-react";
 import { useWorkClock } from "@/components/WorkClock";
 import type { OverlayMode, PerfMetric, ReminderItem } from "@/data/types";
 import { useNexus, nexus, getBackend } from "@/store";
 import { useNow } from "@/lib/ticker";
 import { useTheme } from "@/lib/useTheme";
 import { clockFor, KENYA_ZONE, formatTime } from "@/lib/time";
-import { deadlineInfo, elapsedMs, eventStatus, formatClock, humanDuration, progress, remainingMs } from "@/lib/countdown";
-import { expandEvents, findMissed } from "@/lib/schedule";
+import { deadlineInfo, elapsedMs, formatClock, humanDuration, progress, remainingMs } from "@/lib/countdown";
+import { findMissed } from "@/lib/schedule";
+import { agenda, untilLabel, type AgendaItem } from "@/lib/smart/agenda";
+import { dayLabel } from "@/lib/smart/format";
 import { openTasks, scoreTask } from "@/lib/assistant";
 import { parseCommand } from "@/lib/voice/parser";
 import { clampOpacity, ensureVisible, nextMode, sizeForMode } from "@/lib/overlayGeometry";
@@ -156,14 +158,25 @@ export default function OverlayApp() {
   const timer = timers.find((t) => t.state === "running") ?? timers.find((t) => t.state === "paused") ?? null;
   const active = tasks.find((t) => t.id === settings.activeTaskId && !t.deletedAt) ?? null;
   const minute = Math.floor(now / 60_000);
-  const upcoming = useMemo(() => expandEvents(events, now - 3600_000, now + 7 * 86_400_000).filter((o) => o.end > now).slice(0, 3), [events, minute]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The same tasks and calendar entries every other screen reads: an entry goes the moment
+  // its task or appointment is deleted, cancelled or completed, in whichever window that happens.
+  const schedule = useMemo(() => agenda(tasks, events, now, { limit: 6 }), [tasks, events, minute]); // eslint-disable-line react-hooks/exhaustive-deps
   const top = useMemo(() => openTasks(tasks).sort((a, b) => scoreTask(b, now) - scoreTask(a, now)).slice(0, 8), [tasks, minute]); // eslint-disable-line react-hooks/exhaustive-deps
   const missed = useMemo(() => findMissed(tasks, events, now).length, [tasks, events, minute]); // eslint-disable-line react-hooks/exhaustive-deps
   const doneToday = useMemo(
     () => tasks.filter((t) => t.status === "done" && !t.deletedAt && t.completedAt != null && t.completedAt >= work.dayStart).sort((a, b) => b.completedAt! - a.completedAt!),
     [tasks, work.dayStart],
   );
-  const next = upcoming[0];
+  const next = schedule.find((i) => i.status !== "overdue") ?? null;
+  const overdueCount = schedule.filter((i) => i.status === "overdue").length;
+  const itemColor = (i: AgendaItem) => (i.status === "overdue" ? "var(--danger)" : i.status === "now" ? "var(--success)" : i.start - now < 3600_000 ? "var(--warning)" : "var(--muted)");
+  const itemIcon = (i: AgendaItem, size = 11) =>
+    i.kind === "fixed" ? <Lock size={size} className="shrink-0 text-accent-2" aria-label="Fixed appointment" /> : i.kind === "deadline" ? <Flag size={size} className="shrink-0 text-warning" aria-label="Due" /> : <CalendarCheck size={size} className="shrink-0 text-accent" aria-label="Flexible task" />;
+  const itemWhen = (i: AgendaItem) => {
+    const zone = settings.homeZone;
+    const day = dayLabel(i.start, zone, now);
+    return `${day === "Today" ? "" : `${day} `}${formatTime(i.start, zone, settings.hour12)}`;
+  };
   const s = nexus();
   const opacity = clampOpacity(settings.overlayOpacity);
 
@@ -286,12 +299,10 @@ export default function OverlayApp() {
               {!timer && subProgress != null && <ProgressBar value={subProgress} className="mt-1.5 !h-1" />}
             </div>
             {next && (
-              <div className="flex items-center gap-2 text-[11px] min-w-0">
-                <CalendarClock size={12} className="text-accent-2 shrink-0" />
-                <span className="truncate text-fg-2 flex-1">{next.event.title}</span>
-                <span className="shrink-0 tabular" style={{ color: eventStatus(next.start, next.end, now).live ? "var(--success)" : "var(--muted)" }}>
-                  {eventStatus(next.start, next.end, now).label.replace("Starts in ", "in ")}
-                </span>
+              <div className="flex items-center gap-2 text-[11px] min-w-0" title={`${next.kind === "fixed" ? "Fixed appointment" : next.kind === "deadline" ? "Due" : "Flexible task"} · ${itemWhen(next)}`}>
+                {itemIcon(next, 12)}
+                <span className="truncate text-fg-2 flex-1">{next.title}</span>
+                <span className="shrink-0 tabular" style={{ color: itemColor(next) }}>{untilLabel(next, now)}</span>
               </div>
             )}
             <div className="no-drag flex items-center gap-1.5">
@@ -371,16 +382,31 @@ export default function OverlayApp() {
                     </div>
                   </>
                 )}
-                {upcoming.length > 1 && (
-                  <>
-                    <p className="text-[9px] uppercase tracking-widest text-muted">Schedule</p>
-                    {upcoming.map((o) => (
-                      <div key={o.event.id + o.start} className="flex items-center gap-2 text-[11px]">
-                        <span className="tabular text-muted w-16 shrink-0">{formatTime(o.start, settings.homeZone, settings.hour12)}</span>
-                        <span className="truncate">{o.event.title}</span>
+                <p className="text-[9px] uppercase tracking-widest text-muted flex items-center gap-2">
+                  Schedule
+                  {overdueCount > 0 && <span className="normal-case tracking-normal font-semibold text-danger">{overdueCount} overdue</span>}
+                </p>
+                {schedule.length === 0 ? (
+                  <p className="text-[11px] text-muted rounded-lg bg-hover px-2 py-1.5">
+                    <CalendarClock size={11} className="inline mr-1 -mt-0.5" />
+                    Nothing scheduled for the next 7 days. Add something from the dashboard and it shows up here.
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-0.5 max-h-[104px] overflow-y-auto scroll-y pr-1 shrink-0" aria-label="Schedule">
+                    {schedule.map((i) => (
+                      <div
+                        key={i.key}
+                        className={cx("flex items-center gap-1.5 rounded-md px-1.5 py-[3px] text-[11px] min-w-0", i.status === "overdue" ? "bg-[color-mix(in_oklab,var(--danger)_12%,transparent)]" : i.status === "now" ? "bg-[color-mix(in_oklab,var(--success)_12%,transparent)]" : "")}
+                        title={`${i.title}\n${i.kind === "fixed" ? "Fixed appointment — never moved automatically" : i.kind === "deadline" ? "Task due" : "Flexible task — NEXUS may re-plan it"}${i.moved ? " · auto-rescheduled" : ""}\n${itemWhen(i)}${i.end > i.start ? ` – ${formatTime(i.end, settings.homeZone, settings.hour12)}` : ""}`}
+                      >
+                        {itemIcon(i)}
+                        <span className="tabular text-muted shrink-0">{itemWhen(i)}</span>
+                        <span className={cx("truncate flex-1", i.status === "overdue" ? "text-danger" : "text-fg")}>{i.title}</span>
+                        {i.moved && <RotateCcw size={9} className="shrink-0 text-warning" aria-label="Auto-rescheduled" />}
+                        <span className="shrink-0 tabular font-medium" style={{ color: itemColor(i) }}>{untilLabel(i, now)}</span>
                       </div>
                     ))}
-                  </>
+                  </div>
                 )}
                 <div className="flex items-center justify-between gap-2">
                   <button onClick={() => void openInMain(null)} className="text-[10px] text-accent hover:underline truncate">Open full calendar & scheduling →</button>

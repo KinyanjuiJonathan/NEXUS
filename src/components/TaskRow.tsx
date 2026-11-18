@@ -9,6 +9,7 @@ import { autoBadge, dayLabel, moveHistory } from "@/lib/smart/format";
 import { useUI } from "@/store/ui";
 import { Badge, IconButton, ProgressBar, cx } from "./ui";
 import { CategoryIcon, PRIORITY_META, URGENCY_COLOR, categoryOf } from "./meta";
+import { choose } from "./Confirm";
 
 /** The time reserved on the calendar for a task, and whether NEXUS has moved it. */
 function PlannedTime({ taskId, now, hour12 }: { taskId: string; now: number; hour12: boolean }) {
@@ -140,7 +141,26 @@ export const TaskRow = memo(function TaskRow({ task: t, categories, now, hour12,
                 <RotateCcw size={15} />
               </IconButton>
             )}
-            <IconButton label="Delete (restorable)" onClick={() => void s.deleteTask(t.id)} className="hover:!text-danger"><Trash2 size={15} /></IconButton>
+            <IconButton
+              label="Delete (restorable)"
+              onClick={async () => {
+                if (!t.recurrence || t.dueAt == null) return void s.deleteTask(t.id);
+                // A repeating task: remove just this one, or stop it repeating?
+                const which = await choose({
+                  title: "Delete repeating task",
+                  body: `“${t.title}” repeats. Delete only this occurrence (the next one is scheduled), or the whole series? Either can be restored from the Trash.`,
+                  danger: true,
+                  choices: [
+                    { value: "occurrence", label: "Only this one", variant: "soft" },
+                    { value: "series", label: "Entire series", variant: "danger" },
+                  ],
+                });
+                if (which) void s.deleteTask(t.id, which as "occurrence" | "series");
+              }}
+              className="hover:!text-danger"
+            >
+              <Trash2 size={15} />
+            </IconButton>
           </>
         )}
       </div>
