@@ -193,6 +193,12 @@ export interface ActivityEntry {
   refId: string | null;
 }
 
+/** What the native activity monitor reports (timestamps are epoch milliseconds). */
+export type ActivityEvent =
+  | { kind: "away"; since: number; reason: "idle" | "locked" | "sleep" }
+  | { kind: "longIdle"; since: number }
+  | { kind: "back"; at: number };
+
 export type OverlayMode = "mini" | "standard" | "expanded";
 /** A system metric that can be charted over time. */
 export type PerfMetric = "cpu" | "ram" | "gpu" | "vram" | "fps" | "temp";
@@ -243,6 +249,14 @@ export interface Settings {
   dashboardPerf: boolean;
   /** Auto Typer options (the text itself is kept separately). */
   typer: TyperOptions;
+  /** Start, pause and resume the work clock by itself from keyboard/mouse activity. */
+  workAuto: boolean;
+  /** ISO date on which the user clocked out by hand: automatic tracking stays off for that day. */
+  workAutoHoldDay: string | null;
+  /** Leave the Auto Typer screen for the dashboard after a spell without any input. */
+  typerIdleReturn: boolean;
+  /** Minutes without input before that happens. */
+  typerIdleReturnMin: number;
   /** Minutes without keyboard/mouse input before the work clock auto-pauses. */
   idleMinutes: number;
   /** Resume automatically when activity returns after an auto-pause. */

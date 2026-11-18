@@ -51,7 +51,7 @@ More screens: [Calendar](docs/screenshots/calendar.png) · [Tasks](docs/screensh
 
 **Reminders**: at time, 5/15/30/60 minutes before, or custom offsets · Windows toast notifications plus an optional chime · snooze for 5/10/30 minutes · delivered while minimized to the tray.
 
-**Work clock & inactivity**: Clock in and out from the Dashboard or the overlay, and take manual breaks. When there's no keyboard or mouse input anywhere in Windows for **5 minutes** (configurable), the clock **auto-pauses**. The pause is backdated to your last input, so idle minutes are never counted, and running focus timers pause too. When you're back, it resumes automatically (optional), and the "Welcome back" message tells you how much idle time was excluded.
+**Automatic work clock**: the clock starts by itself when you use the computer, pauses after **1 minute** (configurable) without keyboard or mouse input in any app, and resumes when you are back. The pause is backdated to your last input and the resume to your first, so idle time is never counted. Time while the PC is **locked, asleep or suspended**, and time while NEXUS is not running, is never counted either, and the day's total survives restarts. Use **Break** for a manual pause; **Clock out** stops tracking until the next day (or until you clock in again). Focus timers pause after 5 minutes idle or as soon as the PC locks or sleeps. Automatic tracking can be turned off in *Settings → Work clock & inactivity*.
 
 **Auto-placement**: *Auto-plan* (Dashboard, Tasks, Calendar) fits your open tasks into **free working time** (your working hours and days, around existing appointments, with a buffer). It places the earliest deadline first, then by priority; it subtracts time already tracked, splits long tasks into blocks, never leaves tiny leftover blocks, and flags anything that would finish after its deadline. You get a preview and choose what to apply. New tasks that have an estimate are placed automatically, with an **Undo** button; this can be turned off in Settings. Existing appointments are never moved.
 
@@ -165,6 +165,14 @@ Toggle it with `Ctrl+Shift+Space`, the **Overlay switch at the bottom of the sid
 - **Performance**: it renders once per second and stops completely while hidden. Animations are minimal, with no video or polling, to avoid affecting games, calls or remote desktop.
 - **Limits** (by design): it won't draw over **exclusive-fullscreen** games (use borderless/windowed mode), the lock screen, UAC prompts, or DRM-protected content. NEXUS deliberately doesn't try to bypass these OS security boundaries.
 
+## Tasks on the calendar
+
+Every To-Do task with a due date appears on the calendar on that day, in Day, Week and Month views (Month shows the first few and a "+N more" link that opens the day). The calendar and the To-Do list are two views of the same data, so a change in one shows in the other at once.
+
+- **Click** a task to open it (details, edit, due date). **Tick** its circle to complete or reopen it. **Drag** it to another day to reschedule; the time of day is kept.
+- Pending tasks carry their priority colour, **high-priority** ones a flag, **overdue** ones are red with a warning mark, and **completed** ones are greyed and struck through.
+- Tasks without a date are not on the calendar; they stay in the To-Do list, and the calendar says how many there are.
+
 ## Auto Typer
 
 Open **Auto Typer** in the sidebar (or press `9`).
@@ -181,6 +189,8 @@ Open **Auto Typer** in the sidebar (or press `9`).
 | Lock onto the text box | Ignores mouse clicks while typing so a click can't move the cursor, and pauses if the window changes, carrying on when you return. Stop with `F6` or `Esc` |
 | Revise with arrow keys and Delete | Off limits corrections to Backspace, for apps with autocomplete |
 | US keyboard layout | Holds Shift for symbols; turn off on other layouts |
+
+**Return to Dashboard After Inactivity** (*Settings → Auto Typer*, on by default): if the Auto Typer screen is left open with no keyboard or mouse activity anywhere for 5 minutes (configurable), NEXUS goes back to the Dashboard. It never happens while the Auto Typer is typing, and your text and settings are kept.
 
 The target should be a plain text field: autocorrect, auto-indent or auto-closing brackets in the other app can throw corrections off. Apps running as administrator only accept the keystrokes if NEXUS runs as administrator too.
 
@@ -297,7 +307,7 @@ src-tauri/
 | **FPS shows a 🔒** | Windows blocks the frame-rate events for normal users. Add yourself to *Performance Log Users* (see [The floating overlay](#the-floating-overlay)) and sign out/in, or turn FPS off. |
 | **FPS shows "—" in a game** | Nothing is drawing frames, or the game uses Vulkan/OpenGL without DirectX presentation. CPU/GPU/RAM still work. |
 | **CPU temperature shows "—"** | Your PC's firmware doesn't expose CPU temperature to Windows for normal users. Running NEXUS as administrator may help on some PCs; GPU temperature still works. |
-| **Work clock paused while I was reading** | No keyboard/mouse input for the idle limit counts as inactivity. Raise *Settings → Work clock → Auto-pause after*, or press Resume. |
+| **Work clock paused while I was reading** | No keyboard/mouse input for the idle limit (1 minute by default) counts as inactivity; it resumes on your next key press or mouse move. Raise *Settings → Work clock & inactivity → Pause after* if you want a longer limit. |
 | **GPU / VRAM show "—"** | Your graphics driver doesn't expose GPU performance counters (very old drivers, some virtual machines or remote sessions). Update the GPU driver. |
 | **Overlay is off-screen** | Press `Ctrl+Shift+Space` twice. It's moved back onto a connected monitor when shown. |
 | **A global shortcut does nothing** | Another app owns that combination. Settings flags it; pick a different one. |

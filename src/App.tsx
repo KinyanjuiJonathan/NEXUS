@@ -12,9 +12,9 @@ import { SmartReschedule } from "@/components/SmartReschedule";
 import { AutoPlanDialog } from "@/components/AutoPlanDialog";
 import { useTheme } from "@/lib/useTheme";
 import { onTick } from "@/lib/ticker";
-import { idleSeconds, listenTo, playChime, signalReady } from "@/lib/platform";
+import { activityConfigure, activityState, idleSeconds, listenTo, playChime, signalReady } from "@/lib/platform";
 import { initTyper } from "@/lib/typer/controller";
-import type { ReminderItem } from "@/data/types";
+import type { ActivityEvent, ReminderItem } from "@/data/types";
 import Dashboard from "@/views/Dashboard";
 
 const Tasks = lazy(() => import("@/views/Tasks"));
@@ -51,7 +51,7 @@ function anyModalOpen() {
 }
 
 export default function App() {
-  const { theme, reducedMotion, error } = useNexus((s) => ({ theme: s.settings.theme, reducedMotion: s.settings.reducedMotion, error: s.error }));
+  const { theme, reducedMotion, error, idleMinutes } = useNexus((s) => ({ theme: s.settings.theme, reducedMotion: s.settings.reducedMotion, error: s.error, idleMinutes: s.settings.idleMinutes }));
   const view = useUI((s) => s.view);
   useTheme(theme, reducedMotion);
 
@@ -98,23 +98,47 @@ export default function App() {
     return off;
   }, []);
 
-  // Idle detection for the work clock / focus timers (main window only, so it runs once).
+  // Work clock / focus timers follow real activity (main window only, so it runs once).
+  // The desktop app's native monitor reports going away and coming back with exact
+  // timestamps, so this stays accurate while the window is minimised or hidden and
+  // across lock and sleep. A plain browser can only poll idle time inside the page.
   useEffect(() => {
     let alive = true;
-    const check = async () => {
+    let off: (() => void) | undefined;
+    let iv: ReturnType<typeof setInterval> | undefined;
+    void (async () => {
+      const state = await activityState();
       if (!alive) return;
-      try {
-        await nexus().handleIdle(await idleSeconds());
-      } catch {
-        /* ignore */
+      if (state?.supported) {
+        const un = await listenTo<ActivityEvent>("nexus://activity", (ev) => void nexus().handleActivity(ev).catch(() => {}));
+        if (!alive) return un();
+        off = un;
+        // Catch up with whatever happened before this window was listening.
+        if (state.away && state.since != null) void nexus().handleActivity({ kind: "away", since: state.since, reason: state.locked ? "locked" : "idle" });
+        else void nexus().handleActivity({ kind: "back", at: Date.now() - (state.idleSeconds ?? 0) * 1000 });
+        return;
       }
-    };
-    const iv = setInterval(() => void check(), 15_000);
+      const check = async () => {
+        try {
+          await nexus().handleIdle(await idleSeconds());
+        } catch {
+          /* ignore */
+        }
+      };
+      void check();
+      iv = setInterval(() => void check(), 15_000);
+    })();
     return () => {
       alive = false;
-      clearInterval(iv);
+      off?.();
+      if (iv) clearInterval(iv);
     };
   }, []);
+
+  // The monitor uses the same idle limit as the work-clock setting.
+  useEffect(() => {
+    void activityConfigure(Math.max(1, idleMinutes) * 60);
+  }, [idleMinutes]);
 
   // In-app keyboard shortcuts.
   useEffect(() => {

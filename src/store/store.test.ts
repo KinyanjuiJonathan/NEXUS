@@ -11,6 +11,7 @@ import { suggestNext, proposeReorganization, breakdownLocally } from "@/lib/assi
 const NBO = "Africa/Nairobi";
 const at = (iso: string, zone = NBO) => DateTime.fromISO(iso, { zone }).toMillis();
 
+const MIN = 60_000;
 let clock = at("2026-11-17T10:00");
 let seq = 0;
 let kv: KV;
@@ -413,6 +414,173 @@ describe("work clock with idle auto-pause", () => {
     await reopened.getState().init();
     expect(reopened.getState().workSessions).toHaveLength(1);
     expect(reopened.getState().activity.map((a) => a.kind)).toEqual(expect.arrayContaining(["clock_in", "task_created", "task_completed"]));
+  });
+});
+
+describe("automatic work clock", () => {
+  const worked = async (store: ReturnType<typeof makeStore>) => {
+    const { workedBetween } = await import("@/lib/work");
+    return workedBetween(store.getState().workSessions, 0, clock + 1, clock);
+  };
+
+  it("starts by itself on activity, pauses from the last input and resumes from the first", async () => {
+    const store = makeStore();
+    await store.getState().init();
+    const { activeSession, openPause } = await import("@/lib/work");
+    expect(store.getState().settings).toMatchObject({ workAuto: true, idleMinutes: 1 });
+    const t0 = clock;
+    await store.getState().handleActivity({ kind: "back", at: t0 });
+    expect(activeSession(store.getState().workSessions)).toMatchObject({ startedAt: t0, pauses: [] });
+
+    // 10 minutes of work; the last key press is at +10:00, noticed a minute later
+    clock = t0 + 11 * MIN;
+    await store.getState().handleActivity({ kind: "away", since: t0 + 10 * MIN, reason: "idle" });
+    expect(openPause(activeSession(store.getState().workSessions))).toMatchObject({ start: t0 + 10 * MIN, reason: "idle" });
+    expect(await worked(store)).toBe(10 * MIN);
+    clock = t0 + 30 * MIN;
+    expect(await worked(store)).toBe(10 * MIN); // nothing accumulates while away
+
+    // back at +30:00, reported a couple of seconds late
+    clock = t0 + 30 * MIN + 2000;
+    await store.getState().handleActivity({ kind: "back", at: t0 + 30 * MIN });
+    expect(openPause(activeSession(store.getState().workSessions))).toBeNull();
+    clock = t0 + 45 * MIN;
+    expect(await worked(store)).toBe(25 * MIN);
+    expect(store.getState().workSessions).toHaveLength(1);
+  });
+
+  it("stays quiet for short absences and only pauses focus timers after a long one", async () => {
+    const store = makeStore();
+    await store.getState().init();
+    const t0 = clock;
+    await store.getState().handleActivity({ kind: "back", at: t0 });
+    const timer = await store.getState().startTimer({ kind: "countdown", minutes: 60 });
+    const before = store.getState().activity.length;
+    clock = t0 + 3 * MIN;
+    await store.getState().handleActivity({ kind: "away", since: t0 + 2 * MIN, reason: "idle" });
+    expect(store.getState().timers.find((x) => x.id === timer.id)!.state).toBe("running");
+    clock = t0 + 4 * MIN;
+    await store.getState().handleActivity({ kind: "back", at: t0 + 4 * MIN });
+    expect(store.getState().toasts).toHaveLength(0);
+    expect(store.getState().activity).toHaveLength(before);
+
+    // a long one: the timer stops at the last input and comes back with the user
+    clock = t0 + 12 * MIN;
+    await store.getState().handleActivity({ kind: "away", since: t0 + 5 * MIN, reason: "idle" });
+    await store.getState().handleActivity({ kind: "longIdle", since: t0 + 5 * MIN });
+    const paused = store.getState().timers.find((x) => x.id === timer.id)!;
+    expect(paused.state).toBe("paused");
+    expect(paused.accumulatedMs).toBe(5 * MIN);
+    expect(store.getState().toasts.map((x) => x.title)).toContain("Paused — no activity");
+    clock = t0 + 20 * MIN;
+    await store.getState().handleActivity({ kind: "back", at: t0 + 20 * MIN });
+    expect(store.getState().timers.find((x) => x.id === timer.id)!.state).toBe("running");
+    expect(store.getState().toasts.map((x) => x.title)).toEqual(["Welcome back"]);
+    // worked 0–2 and 4–5 minutes; both absences are left out
+    expect(await worked(store)).toBe(3 * MIN);
+  });
+
+  it("does not count lock or sleep, even when both reports arrive together", async () => {
+    const store = makeStore();
+    await store.getState().init();
+    const t0 = clock;
+    await store.getState().handleActivity({ kind: "back", at: t0 });
+    const timer = await store.getState().startTimer({ kind: "countdown", minutes: 60 });
+    // lid closed at +20 min, opened 8 hours later with a key press
+    clock = t0 + 20 * MIN + 8 * 60 * MIN;
+    const a = store.getState().handleActivity({ kind: "away", since: t0 + 20 * MIN, reason: "sleep" });
+    const b = store.getState().handleActivity({ kind: "back", at: clock });
+    await Promise.all([a, b]);
+    expect(await worked(store)).toBe(20 * MIN);
+    const t = store.getState().timers.find((x) => x.id === timer.id)!;
+    expect(t.state).toBe("running");
+    expect(t.accumulatedMs).toBe(20 * MIN);
+    clock += 5 * MIN;
+    expect(await worked(store)).toBe(25 * MIN);
+
+    clock += MIN;
+    await store.getState().handleActivity({ kind: "away", since: clock - 6000, reason: "locked" });
+    expect(store.getState().timers.find((x) => x.id === timer.id)!.state).toBe("paused");
+  });
+
+  it("clocking out by hand keeps it off for the day; clocking in turns it back on", async () => {
+    const store = makeStore();
+    await store.getState().init();
+    const { activeSession } = await import("@/lib/work");
+    await store.getState().handleActivity({ kind: "back", at: clock });
+    clock += 30 * MIN;
+    await store.getState().clockOut();
+    clock += MIN;
+    await store.getState().handleActivity({ kind: "back", at: clock });
+    expect(activeSession(store.getState().workSessions)).toBeNull();
+    // survives a restart
+    const reopened = makeStore(kv);
+    await reopened.getState().init();
+    await reopened.getState().handleActivity({ kind: "back", at: clock });
+    expect(activeSession(reopened.getState().workSessions)).toBeNull();
+    // the next day it tracks again
+    clock += 24 * 60 * MIN;
+    await reopened.getState().handleActivity({ kind: "back", at: clock });
+    expect(activeSession(reopened.getState().workSessions)).toMatchObject({ startedAt: clock });
+
+    await store.getState().clockIn();
+    expect(store.getState().settings.workAutoHoldDay).toBeNull();
+  });
+
+  it("an absence over midnight ends yesterday's session and starts a new one", async () => {
+    const store = makeStore();
+    await store.getState().init();
+    const t0 = clock;
+    await store.getState().handleActivity({ kind: "back", at: t0 });
+    clock = t0 + 61 * MIN;
+    await store.getState().handleActivity({ kind: "away", since: t0 + 60 * MIN, reason: "idle" });
+    clock = t0 + 24 * 60 * MIN;
+    await store.getState().handleActivity({ kind: "back", at: clock });
+    const sessions = [...store.getState().workSessions].sort((x, y) => x.startedAt - y.startedAt);
+    expect(sessions).toHaveLength(2);
+    expect(sessions[0]).toMatchObject({ startedAt: t0, endedAt: t0 + 60 * MIN, pauses: [] });
+    expect(sessions[1]).toMatchObject({ startedAt: clock, endedAt: null });
+    expect(await worked(store)).toBe(60 * MIN);
+  });
+
+  it("with automatic tracking off, activity never clocks in but idle still pauses", async () => {
+    const store = makeStore();
+    await store.getState().init();
+    const { activeSession, openPause } = await import("@/lib/work");
+    await store.getState().setSetting("workAuto", false);
+    await store.getState().handleActivity({ kind: "back", at: clock });
+    expect(store.getState().workSessions).toHaveLength(0);
+    await store.getState().clockIn();
+    clock += 10 * MIN;
+    await store.getState().handleActivity({ kind: "away", since: clock - 2 * MIN, reason: "idle" });
+    expect(openPause(activeSession(store.getState().workSessions))?.reason).toBe("idle");
+    await store.getState().clockOut();
+    expect(store.getState().settings.workAutoHoldDay).toBeNull();
+  });
+
+  it("time while NEXUS was not running is not counted after a restart", async () => {
+    const store = makeStore();
+    await store.getState().init();
+    const t0 = clock;
+    await store.getState().handleActivity({ kind: "back", at: t0 });
+    // NEXUS last recorded being alive at +40 min, then the PC was switched off overnight
+    await createLocalBackend(kv).setSetting("workHeartbeat", t0 + 40 * MIN);
+    clock = t0 + 14 * 60 * MIN;
+    const reopened = makeStore(kv);
+    await reopened.getState().init();
+    const { activeSession, openPause } = await import("@/lib/work");
+    expect(openPause(activeSession(reopened.getState().workSessions))).toMatchObject({ start: t0 + 40 * MIN, reason: "idle" });
+    expect(await worked(reopened)).toBe(40 * MIN);
+    await reopened.getState().handleActivity({ kind: "back", at: clock });
+    clock += 15 * MIN;
+    expect(await worked(reopened)).toBe(55 * MIN);
+
+    // a quick restart (fresh heartbeat) changes nothing
+    await createLocalBackend(kv).setSetting("workHeartbeat", clock - 20_000);
+    const again = makeStore(kv);
+    await again.getState().init();
+    expect(openPause(activeSession(again.getState().workSessions))).toBeNull();
+    expect(await worked(again)).toBe(55 * MIN);
   });
 });
 

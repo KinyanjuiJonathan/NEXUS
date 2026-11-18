@@ -64,13 +64,15 @@ export default function Dashboard() {
 
       <GettingStarted />
 
+      {/* The work clock sits beside the day's numbers instead of spanning the page. */}
+      <div className="grid gap-4 lg:grid-cols-[minmax(270px,340px)_minmax(0,1fr)]">
       <WorkClockCard />
-
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         <Stat label="Tasks today" value={stats.totalToday} icon={<ListTodo size={18} />} sub={`${stats.pendingToday} pending`} />
         <Stat label="Completed today" value={stats.completedToday} icon={<CheckCircle2 size={18} />} tone="var(--success)" />
         <Stat label="Overdue" value={stats.overdue} icon={<TriangleAlert size={18} />} tone={stats.overdue ? "var(--danger)" : "var(--muted)"} sub={stats.overdue ? "Use Smart Reschedule" : "All on track"} />
         <Stat label="Focus time today" value={humanDuration(stats.focusMsToday).replace(" sec", "s")} icon={<Flame size={18} />} tone="var(--accent-2)" />
+      </div>
       </div>
 
       <SystemMonitor />

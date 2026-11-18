@@ -103,6 +103,28 @@ export interface PerfSnapshot {
   cpuTemp: number | null;
 }
 
+// ---------------------------------------------------------------- activity monitor
+
+export interface ActivitySnapshot {
+  /** False where system-wide activity can't be read (anything but the Windows desktop app). */
+  supported: boolean;
+  away: boolean;
+  since: number | null;
+  idleSeconds: number | null;
+  locked: boolean;
+}
+
+/** Current state of the native activity monitor; null in a plain browser. */
+export async function activityState(): Promise<ActivitySnapshot | null> {
+  if (!native) return null;
+  return invokeSafe<ActivitySnapshot>("activity_state").catch(() => null);
+}
+
+/** Tell the monitor how long without input counts as away. */
+export async function activityConfigure(idleSeconds: number) {
+  if (native) await invokeSafe("activity_configure", { idleSeconds: Math.round(idleSeconds) }).catch(() => {});
+}
+
 // ---------------------------------------------------------------- idle detection
 
 let lastLocalInput = Date.now();

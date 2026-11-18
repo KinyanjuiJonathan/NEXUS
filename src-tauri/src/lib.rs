@@ -1,5 +1,6 @@
 //! NEXUS desktop shell: windows, tray, global shortcuts, reminders, persistence.
 
+mod activity;
 mod ai;
 mod commands;
 mod overlay;
@@ -13,6 +14,8 @@ mod typer;
 mod win_cpu;
 #[cfg(windows)]
 mod win_input;
+#[cfg(windows)]
+mod win_session;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -47,6 +50,8 @@ fn setting_bool(app: &AppHandle, key: &str, default: bool) -> bool {
 fn app_quit(app: AppHandle) {
     // Let go of any key the Auto Typer is holding before the process ends.
     app.state::<typer::TyperState>().request_stop();
+    // So the time until the next launch is never counted as work.
+    activity::beat(&app);
     app.state::<AppState>().quitting.store(true, Ordering::SeqCst);
     app.state::<AppState>().wake_scheduler();
     app.exit(0);
@@ -134,6 +139,7 @@ pub fn run() {
             }
             app.manage(perf::PerfState::new());
             app.manage(typer::TyperState::new());
+            app.manage(activity::ActivityState::new());
             app.manage(AppState {
                 store: Mutex::new(store),
                 data_dir: data_dir.clone(),
@@ -151,6 +157,7 @@ pub fn run() {
                 log::warn!("some shortcuts are in use by other apps: {failed:?}");
             }
             scheduler::start(handle.clone(), db_path);
+            activity::start(handle.clone());
             overlay::restore(&handle);
             Ok(())
         })
@@ -170,6 +177,7 @@ pub fn run() {
                         let _ = window.hide();
                     }
                     _ => {
+                        activity::beat(app);
                         app.state::<AppState>().quitting.store(true, Ordering::SeqCst);
                         app.exit(0);
                     }
@@ -223,6 +231,8 @@ pub fn run() {
             typer::typer_start,
             typer::typer_stop,
             typer::typer_status,
+            activity::activity_state,
+            activity::activity_configure,
         ])
         .run(tauri::generate_context!())
         .expect("error while running NEXUS");

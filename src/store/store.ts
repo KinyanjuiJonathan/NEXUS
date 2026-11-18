@@ -1,9 +1,11 @@
 import { createStore } from "zustand/vanilla";
+import { DateTime } from "luxon";
 import { DEFAULT_TYPER } from "@/lib/typer/engine";
 import type { Backend } from "@/data/backend";
 import {
   DEFAULT_SHORTCUTS,
   type ActivityEntry,
+  type ActivityEvent,
   type ActivityKind,
   type WorkSession,
   type CalendarEvent,
@@ -60,7 +62,11 @@ export const DEFAULT_SETTINGS: Settings = {
   perfGraphMetric: "cpu",
   dashboardPerf: true,
   typer: DEFAULT_TYPER,
-  idleMinutes: 5,
+  workAuto: true,
+  workAutoHoldDay: null,
+  typerIdleReturn: true,
+  typerIdleReturnMin: 5,
+  idleMinutes: 1,
   idleAutoResume: true,
   idlePauseTimers: true,
   autoPlaceNewTasks: true,
@@ -77,6 +83,11 @@ export const DEFAULT_SETTINGS: Settings = {
   reducedMotion: false,
   onboarded: false,
 };
+
+/** Absences at least this long pause focus timers and are mentioned to the user. */
+const LONG_AWAY_MS = 5 * 60_000;
+/** A heartbeat older than this at start-up means NEXUS was not running in between. */
+const RESTART_GAP_MS = 90_000;
 
 export type ToastKind = "info" | "success" | "warning" | "error" | "reminder";
 export interface Toast {
@@ -158,8 +169,10 @@ export interface NexusState {
   clockOut(): Promise<void>;
   pauseWork(): Promise<void>;
   resumeWork(): Promise<void>;
-  /** Feed the system idle time; auto-pauses/resumes per settings. */
+  /** Feed the system idle time; auto-pauses/resumes per settings (used where the native activity monitor is unavailable). */
   handleIdle(idleSeconds: number): Promise<void>;
+  /** Apply an away / back report from the native activity monitor. Reports are handled strictly in order. */
+  handleActivity(event: ActivityEvent): Promise<void>;
   log(kind: ActivityKind, title: string, detail?: string, refId?: string | null): void;
 
   // planning
@@ -288,6 +301,98 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
       await backend.upsertWork(w);
     };
 
+    const homeDay = (ms: number) => DateTime.fromMillis(ms, { zone: get().settings.homeZone }).toISODate();
+
+    /**
+     * The user went away at `since`: pause the work clock from that moment, so
+     * the time without input is never counted. `timers` also pauses running
+     * focus timers; `quiet` skips the notice and history entry (short absences).
+     */
+    const goAway = async (since: number, opts: { timers: boolean; quiet: boolean }) => {
+      const s = get().settings;
+      const ts = now();
+      const w = activeSession(get().workSessions);
+      const p = openPause(w);
+      const running = opts.timers && s.idlePauseTimers ? get().timers.filter((t) => t.state === "running") : [];
+      const needsPause = !!w && !p;
+      if (!needsPause && !running.length) {
+        if (!opts.quiet && p?.reason === "idle") awayNotice(p.start);
+        return;
+      }
+      for (const t of running) await get().pauseTimer(t.id, since);
+      if (w && !p) {
+        const start = Math.min(ts, Math.max(w.startedAt, since));
+        await saveWork({ ...w, pauses: [...w.pauses, { start, end: null, reason: "idle", timerIds: running.map((t) => t.id) }], updatedAt: ts });
+        if (!opts.quiet) get().log("auto_paused", "Auto-paused (no activity)", "No keyboard or mouse input", w.id);
+      } else if (w && p && p.reason === "idle") {
+        await saveWork({ ...w, pauses: w.pauses.map((x) => (x === p ? { ...x, timerIds: [...(x.timerIds ?? []), ...running.map((t) => t.id)] } : x)) });
+      }
+      if (!opts.quiet) awayNotice(since);
+    };
+
+    const AWAY_TOAST = "Paused — no activity";
+    const awayNotice = (since: number) => {
+      if (get().toasts.some((x) => x.title === AWAY_TOAST)) return;
+      const s = get().settings;
+      get().toast({ kind: "info", title: AWAY_TOAST, body: `Nothing was counted after ${formatWithZone(since, s.homeZone, s.hour12)}.`, ttl: 0 });
+    };
+
+    /** In automatic mode, start a work session if none is running (unless the user clocked out today). */
+    const ensureAutoWork = async (at: number) => {
+      const s = get().settings;
+      if (!s.workAuto || activeSession(get().workSessions)) return;
+      const ts = now();
+      if (s.workAutoHoldDay && s.workAutoHoldDay === homeDay(ts)) return;
+      const startedAt = Math.min(ts, at);
+      const w: WorkSession = { id: id(), startedAt, endedAt: null, pauses: [], note: "", createdAt: ts, updatedAt: ts };
+      await saveWork(w);
+      get().log("clock_in", "Work clock started", "Started automatically when you became active", w.id);
+    };
+
+    /** The user is active again since `at`: close an automatic pause and, in automatic mode, make sure the clock runs. */
+    const comeBack = async (at: number) => {
+      const s = get().settings;
+      const ts = now();
+      const w = activeSession(get().workSessions);
+      const p = openPause(w);
+      if (w && p && p.reason === "idle" && s.idleAutoResume) {
+        const resumeAt = Math.min(ts, Math.max(p.start, at));
+        const away = resumeAt - p.start;
+        if (s.workAuto && homeDay(p.start) !== homeDay(resumeAt)) {
+          // Away over midnight: yesterday's session ends where the activity stopped; today starts fresh.
+          const pauses = w.pauses.filter((x) => x !== p);
+          await saveWork({ ...w, pauses, endedAt: Math.max(w.startedAt, p.start), updatedAt: ts });
+        } else {
+          await saveWork({ ...w, pauses: w.pauses.map((x) => (x === p ? { ...x, end: resumeAt } : x)), updatedAt: ts });
+        }
+        for (const tid of p.timerIds ?? []) {
+          const t = get().timers.find((x) => x.id === tid);
+          if (t && t.state === "paused") await get().resumeTimer(tid);
+        }
+        set({ toasts: get().toasts.filter((x) => x.title !== AWAY_TOAST) });
+        if (away >= LONG_AWAY_MS) {
+          get().log("resumed", "Resumed after inactivity", `${humanDuration(away)} idle not counted`, w.id);
+          get().toast({ kind: "success", title: "Welcome back", body: `${humanDuration(away)} of inactivity wasn't counted.`, ttl: 6000 });
+        }
+      }
+      await ensureAutoWork(at);
+    };
+
+    /**
+     * NEXUS was not running since `heartbeat` (closed, crashed, PC off) while a
+     * session was open: that gap is not work, so it becomes a pause.
+     */
+    const reconcileWork = async (heartbeat: unknown) => {
+      const hb = typeof heartbeat === "number" ? heartbeat : NaN;
+      const w = activeSession(get().workSessions);
+      const ts = now();
+      if (!w || openPause(w) || !Number.isFinite(hb) || hb <= 0 || ts - hb < RESTART_GAP_MS) return;
+      const start = Math.min(ts, Math.max(w.startedAt, hb));
+      await saveWork({ ...w, pauses: [...w.pauses, { start, end: null, reason: "idle" }], updatedAt: ts });
+    };
+
+    let activityQueue: Promise<void> = Promise.resolve();
+
     const wh = () => {
       const s = get().settings;
       return { zone: s.homeZone, startHour: s.workStartHour, endHour: s.workEndHour, days: s.workDays };
@@ -308,8 +413,10 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
 
       async init() {
         try {
-          apply(await backend.load());
+          const snap = await backend.load();
+          apply(snap);
           set({ ready: true, error: null });
+          await reconcileWork((snap.settings as Record<string, unknown> | undefined)?.workHeartbeat).catch(() => {});
         } catch (e) {
           set({ ready: true, error: e instanceof Error ? e.message : String(e) });
         }
@@ -723,6 +830,8 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         const w: WorkSession = { id: id(), startedAt: ts, endedAt: null, pauses: [], note: "", createdAt: ts, updatedAt: ts };
         await saveWork(w);
         get().log("clock_in", "Clocked in", "", w.id);
+        // Clocking in by hand turns automatic tracking back on for today.
+        if (get().settings.workAutoHoldDay) await get().setSetting("workAutoHoldDay", null);
       },
 
       async clockOut() {
@@ -734,6 +843,8 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         await saveWork(done);
         const { workedMs } = await import("@/lib/work");
         get().log("clock_out", "Clocked out", `${humanDuration(workedMs(done, ts))} worked`, w.id);
+        // Otherwise automatic tracking would clock straight back in on the next key press.
+        if (get().settings.workAuto) await get().setSetting("workAutoHoldDay", homeDay(ts));
       },
 
       async pauseWork() {
@@ -758,39 +869,25 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
       },
 
       async handleIdle(idleSeconds) {
-        const s = get().settings;
-        const ts = now();
-        const threshold = Math.max(1, s.idleMinutes) * 60;
-        const w = activeSession(get().workSessions);
-        const p = openPause(w);
-        const lastInput = ts - idleSeconds * 1000;
+        const lastInput = now() - idleSeconds * 1000;
+        const threshold = Math.max(1, get().settings.idleMinutes) * 60;
         if (idleSeconds >= threshold) {
-          const running = s.idlePauseTimers ? get().timers.filter((t) => t.state === "running") : [];
-          if ((!w || p) && !running.length) return;
-          // The pause starts at the last input, so idle minutes are never counted as work.
-          for (const t of running) await get().pauseTimer(t.id, lastInput);
-          if (w && !p) {
-            const start = Math.max(w.startedAt, lastInput);
-            await saveWork({ ...w, pauses: [...w.pauses, { start, end: null, reason: "idle", timerIds: running.map((t) => t.id) }], updatedAt: ts });
-            get().log("auto_paused", "Auto-paused (no activity)", `${s.idleMinutes} min without keyboard or mouse input`, w.id);
-          } else if (p && p.reason === "idle") {
-            await saveWork({ ...w!, pauses: w!.pauses.map((x) => (x === p ? { ...x, timerIds: [...(x.timerIds ?? []), ...running.map((t) => t.id)] } : x)) });
-          }
-          get().toast({ kind: "info", title: "Paused — no activity", body: `Nothing was counted after ${formatWithZone(lastInput, s.homeZone, s.hour12)}.`, ttl: 0 });
-          return;
+          const long = idleSeconds * 1000 >= LONG_AWAY_MS;
+          await goAway(lastInput, { timers: long, quiet: !long });
+        } else if (idleSeconds < 30) {
+          await comeBack(lastInput);
         }
-        // Activity is back: resume an idle pause (not a manual one).
-        if (w && p && p.reason === "idle" && idleSeconds < 30 && s.idleAutoResume) {
-          const resumeAt = Math.max(p.start, lastInput);
-          await saveWork({ ...w, pauses: w.pauses.map((x) => (x === p ? { ...x, end: resumeAt } : x)), updatedAt: ts });
-          for (const tid of p.timerIds ?? []) {
-            const t = get().timers.find((x) => x.id === tid);
-            if (t && t.state === "paused") await get().resumeTimer(tid);
-          }
-          get().log("resumed", "Resumed after inactivity", `${humanDuration(resumeAt - p.start)} idle not counted`, w.id);
-          set({ toasts: get().toasts.filter((x) => x.title !== "Paused — no activity") });
-          get().toast({ kind: "success", title: "Welcome back", body: `${humanDuration(resumeAt - p.start)} of inactivity wasn't counted.`, ttl: 6000 });
-        }
+      },
+
+      handleActivity(event) {
+        const run = async () => {
+          if (event.kind === "away") await goAway(event.since, { timers: event.reason !== "idle", quiet: true });
+          else if (event.kind === "longIdle") await goAway(event.since, { timers: true, quiet: false });
+          else await comeBack(event.at);
+        };
+        // One at a time: "away" and "back" can arrive together (after sleep) and must not interleave.
+        activityQueue = activityQueue.then(run, run);
+        return activityQueue;
       },
 
       log(kind, title, detail = "", refId = null) {

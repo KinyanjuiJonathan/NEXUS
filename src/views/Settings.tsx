@@ -190,13 +190,23 @@ export default function SettingsView() {
       </Section>
 
       <Section id="workclock" title="Work clock & inactivity" icon={<Clock size={16} />}>
+        <Toggle
+          checked={settings.workAuto}
+          onChange={async (v) => {
+            await s.setSetting("workAuto", v);
+            // You are clearly active right now: start tracking straight away.
+            if (v) await s.handleActivity({ kind: "back", at: Date.now() });
+          }}
+          label="Track work time automatically"
+          description="The clock starts when you use the computer, pauses when you stop, and resumes when you are back. It follows keyboard and mouse activity in any app, and never counts time while the PC is locked, asleep or NEXUS is closed. Clocking out by hand turns it off until the next day."
+        />
         <div className="grid sm:grid-cols-2 gap-3">
-          <Field label="Auto-pause after (minutes without keyboard/mouse)" hint="Paused time starts at your last input, so idle minutes are never counted.">
-            <Input type="number" min={1} max={120} value={settings.idleMinutes} onChange={(e) => set("idleMinutes", Math.max(1, Math.min(120, Number(e.target.value) || 5)))} />
+          <Field label="Pause after (minutes without keyboard/mouse)" hint="The pause starts at your last input, so idle time is never counted.">
+            <Input type="number" min={1} max={120} value={settings.idleMinutes} onChange={(e) => set("idleMinutes", Math.max(1, Math.min(120, Number(e.target.value) || 1)))} />
           </Field>
         </div>
         <Toggle checked={settings.idleAutoResume} onChange={(v) => set("idleAutoResume", v)} label="Resume automatically when I'm back" description="Off: stay paused until you press Resume. Manual breaks are never resumed automatically." />
-        <Toggle checked={settings.idlePauseTimers} onChange={(v) => set("idlePauseTimers", v)} label="Also pause running focus timers when idle" />
+        <Toggle checked={settings.idlePauseTimers} onChange={(v) => set("idlePauseTimers", v)} label="Also pause running focus timers when idle" description="After 5 minutes without input, or as soon as the PC is locked or goes to sleep." />
       </Section>
 
       <Section id="planning" title="Auto-placement" icon={<Wand2 size={16} />}>
@@ -272,6 +282,20 @@ export default function SettingsView() {
         <p className="text-[11px] text-muted">
           The overlay stays above normal windows and remembers its position, size and monitor. Click-through lets clicks pass to the app underneath — press {settings.shortcuts.toggleClickThrough.replace("CommandOrControl", "Ctrl")} to turn it off again. Like any desktop overlay it can't appear over exclusive-fullscreen games, the lock/UAC screen, or protected content; use borderless/windowed mode in games.
         </p>
+      </Section>
+
+      <Section id="typer" title="Auto Typer" icon={<Keyboard size={16} />}>
+        <Toggle
+          checked={settings.typerIdleReturn}
+          onChange={(v) => set("typerIdleReturn", v)}
+          label="Return to Dashboard After Inactivity"
+          description="When the Auto Typer screen is left open with no keyboard or mouse activity, NEXUS goes back to the Dashboard. It never does this while the Auto Typer is typing, and your text and settings are kept."
+        />
+        <div className={cx("grid sm:grid-cols-2 gap-3", !settings.typerIdleReturn && "opacity-50")}>
+          <Field label="After (minutes without activity)">
+            <Input type="number" min={1} max={120} disabled={!settings.typerIdleReturn} value={settings.typerIdleReturnMin} onChange={(e) => set("typerIdleReturnMin", Math.max(1, Math.min(120, Number(e.target.value) || 5)))} />
+          </Field>
+        </div>
       </Section>
 
       <Section id="shortcuts" title="Global keyboard shortcuts" icon={<Keyboard size={16} />}>

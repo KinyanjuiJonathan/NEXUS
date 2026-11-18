@@ -1,12 +1,12 @@
 import { useMemo } from "react";
 import { DateTime } from "luxon";
-import { Clock, Coffee, LogIn, LogOut, Pause, Play } from "lucide-react";
+import { Clock, Coffee, LogIn, LogOut, Play } from "lucide-react";
 import { useNexus, nexus } from "@/store";
 import { useNow } from "@/lib/ticker";
 import { activeSession, openPause, pausedMs, workedBetween, workedMs } from "@/lib/work";
 import { formatClock, hoursMinutes as humanDuration } from "@/lib/countdown";
 import { formatTime } from "@/lib/time";
-import { Button, Card, CardHeader, cx } from "./ui";
+import { Button, Card, cx } from "./ui";
 
 /** Work clock state for any component. */
 export function useWorkClock() {
@@ -19,58 +19,72 @@ export function useWorkClock() {
   return { now, active, pause, todayMs, sessionMs: active ? workedMs(active, now) : 0, settings, sessions, dayStart };
 }
 
-export function WorkClockCard() {
+/**
+ * Compact dashboard card. With automatic tracking on, the clock starts, pauses
+ * and resumes by itself from keyboard/mouse activity; the buttons are for
+ * taking a break or ending the day by hand.
+ */
+export function WorkClockCard({ className }: { className?: string }) {
   const { now, active, pause, todayMs, sessionMs, settings, sessions, dayStart } = useWorkClock();
   const s = nexus();
-  const todaySessions = useMemo(() => sessions.filter((w) => (w.endedAt ?? now) >= dayStart).sort((a, b) => b.startedAt - a.startedAt), [sessions, dayStart, now]);
-  const idleToday = todaySessions.reduce((a, w) => a + pausedMs(w, now, "idle"), 0);
+  const idleToday = useMemo(
+    () => sessions.filter((w) => (w.endedAt ?? now) >= dayStart).reduce((a, w) => a + pausedMs(w, now, "idle"), 0),
+    [sessions, dayStart, now],
+  );
+  const held = settings.workAuto && settings.workAutoHoldDay === DateTime.fromMillis(now, { zone: settings.homeZone }).toISODate();
+  const working = !!active && !pause;
+  const status = !active
+    ? settings.workAuto
+      ? held ? "Off for today" : "Waiting for activity"
+      : "Clocked out"
+    : pause
+      ? pause.reason === "idle" ? "Paused · away" : "On break"
+      : settings.workAuto ? "Tracking" : "Working";
   return (
-    <Card glow={!!active && !pause}>
-      <CardHeader
-        title="Work clock"
-        icon={<Clock size={16} />}
-        subtitle={`Auto-pauses after ${settings.idleMinutes} min without keyboard or mouse input`}
-        right={
-          <span className={cx("text-[11px] font-semibold px-2 py-0.5 rounded-full", !active ? "bg-hover text-muted" : pause ? "bg-[color-mix(in_oklab,var(--warning)_18%,transparent)] text-warning" : "bg-[color-mix(in_oklab,var(--success)_18%,transparent)] text-success")}>
-            {!active ? "Clocked out" : pause ? (pause.reason === "idle" ? "Auto-paused" : "Paused") : "Working"}
-          </span>
-        }
-      />
-      <div className="px-5 pb-5 flex flex-wrap items-center gap-5">
-        <div>
-          <div className="font-mono tabular text-[34px] font-semibold leading-none">{formatClock(active ? sessionMs : todayMs)}</div>
-          <div className="text-xs text-muted mt-1.5">{active ? "this session" : "worked today"}</div>
+    <Card glow={working} className={cx("flex flex-col min-w-0", className)}>
+      <div className="flex items-center justify-between gap-2 px-5 pt-4">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <Clock size={16} className="text-accent shrink-0" />
+          <h3 className="text-[13px] font-semibold uppercase tracking-[0.12em] text-fg-2 truncate">Work clock</h3>
         </div>
-        <div className="text-xs text-fg-2 space-y-0.5">
-          <div>Today: <b className="text-fg tabular">{humanDuration(todayMs)}</b></div>
-          {idleToday > 60_000 && <div>Idle not counted: <span className="tabular">{humanDuration(idleToday)}</span></div>}
-          {active && <div>Since {formatTime(active.startedAt, settings.homeZone, settings.hour12)}</div>}
+        <span
+          role="status"
+          className={cx(
+            "inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap",
+            !active ? "bg-hover text-muted" : pause ? "bg-[color-mix(in_oklab,var(--warning)_18%,transparent)] text-warning" : "bg-[color-mix(in_oklab,var(--success)_18%,transparent)] text-success",
+          )}
+        >
+          <span className={cx("h-1.5 w-1.5 rounded-full bg-current", working && "animate-pulse")} />
+          {status}
+        </span>
+      </div>
+      <div className="px-5 pt-3 pb-4 flex flex-col gap-3 flex-1">
+        <div className="flex items-end justify-between gap-3 flex-wrap">
+          <div>
+            <div className="font-mono tabular text-[34px] font-semibold leading-none">{formatClock(todayMs)}</div>
+            <div className="text-xs text-muted mt-1.5">worked today</div>
+          </div>
+          <div className="text-[11px] text-fg-2 text-right space-y-0.5 tabular">
+            {active && <div>Since {formatTime(active.startedAt, settings.homeZone, settings.hour12)}</div>}
+            {active && sessionMs !== todayMs && <div>This session {humanDuration(sessionMs)}</div>}
+            {idleToday > 60_000 && <div className="text-muted">Away {humanDuration(idleToday)}, not counted</div>}
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2 ml-auto">
+        <div className="flex gap-2 mt-auto">
           {!active ? (
-            <Button variant="primary" icon={<LogIn size={15} />} onClick={() => void s.clockIn()}>Clock in</Button>
+            <Button size="sm" variant="primary" className="flex-1" icon={<LogIn size={14} />} onClick={() => void s.clockIn()}>{held ? "Resume tracking" : "Clock in"}</Button>
           ) : (
             <>
               {pause ? (
-                <Button variant="primary" icon={<Play size={15} />} onClick={() => void s.resumeWork()}>Resume</Button>
+                <Button size="sm" variant="primary" className="flex-1" icon={<Play size={14} />} onClick={() => void s.resumeWork()}>Resume</Button>
               ) : (
-                <Button variant="soft" icon={<Pause size={15} />} onClick={() => void s.pauseWork()}>Break</Button>
+                <Button size="sm" variant="soft" className="flex-1" icon={<Coffee size={14} />} onClick={() => void s.pauseWork()}>Break</Button>
               )}
-              <Button variant="outline" icon={<LogOut size={15} />} onClick={() => void s.clockOut()}>Clock out</Button>
+              <Button size="sm" variant="outline" className="flex-1" icon={<LogOut size={14} />} onClick={() => void s.clockOut()}>Clock out</Button>
             </>
           )}
         </div>
       </div>
-      {todaySessions.length > 0 && (
-        <div className="px-5 pb-4 -mt-1 flex flex-wrap gap-2 text-[11px] text-muted">
-          {todaySessions.slice(0, 6).map((w) => (
-            <span key={w.id} className="rounded-md bg-hover px-2 py-0.5 tabular">
-              <Coffee size={10} className="inline mr-1" />
-              {formatTime(w.startedAt, settings.homeZone, settings.hour12)}–{w.endedAt ? formatTime(w.endedAt, settings.homeZone, settings.hour12) : "now"} · {humanDuration(workedMs(w, now))}
-            </span>
-          ))}
-        </div>
-      )}
     </Card>
   );
 }

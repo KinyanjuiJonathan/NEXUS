@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Bold, Eraser, Italic, Keyboard, Lock, Play, Square } from "lucide-react";
 import { useNexus, nexus } from "@/store";
-import { native, typerShortcut } from "@/lib/platform";
+import { idleSeconds, native, typerShortcut } from "@/lib/platform";
+import { shouldLeaveTyper } from "@/lib/typer/idle";
+import { useUI } from "@/store/ui";
 import { BOLD, DEFAULT_TYPER, ITALIC, MAX_REPEAT, buildPlan, htmlToMarkup, parseMarkup, prepareText, type TyperOptions } from "@/lib/typer/engine";
 import { isBusy, useTyper } from "@/lib/typer/controller";
 import { Button, Card, CardHeader, Field, Input, Kbd, ProgressBar, Select, Toggle, cx } from "@/components/ui";
@@ -120,7 +122,12 @@ function Num({ label, hint, value, min, max, step = 1, onChange, disabled }: { l
 }
 
 export default function TyperView() {
-  const { options, shortcut } = useNexus((s) => ({ options: s.settings.typer, shortcut: s.settings.shortcuts.toggleTyper }));
+  const { options, shortcut, idleReturn, idleReturnMin } = useNexus((s) => ({
+    options: s.settings.typer,
+    shortcut: s.settings.shortcuts.toggleTyper,
+    idleReturn: s.settings.typerIdleReturn,
+    idleReturnMin: s.settings.typerIdleReturnMin,
+  }));
   const { text, status, starting, setText, start, stop } = useTyper();
   const busy = isBusy(status) || starting;
   const set = <K extends keyof TyperOptions>(k: K, v: TyperOptions[K]) => void nexus().setSetting("typer", { ...nexus().settings.typer, [k]: v });
@@ -131,6 +138,27 @@ export default function TyperView() {
     void typerShortcut(true);
     return () => void typerShortcut(false);
   }, [shortcut]);
+
+  // Left open and untouched, this screen hands back to the dashboard. Idle time is
+  // system-wide (any keyboard or mouse input resets it), and the check lives in this
+  // component, so it only ever runs while the Auto Typer screen is the one showing.
+  useEffect(() => {
+    if (!idleReturn) return;
+    let alive = true;
+    const check = async () => {
+      const t = useTyper.getState();
+      const idle = await idleSeconds().catch(() => 0);
+      if (!alive || !shouldLeaveTyper({ enabled: true, minutes: idleReturnMin, idleSeconds: idle, busy: isBusy(t.status) || t.starting })) return;
+      alive = false;
+      useUI.getState().setView("dashboard");
+      nexus().toast({ kind: "info", title: "Back on the Dashboard", body: "The Auto Typer screen was idle. Your text and settings are still there.", ttl: 8000 });
+    };
+    const iv = setInterval(() => void check(), 10_000);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, [idleReturn, idleReturnMin]);
 
   // A rough length for the run; every run differs, so this is planned once per change and only as a guide.
   const [estimate, setEstimate] = useState<{ seconds: number; chars: number } | null>(null);

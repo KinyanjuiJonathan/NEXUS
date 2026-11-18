@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DateTime } from "luxon";
-import { ChevronLeft, ChevronRight, Plus, Repeat, Star, Wand2 } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Flag, Plus, Repeat, Star, TriangleAlert, Wand2 } from "lucide-react";
 import type { CalendarEvent, Occurrence, Task } from "@/data/types";
 import { useNexus, nexus } from "@/store";
 import { useUI } from "@/store/ui";
@@ -10,6 +10,7 @@ import { formatTime, formatWithZone, KENYA_ZONE, zoneAbbr } from "@/lib/time";
 import { Button, Segmented, cx } from "@/components/ui";
 import { choose, confirm } from "@/components/Confirm";
 import { PRIORITY_META } from "@/components/meta";
+import { dueOnDay, isHighPriority, scheduledTasks, taskCalendarState, tasksForDay, unscheduledOpenTasks } from "@/lib/calendarTasks";
 
 type Mode = "day" | "week" | "month";
 const HOUR_PX = 52;
@@ -52,6 +53,82 @@ function layoutDay(occ: Occurrence[], dayStart: number, dayEnd: number): Placed[
   return placed;
 }
 
+const DRAG_TYPE = "application/x-nexus";
+
+/** Move a task's due date to another day (same time of day), as when it is dropped there. */
+async function moveTaskToDay(taskId: string, day: number, zone: string, hour12: boolean) {
+  const s = nexus();
+  const t = s.tasks.find((x) => x.id === taskId);
+  if (!t) return;
+  const target = dueOnDay(t, day, zone);
+  if (target == null || target === t.dueAt) return;
+  await s.updateTask(t.id, { dueAt: target });
+  s.toast({ kind: "success", title: "Task rescheduled", body: `${t.title} → ${formatWithZone(target, t.dueTz ?? zone, hour12)}`, ttl: 3000 });
+}
+
+/**
+ * A To-Do task on the calendar. The tick completes or reopens it, a click opens
+ * it for viewing and editing, and it can be dragged to another day.
+ * Pending tasks carry their priority colour, overdue ones are red with a warning
+ * mark, completed ones are greyed and struck through, and high priority gets a flag.
+ */
+function TaskChip({ task, now, zone, hour12 }: { task: Task; now: number; zone: string; hour12: boolean }) {
+  const state = taskCalendarState(task, now);
+  const high = isHighPriority(task);
+  const color = state === "done" ? "var(--muted)" : state === "overdue" ? "var(--danger)" : PRIORITY_META[task.priority].color;
+  const label = state === "done" ? "Completed" : state === "overdue" ? "Overdue" : "Pending";
+  const toggle = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const s = nexus();
+    await s.setTaskDone(task.id, state !== "done");
+    if (state !== "done") s.toast({ kind: "success", title: "Completed ✓", body: task.title, action: { label: "Undo", run: () => void nexus().setTaskDone(task.id, false) }, ttl: 5000 });
+  };
+  return (
+    <div
+      draggable={state !== "done"}
+      onDragStart={(e) => {
+        e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ kind: "task", id: task.id }));
+        e.dataTransfer.effectAllowed = "move";
+      }}
+      onDoubleClick={(e) => e.stopPropagation()}
+      className={cx("group flex items-center gap-1 rounded pl-1 pr-1.5 py-0.5 text-[11px] leading-tight min-w-0 shrink-0", state !== "done" && "cursor-grab")}
+      style={{ background: `color-mix(in oklab, ${color} ${state === "done" ? 8 : high || state === "overdue" ? 22 : 13}%, transparent)`, borderLeft: `2px solid ${color}` }}
+      title={`${label}${high ? ` · ${PRIORITY_META[task.priority].label} priority` : ""} · due ${formatTime(task.dueAt!, zone, hour12)}\n${task.title}\nClick to open · tick to ${state === "done" ? "reopen" : "complete"} · drag to another day to reschedule`}
+    >
+      <button
+        type="button"
+        onClick={(e) => void toggle(e)}
+        aria-label={state === "done" ? `Reopen “${task.title}”` : `Mark “${task.title}” complete`}
+        className={cx("h-3.5 w-3.5 shrink-0 rounded-full border flex items-center justify-center transition-colors", state === "done" ? "bg-success border-success text-white" : "border-current hover:bg-success hover:border-success hover:text-white")}
+        style={state === "done" ? undefined : { color }}
+      >
+        <Check size={9} strokeWidth={3.5} className={cx(state !== "done" && "opacity-0 group-hover:opacity-100")} />
+      </button>
+      <button type="button" onClick={() => useUI.getState().openTask(task.id)} className="flex items-center gap-1 min-w-0 flex-1 text-left hover:brightness-125" aria-label={`${task.title}, ${label.toLowerCase()}, due ${formatTime(task.dueAt!, zone, hour12)}. Open task`}>
+        {state === "overdue" && <TriangleAlert size={10} className="shrink-0 text-danger" aria-hidden />}
+        {high && state !== "done" && <Flag size={10} className="shrink-0" style={{ color: PRIORITY_META[task.priority].color }} fill="currentColor" aria-hidden />}
+        <span className="tabular shrink-0 text-muted">{formatTime(task.dueAt!, zone, hour12)}</span>
+        <span className={cx("truncate", state === "done" ? "line-through text-muted" : state === "overdue" ? "text-danger font-medium" : "text-fg", high && state !== "done" && "font-semibold")}>{task.title}</span>
+      </button>
+    </div>
+  );
+}
+
+function Legend() {
+  const item = (swatch: React.ReactNode, text: string) => (
+    <span className="inline-flex items-center gap-1.5">{swatch}{text}</span>
+  );
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted" aria-label="Task colours">
+      <span className="font-medium text-fg-2">Tasks:</span>
+      {item(<span className="h-3 w-1 rounded-full" style={{ background: PRIORITY_META.medium.color }} />, "pending (priority colour)")}
+      {item(<Flag size={11} style={{ color: PRIORITY_META.high.color }} fill="currentColor" />, "high priority")}
+      {item(<TriangleAlert size={11} className="text-danger" />, "overdue")}
+      {item(<span className="h-3 w-3 rounded-full bg-success text-white flex items-center justify-center"><Check size={8} strokeWidth={4} /></span>, "completed")}
+    </div>
+  );
+}
+
 async function commitMove(occ: Occurrence, newStart: number, newEnd: number, zone: string, hour12: boolean) {
   const s = nexus();
   if (newStart === occ.start && newEnd === occ.end) return;
@@ -90,6 +167,7 @@ function TimeGrid({ days, zone, occ, tasks, now, hour12, texasZone }: { days: nu
   const scrollRef = useRef<HTMLDivElement>(null);
   const colsRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ occ: Occurrence; kind: "move" | "resize"; dy: number; dx: number; x0: number; y0: number } | null>(null);
+  const [overDay, setOverDay] = useState<number | null>(null);
   const ui = useUI.getState();
 
   useEffect(() => {
@@ -152,20 +230,28 @@ function TimeGrid({ days, zone, occ, tasks, now, hour12, texasZone }: { days: nu
           {days.map((d) => {
             const dt = DateTime.fromMillis(d, { zone });
             const isToday = dt.hasSame(DateTime.fromMillis(now, { zone }), "day");
-            const due = tasks.filter((t) => t.dueAt != null && t.dueAt >= d && t.dueAt < dt.plus({ days: 1 }).toMillis());
+            const due = tasksForDay(tasks, d, dt.plus({ days: 1 }).toMillis());
             return (
-              <div key={d} className="px-2 py-2 border-l border-line min-w-0">
+              <div
+                key={d}
+                className={cx("px-2 py-2 border-l border-line min-w-0 transition-colors", overDay === d && "bg-[color-mix(in_oklab,var(--accent)_12%,transparent)]")}
+                onDragOver={(e) => { if (e.dataTransfer.types.includes(DRAG_TYPE)) { e.preventDefault(); setOverDay(d); } }}
+                onDragLeave={() => setOverDay((o) => (o === d ? null : o))}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setOverDay(null);
+                  const raw = e.dataTransfer.getData(DRAG_TYPE);
+                  const data = raw ? (JSON.parse(raw) as { kind: string; id: string }) : null;
+                  if (data?.kind === "task") void moveTaskToDay(data.id, d, zone, hour12);
+                }}
+              >
                 <div className="flex items-baseline gap-1.5">
                   <span className="text-[11px] uppercase tracking-wider text-muted">{dt.toFormat("ccc")}</span>
                   <span className={cx("text-lg font-semibold font-display leading-none", isToday && "text-accent")}>{dt.toFormat("d")}</span>
                 </div>
-                <div className="flex flex-col gap-0.5 mt-1 max-h-[54px] overflow-hidden">
-                  {due.slice(0, 3).map((t) => (
-                    <button key={t.id} onClick={() => ui.openTask(t.id)} className="text-left text-[10px] truncate rounded px-1 py-0.5 hover:brightness-125" style={{ color: PRIORITY_META[t.priority].color, background: `color-mix(in oklab, ${PRIORITY_META[t.priority].color} 12%, transparent)` }} title={`Due ${formatTime(t.dueAt!, zone, hour12)}: ${t.title}`}>
-                      ◆ {formatTime(t.dueAt!, zone, hour12)} {t.title}
-                    </button>
-                  ))}
-                  {due.length > 3 && <span className="text-[10px] text-muted">+{due.length - 3} more</span>}
+                {/* Every task due this day; scrolls when there are many. */}
+                <div className={cx("flex flex-col gap-0.5 mt-1 overflow-y-auto scroll-y pr-0.5", days.length === 1 ? "max-h-[168px]" : "max-h-[76px]")} aria-label={`Tasks due ${dt.toFormat("cccc d LLLL")}`}>
+                  {due.map((t) => <TaskChip key={t.id} task={t} now={now} zone={zone} hour12={hour12} />)}
                 </div>
               </div>
             );
@@ -259,7 +345,7 @@ function TimeGrid({ days, zone, occ, tasks, now, hour12, texasZone }: { days: nu
   );
 }
 
-function MonthGrid({ month, zone, events, tasks, now, hour12 }: { month: number; zone: string; events: CalendarEvent[]; tasks: Task[]; now: number; hour12: boolean }) {
+function MonthGrid({ month, zone, events, tasks, now, hour12, onOpenDay }: { month: number; zone: string; events: CalendarEvent[]; tasks: Task[]; now: number; hour12: boolean; onOpenDay: (day: number) => void }) {
   const first = DateTime.fromMillis(month, { zone }).startOf("month");
   const gridStart = first.startOf("week");
   const cells = Array.from({ length: 42 }, (_, i) => gridStart.plus({ days: i }));
@@ -270,10 +356,9 @@ function MonthGrid({ month, zone, events, tasks, now, hour12 }: { month: number;
   const onDrop = async (e: React.DragEvent, day: DateTime) => {
     e.preventDefault();
     setOver(null);
-    const raw = e.dataTransfer.getData("application/x-nexus");
+    const raw = e.dataTransfer.getData(DRAG_TYPE);
     if (!raw) return;
     const data = JSON.parse(raw) as { kind: "event" | "task"; id: string; start?: number };
-    const s = nexus();
     if (data.kind === "event") {
       const o = occ.find((x) => x.event.id === data.id && x.start === data.start);
       if (!o) return;
@@ -281,13 +366,7 @@ function MonthGrid({ month, zone, events, tasks, now, hour12 }: { month: number;
       const start = day.set({ hour: orig.hour, minute: orig.minute }).toMillis();
       await commitMove(o, start, start + (o.end - o.start), zone, hour12);
     } else {
-      const t = s.tasks.find((x) => x.id === data.id);
-      if (!t || t.dueAt == null) return;
-      const tz = t.dueTz ?? zone;
-      const orig = DateTime.fromMillis(t.dueAt, { zone: tz });
-      const target = DateTime.fromObject({ year: day.year, month: day.month, day: day.day, hour: orig.hour, minute: orig.minute }, { zone: tz }).toMillis();
-      await s.updateTask(t.id, { dueAt: target });
-      s.toast({ kind: "success", title: "Task moved", body: `${t.title} → ${formatWithZone(target, tz, hour12)}`, ttl: 3000 });
+      await moveTaskToDay(data.id, day.toMillis(), zone, hour12);
     }
   };
 
@@ -303,13 +382,13 @@ function MonthGrid({ month, zone, events, tasks, now, hour12 }: { month: number;
           const s0 = day.toMillis();
           const e0 = day.plus({ days: 1 }).toMillis();
           const dayOcc = occ.filter((o) => o.start < e0 && o.end > s0);
-          const due = tasks.filter((t) => t.dueAt != null && t.dueAt >= s0 && t.dueAt < e0);
+          const due = tasksForDay(tasks, s0, e0);
           const inMonth = day.month === first.month;
           const isToday = day.hasSame(DateTime.fromMillis(now, { zone }), "day");
           const key = day.toISODate()!;
-          const items = [
+          const items: ({ k: string; at: number } & ({ task: Task } | { task?: undefined; label: string; color: string; drag: { kind: string; id: string; start: number }; open: () => void }))[] = [
             ...dayOcc.map((o) => ({ k: `e${o.event.id}${o.start}`, at: o.start, label: o.event.title, color: o.event.important ? "#f59e0b" : "var(--accent)", drag: { kind: "event", id: o.event.id, start: o.start }, open: () => ui.openEvent(o.event.id, undefined, o.seriesStart) })),
-            ...due.map((t) => ({ k: `t${t.id}`, at: t.dueAt!, label: `◆ ${t.title}`, color: PRIORITY_META[t.priority].color, drag: t.status !== "done" ? { kind: "task", id: t.id } : null, open: () => ui.openTask(t.id) })),
+            ...due.map((t) => ({ k: `t${t.id}`, at: t.dueAt!, task: t })),
           ].sort((a, b) => a.at - b.at);
           return (
             <div
@@ -321,13 +400,15 @@ function MonthGrid({ month, zone, events, tasks, now, hour12 }: { month: number;
               className={cx("border-l border-t border-line p-1 flex flex-col gap-0.5 min-h-0 overflow-hidden transition-colors", !inMonth && "opacity-45", over === key && "bg-[color-mix(in_oklab,var(--accent)_12%,transparent)]")}
             >
               <span className={cx("text-xs font-semibold h-6 w-6 flex items-center justify-center rounded-full shrink-0", isToday ? "bg-accent text-white" : "text-fg-2")}>{day.day}</span>
-              {items.slice(0, 4).map((it) => (
+              {items.slice(0, items.length > 4 ? 3 : 4).map((it) => it.task ? (
+                <TaskChip key={it.k} task={it.task} now={now} zone={zone} hour12={hour12} />
+              ) : (
                 <button
                   key={it.k}
-                  draggable={!!it.drag}
-                  onDragStart={(e) => it.drag && e.dataTransfer.setData("application/x-nexus", JSON.stringify(it.drag))}
+                  draggable
+                  onDragStart={(e) => e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(it.drag))}
                   onClick={it.open}
-                  className="text-left text-[11px] truncate rounded px-1.5 py-0.5 hover:brightness-125"
+                  className="text-left text-[11px] truncate rounded px-1.5 py-0.5 hover:brightness-125 shrink-0"
                   style={{ color: "var(--text)", background: `color-mix(in oklab, ${it.color} 18%, transparent)`, borderLeft: `2px solid ${it.color}` }}
                   title={`${formatTime(it.at, zone, hour12)} ${it.label}`}
                 >
@@ -335,7 +416,11 @@ function MonthGrid({ month, zone, events, tasks, now, hour12 }: { month: number;
                   {it.label}
                 </button>
               ))}
-              {items.length > 4 && <span className="text-[10px] text-muted px-1">+{items.length - 4} more</span>}
+              {items.length > 4 && (
+                <button type="button" onClick={() => onOpenDay(s0)} className="text-left text-[10px] text-accent px-1 hover:underline" title="Open this day to see everything">
+                  +{items.length - 3} more
+                </button>
+              )}
             </div>
           );
         })}
@@ -356,7 +441,8 @@ export default function Calendar() {
   const rangeStart = mode === "month" ? a.startOf("month").startOf("week").toMillis() : days[0];
   const rangeEnd = mode === "month" ? a.endOf("month").endOf("week").toMillis() : DateTime.fromMillis(days[days.length - 1], { zone }).plus({ days: 1 }).toMillis();
   const occ = useMemo(() => expandEvents(events, rangeStart, rangeEnd), [events, rangeStart, rangeEnd]);
-  const openTasks = useMemo(() => tasks.filter((t) => !t.deletedAt && !t.archivedAt), [tasks]);
+  const openTasks = useMemo(() => scheduledTasks(tasks), [tasks]);
+  const unscheduled = useMemo(() => unscheduledOpenTasks(tasks).length, [tasks]);
   const step = (dir: number) => setAnchor(a.plus(mode === "day" ? { days: dir } : mode === "week" ? { weeks: dir } : { months: dir }).toMillis());
   const label =
     mode === "day" ? a.toFormat("cccc, d LLLL yyyy") : mode === "week" ? `${DateTime.fromMillis(days[0], { zone }).toFormat("d LLL")} – ${DateTime.fromMillis(days[6], { zone }).toFormat("d LLL yyyy")}` : a.toFormat("LLLL yyyy");
@@ -403,12 +489,20 @@ export default function Calendar() {
         </div>
       </div>
       {mode === "month" ? (
-        <MonthGrid month={anchor} zone={zone} events={events} tasks={openTasks} now={now} hour12={settings.hour12} />
+        <MonthGrid month={anchor} zone={zone} events={events} tasks={openTasks} now={now} hour12={settings.hour12} onOpenDay={(d) => { setAnchor(d); setMode("day"); }} />
       ) : (
         <TimeGrid days={days} zone={zone} occ={occ} tasks={openTasks} now={now} hour12={settings.hour12} texasZone={settings.texasZone} />
       )}
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1">
+        <Legend />
+        {unscheduled > 0 && (
+          <button type="button" onClick={() => useUI.getState().setView("tasks")} className="text-[11px] text-accent hover:underline">
+            {unscheduled} task{unscheduled === 1 ? "" : "s"} without a date {unscheduled === 1 ? "is" : "are"} in the To-Do list →
+          </button>
+        )}
+      </div>
       <p className="text-[11px] text-muted">
-        Showing times in <b>{zone}</b>. Click an empty slot to create · drag blocks to move · drag the bottom edge to change duration · in Month view drag appointments or task deadlines to another day. Keys: ←/→, T, D/W/M.
+        Showing times in <b>{zone}</b>. Tasks from the To-Do list appear on the day they are due: click one to open it, tick it to complete it, drag it to another day to reschedule. Click an empty slot to create an appointment · drag blocks to move · drag the bottom edge to change duration. Keys: ←/→, T, D/W/M.
       </p>
     </div>
   );

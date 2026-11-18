@@ -153,7 +153,7 @@ export function Sidebar() {
       </button>
       <div className="mt-2 pt-3 border-t border-line flex flex-col items-center lg:items-start gap-1 lg:px-3" aria-label="AI Maverix. Powered by Digital Nomads, Kenya and United States">
         <AiMaverix className="hidden lg:inline text-[10px]" />
-        <PoweredBy className="hidden lg:inline-flex text-[10px]" flagHeight={9} />
+        <div className="hidden lg:block"><PoweredBy className="text-[10px]" flagHeight={9} /></div>
         <Flags height={9} className="lg:hidden flex-col !gap-1" />
       </div>
     </nav>

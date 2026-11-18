@@ -4,6 +4,7 @@
 //! [`Store`] in a mutex for UI commands; the reminder scheduler opens its own
 //! [`Store`] on the same file (WAL allows concurrent readers/writer).
 
+pub mod activity;
 pub mod migrations;
 pub mod models;
 pub mod perf;
