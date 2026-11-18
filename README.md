@@ -219,7 +219,7 @@ Marking a task complete always asks first: *Are you sure you want to mark "Repai
 
 ## Dashboard
 
-The two clocks sit with **Next appointment** and **Today's progress** as one scheduling overview. Below them are the work clock, the active countdown and four numbers, each of which opens its details when clicked:
+The dashboard is arranged in five levels: (1) the greeting with the AI Schedule, Auto-plan, Schedule and New task buttons; (2) the scheduling overview: both clocks, **Next appointment** and **Today's progress**; (3) the system monitor; (4) four productivity numbers; (5) Up next, tasks completed and focus minutes over the last 7 days. The work clock and the active countdown follow below. Each of the four numbers opens its details when clicked:
 
 | Card | Opens |
 |---|---|

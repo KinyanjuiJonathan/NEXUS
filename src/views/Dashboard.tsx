@@ -6,7 +6,7 @@ import { useNexus, nexus } from "@/store";
 import { useUI } from "@/store/ui";
 import { useNow } from "@/lib/ticker";
 import { dayStats, history, nextAppointment } from "@/lib/stats";
-import { expandEvents, findMissed } from "@/lib/schedule";
+import { findMissed } from "@/lib/schedule";
 import { suggestNext, openTasks, scoreTask } from "@/lib/assistant";
 import { eventStatus, formatClock, humanDuration, progress, remainingMs, elapsedMs } from "@/lib/countdown";
 import { formatTime, formatWithZone, KENYA_ZONE, zoneAbbr } from "@/lib/time";
@@ -15,7 +15,7 @@ import { GettingStarted } from "@/components/GettingStarted";
 import { WorkClockCard } from "@/components/WorkClock";
 import { SystemMonitor } from "@/components/SystemMonitor";
 import { AiScheduleButton } from "@/components/AiScheduler";
-import { BarChart, DayTimeline } from "@/components/Charts";
+import { BarChart } from "@/components/Charts";
 import { TaskRow } from "@/components/TaskRow";
 import { Button, Card, CardHeader, EmptyState, ProgressBar, ProgressRing, Stat } from "@/components/ui";
 
@@ -34,10 +34,6 @@ export default function Dashboard() {
   const stats = useMemo(() => dayStats(tasks, focusSessions, now, zone, events), [tasks, focusSessions, events, minute, zone]); // eslint-disable-line react-hooks/exhaustive-deps
   const week = useMemo(() => history(tasks, focusSessions, now, zone, 7), [tasks, focusSessions, minute, zone]); // eslint-disable-line react-hooks/exhaustive-deps
   const next = useMemo(() => nextAppointment(events, now), [events, minute]); // eslint-disable-line react-hooks/exhaustive-deps
-  const todayOcc = useMemo(() => {
-    const d = DateTime.fromMillis(now, { zone }).startOf("day").toMillis();
-    return expandEvents(events, d, d + 86_400_000);
-  }, [events, minute, zone]); // eslint-disable-line react-hooks/exhaustive-deps
   const missed = useMemo(() => findMissed(tasks, events, now).slice(0, 4), [tasks, events, minute]); // eslint-disable-line react-hooks/exhaustive-deps
   const upNext = useMemo(() => openTasks(tasks).sort((a, b) => scoreTask(b, now) - scoreTask(a, now)).slice(0, 5), [tasks, minute]); // eslint-disable-line react-hooks/exhaustive-deps
   const suggestion = useMemo(() => suggestNext(tasks, now), [tasks, minute]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -127,8 +123,48 @@ export default function Dashboard() {
 
       <GettingStarted />
 
-      {/* Work clock, the running timer and the day's numbers (each number opens its details). */}
-      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(260px,320px)_minmax(0,1fr)_minmax(0,1.15fr)]">
+      {/* Level 3: system performance. */}
+      <SystemMonitor />
+
+      {/* Level 4: the day's numbers; each opens its details. */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        <Stat label="Tasks today" value={stats.totalToday} icon={<ListTodo size={18} />} sub={`${stats.pendingToday} pending`} onClick={() => setDetail("today")} />
+        <Stat label="Completed today" value={stats.completedToday} icon={<CheckCircle2 size={18} />} tone="var(--success)" onClick={() => setDetail("completed")} />
+        <Stat label="Overdue" value={stats.overdue} icon={<TriangleAlert size={18} />} tone={stats.overdue ? "var(--danger)" : "var(--muted)"} sub={stats.overdue ? "Needs attention" : "All on track"} onClick={() => setDetail("overdue")} />
+        <Stat label="Focus time today" value={humanDuration(stats.focusMsToday).replace(" sec", "s")} icon={<Flame size={18} />} tone="var(--accent-2)" onClick={() => setDetail("focus")} />
+      </div>
+      <StatDetails kind={detail} onClose={() => setDetail(null)} />
+
+      {/* Level 5: what is next, and the last seven days. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)] gap-4 items-stretch">
+        <Card className="lg:col-span-2 xl:col-span-1">
+          <CardHeader title="Up next" icon={<ListTodo size={16} />} right={<Button size="sm" variant="ghost" onClick={() => ui.setView("tasks")}>All tasks</Button>} />
+          <div className="px-4 pb-4 flex flex-col gap-2">
+            {upNext.length ? (
+              upNext.map((t) => (
+                <TaskRow key={t.id} task={t} categories={categories} now={now} hour12={settings.hour12} texasZone={settings.texasZone} warnMin={settings.deadlineWarningMin} active={t.id === settings.activeTaskId} />
+              ))
+            ) : (
+              <EmptyState icon={<ListTodo size={22} />} title="No open tasks" body="Press N to add one, or say “Add a task…”" />
+            )}
+          </div>
+        </Card>
+          <Card>
+            <CardHeader title="Tasks completed" subtitle="Last 7 days" icon={<CheckCircle2 size={16} />} />
+            <div className="px-5 pb-4">
+              <BarChart caption="Tasks completed per day, last 7 days" unit="done" data={week.map((d) => ({ label: d.label, value: d.completed, sub: DateTime.fromMillis(d.day, { zone }).toFormat("ccc d LLL") }))} color="var(--accent)" height={110} />
+            </div>
+          </Card>
+          <Card>
+            <CardHeader title="Focus minutes" subtitle={`Last 7 days · ${week.reduce((a, d) => a + d.focusMin, 0)} min total`} icon={<Flame size={16} />} />
+            <div className="px-5 pb-4">
+              <BarChart caption="Focus minutes per day, last 7 days" unit="min" data={week.map((d) => ({ label: d.label, value: d.focusMin, sub: DateTime.fromMillis(d.day, { zone }).toFormat("ccc d LLL") }))} color="var(--accent-2)" height={110} />
+            </div>
+          </Card>
+      </div>
+
+      {/* Work clock and the running timer. */}
+      <div className="grid gap-4 lg:grid-cols-[minmax(260px,340px)_minmax(0,1fr)]">
         <WorkClockCard />
         {/* Active countdown / current task */}
         <Card glow={!!timer}>
@@ -167,51 +203,6 @@ export default function Dashboard() {
             )}
           </div>
         </Card>
-        <div className="grid grid-cols-2 gap-4 lg:col-span-2 xl:col-span-1">
-          <Stat label="Tasks today" value={stats.totalToday} icon={<ListTodo size={18} />} sub={`${stats.pendingToday} pending`} onClick={() => setDetail("today")} />
-          <Stat label="Completed today" value={stats.completedToday} icon={<CheckCircle2 size={18} />} tone="var(--success)" onClick={() => setDetail("completed")} />
-          <Stat label="Overdue" value={stats.overdue} icon={<TriangleAlert size={18} />} tone={stats.overdue ? "var(--danger)" : "var(--muted)"} sub={stats.overdue ? "Needs attention" : "All on track"} onClick={() => setDetail("overdue")} />
-          <Stat label="Focus time today" value={humanDuration(stats.focusMsToday).replace(" sec", "s")} icon={<Flame size={18} />} tone="var(--accent-2)" onClick={() => setDetail("focus")} />
-        </div>
-      </div>
-      <StatDetails kind={detail} onClose={() => setDetail(null)} />
-
-      <SystemMonitor />
-
-      <Card>
-        <CardHeader title="Today's timeline" icon={<CalendarClock size={16} />} subtitle={`Appointments and deadlines · ${zone}`} right={<Button size="sm" variant="ghost" onClick={() => ui.setView("calendar")}>Open calendar</Button>} />
-        <div className="px-5 pb-5">
-          <DayTimeline occurrences={todayOcc} tasks={tasks} now={now} zone={zone} hour12={settings.hour12} startHour={Math.min(settings.workStartHour, 8)} endHour={Math.max(settings.workEndHour + 2, 19)} onSelect={(o) => ui.openEvent(o.event.id, undefined, o.seriesStart)} />
-        </div>
-      </Card>
-
-      <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
-        <Card className="xl:col-span-3">
-          <CardHeader title="Up next" icon={<ListTodo size={16} />} right={<Button size="sm" variant="ghost" onClick={() => ui.setView("tasks")}>All tasks</Button>} />
-          <div className="px-4 pb-4 flex flex-col gap-2">
-            {upNext.length ? (
-              upNext.map((t) => (
-                <TaskRow key={t.id} task={t} categories={categories} now={now} hour12={settings.hour12} texasZone={settings.texasZone} warnMin={settings.deadlineWarningMin} active={t.id === settings.activeTaskId} />
-              ))
-            ) : (
-              <EmptyState icon={<ListTodo size={22} />} title="No open tasks" body="Press N to add one, or say “Add a task…”" />
-            )}
-          </div>
-        </Card>
-        <div className="xl:col-span-2 flex flex-col gap-4">
-          <Card>
-            <CardHeader title="Tasks completed" subtitle="Last 7 days" icon={<CheckCircle2 size={16} />} />
-            <div className="px-5 pb-4">
-              <BarChart caption="Tasks completed per day, last 7 days" unit="done" data={week.map((d) => ({ label: d.label, value: d.completed, sub: DateTime.fromMillis(d.day, { zone }).toFormat("ccc d LLL") }))} color="var(--accent)" height={110} />
-            </div>
-          </Card>
-          <Card>
-            <CardHeader title="Focus minutes" subtitle={`Last 7 days · ${week.reduce((a, d) => a + d.focusMin, 0)} min total`} icon={<Flame size={16} />} />
-            <div className="px-5 pb-4">
-              <BarChart caption="Focus minutes per day, last 7 days" unit="min" data={week.map((d) => ({ label: d.label, value: d.focusMin, sub: DateTime.fromMillis(d.day, { zone }).toFormat("ccc d LLL") }))} color="var(--accent-2)" height={110} />
-            </div>
-          </Card>
-        </div>
       </div>
 
       {missed.length > 0 && (
