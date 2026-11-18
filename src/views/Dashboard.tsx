@@ -44,26 +44,26 @@ export default function Dashboard() {
   const hour = DateTime.fromMillis(now, { zone }).hour;
 
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-sm text-muted">{DateTime.fromMillis(now, { zone }).toFormat("cccc, d LLLL")}</p>
-          <h1 className="font-display text-3xl font-semibold tracking-tight mt-0.5">
-            {greeting(hour)}. <span className="text-gradient">Let's make today count.</span>
-          </h1>
-        </div>
+    <div className="flex flex-col gap-4">
+      {/* Level 1: greeting and the main actions on one line. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <h1 className="font-display text-[26px] font-semibold tracking-tight leading-tight" title={DateTime.fromMillis(now, { zone }).toFormat("cccc, d LLLL")}>
+          {greeting(hour)}. <span className="text-gradient">Let's make today count.</span>
+        </h1>
         <div className="flex flex-wrap gap-2">
           <AiScheduleButton />
           <Button variant="outline" icon={<Wand2 size={15} />} onClick={() => ui.openAutoPlan(true)} title="Fit open tasks into your free working time">Auto-plan</Button>
-          <Button variant="outline" icon={<CalendarClock size={15} />} onClick={() => ui.openEvent(null)}>Schedule</Button>
           <Button variant="primary" icon={<Plus size={15} />} onClick={() => ui.openTask(null)}>New task</Button>
         </div>
       </div>
 
-      {/* Scheduling overview: both clocks with the next appointment and today's progress. */}
-      <div className="grid gap-4 min-[1400px]:grid-cols-2">
-        <DualClock hour12={settings.hour12} texasZone={settings.texasZone} />
-        <div className="grid gap-4 sm:grid-cols-2">
+      {/* Level 2: Kenya and Texas time. */}
+      <DualClock dense hour12={settings.hour12} texasZone={settings.texasZone} />
+
+      {/* Level 3: work clock, next appointment and today's progress on one line. */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <WorkClockCard />
+        <div className="contents">
           {/* Next appointment */}
           <Card>
             <CardHeader title="Next appointment" icon={<AlarmClock size={16} />} />
@@ -76,11 +76,11 @@ export default function Dashboard() {
                       <p className="text-lg font-semibold truncate">{next.event.important && <span className="text-warning">★ </span>}{next.event.title}</p>
                       <p className="text-sm font-medium mt-1" style={{ color: st.live ? "var(--success)" : "var(--accent)" }}>{st.label}</p>
                       {st.live && <ProgressBar value={st.progress} className="mt-2" tone="success" />}
-                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs" title={`${formatWithZone(next.start, next.event.tz, settings.hour12)} (original zone)`}>
                         <div className="rounded-lg bg-hover px-2.5 py-1.5"><span className="text-cyan-400 font-semibold">KE</span> {formatTime(next.start, KENYA_ZONE, settings.hour12)} {zoneAbbr(KENYA_ZONE, next.start)}</div>
                         <div className="rounded-lg bg-hover px-2.5 py-1.5"><span className="text-violet-400 font-semibold">TX</span> {formatTime(next.start, settings.texasZone, settings.hour12)} {zoneAbbr(settings.texasZone, next.start)}</div>
                       </div>
-                      <p className="text-[11px] text-muted mt-2">{formatWithZone(next.start, next.event.tz, settings.hour12)} (original zone)</p>
+  
                     </button>
                   );
                 })()
@@ -98,7 +98,7 @@ export default function Dashboard() {
           <Card>
             <CardHeader title="Today's progress" icon={<Target size={16} />} />
             <div className="px-5 pb-5 flex items-center gap-5">
-              <ProgressRing value={stats.completionRate} size={104} stroke={9} gradientId="dash-day">
+              <ProgressRing value={stats.completionRate} size={92} stroke={8} gradientId="dash-day">
                 <div className="text-center">
                   <div className="text-2xl font-semibold tabular font-display">{Math.round(stats.completionRate * 100)}%</div>
                   <div className="text-[10px] text-muted">{stats.completedToday}/{stats.totalToday}</div>
@@ -163,9 +163,8 @@ export default function Dashboard() {
           </Card>
       </div>
 
-      {/* Work clock and the running timer. */}
-      <div className="grid gap-4 lg:grid-cols-[minmax(260px,340px)_minmax(0,1fr)]">
-        <WorkClockCard />
+      {/* The running timer. */}
+      <div className="grid gap-4">
         {/* Active countdown / current task */}
         <Card glow={!!timer}>
           <CardHeader title="Active countdown" icon={<Hourglass size={16} />} />

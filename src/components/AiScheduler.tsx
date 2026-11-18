@@ -197,7 +197,7 @@ export function AiSchedulerPanel() {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -6, scale: 0.98 }}
           transition={{ duration: 0.16 }}
-          className="fixed z-40 right-4 lg:right-7 top-[134px] w-[min(440px,calc(100vw-2rem))] max-h-[min(620px,calc(100vh-150px))] glass-strong rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+          className="fixed z-40 right-4 lg:right-7 top-[118px] w-[min(440px,calc(100vw-2rem))] max-h-[min(620px,calc(100vh-134px))] glass-strong rounded-2xl shadow-2xl flex flex-col overflow-hidden"
         >
           <header className="flex items-center gap-2 pl-4 pr-2 h-11 shrink-0 border-b border-line">
             <span className="h-6 w-6 rounded-lg bg-gradient-to-br from-cyan-400 to-violet-500 text-white flex items-center justify-center"><Sparkles size={13} /></span>
