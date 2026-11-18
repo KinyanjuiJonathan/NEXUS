@@ -3,6 +3,7 @@ import type { PerfMetric } from "@/data/types";
 import type { PerfSnapshot } from "@/lib/platform";
 import { formatBytes } from "@/lib/overlayGeometry";
 import { cx } from "@/components/ui";
+import { DEFAULT_THRESHOLDS, LEVEL_COLOR, LEVEL_LABEL, useUsageLevel, type Thresholds } from "@/lib/perf";
 
 const short = (s: string) => s.replace(" GB", "G").replace(" MB", "M");
 const pct = (v: number | null | undefined) => (v == null ? "—" : `${Math.round(v)}%`);
@@ -47,8 +48,10 @@ export function TempGauge({ celsius, size = 30 }: { celsius: number | null | und
  * that metric for the live graph; `picked` marks the one being graphed.
  */
 export function PerfStrip({
-  snap, compact, showFps, showTemp = false, unit = "C", picked, onPick,
+  snap, compact, showFps, showTemp = false, unit = "C", picked, onPick, thresholds,
 }: {
+  /** CPU colour thresholds (Settings): green, yellow from `elevated`, red from `high`. */
+  thresholds?: { cpu: Thresholds };
   snap: PerfSnapshot | null;
   compact?: boolean;
   showFps: boolean;
@@ -58,13 +61,20 @@ export function PerfStrip({
   onPick?: (m: PerfMetric) => void;
 }) {
   const fps = fpsCell(snap);
+  const cpuLevel = useUsageLevel(snap?.cpu, thresholds?.cpu ?? DEFAULT_THRESHOLDS);
   const mainTemp = snap?.gpuTemp ?? snap?.cpuTemp ?? null;
   const tempTitle = `GPU ${fmtTemp(snap?.gpuTemp, unit)}${unit} · CPU ${fmtTemp(snap?.cpuTemp, unit)}${unit}` +
     (snap && snap.cpuTemp == null ? " — CPU temperature isn't exposed by this PC's firmware without admin rights (see README)" : "");
   const ramPct = snap && snap.ramTotal ? snap.ramPercent ?? (snap.ramUsed / snap.ramTotal) * 100 : null;
   const vramPct = snap && snap.vramUsed != null && snap.vramTotal ? (snap.vramUsed / snap.vramTotal) * 100 : null;
-  const cells: { key: PerfMetric; label: string; value: React.ReactNode; sub?: string; title: string; t?: string }[] = [
-    { key: "cpu", label: "CPU", value: snap ? pct(snap.cpu) : "—", title: "Total CPU usage (same figure as Task Manager)", t: tone(snap?.cpu) },
+  const cells: { key: PerfMetric; label: string; value: React.ReactNode; sub?: string; title: string; t?: string; color?: string }[] = [
+    {
+      key: "cpu",
+      label: "CPU",
+      value: snap ? pct(snap.cpu) : "—",
+      title: `Total CPU usage (same figure as Task Manager)${cpuLevel ? ` — ${LEVEL_LABEL[cpuLevel].toLowerCase()}` : ""}`,
+      color: cpuLevel ? LEVEL_COLOR[cpuLevel] : undefined,
+    },
     { key: "gpu", label: "GPU", value: pct(snap?.gpu), title: snap?.gpuName ? `${snap.gpuName} — busiest engine` : "GPU usage", t: tone(snap?.gpu) },
     {
       key: "vram",
@@ -105,7 +115,7 @@ export function PerfStrip({
         {cells.map((c) => (
           <span key={c.label} title={c.title} className="inline-flex items-baseline gap-1">
             <span className="text-muted font-semibold tracking-wide">{c.label}</span>
-            <span className={cx("font-mono font-semibold", c.t ?? "text-fg")}>{typeof c.value === "string" ? c.value.replace(" GB", "G").replace(" MB", "M") : c.value}</span>
+            <span className={cx("font-mono font-semibold transition-colors duration-700", c.t ?? "text-fg")} style={c.color ? { color: c.color } : undefined}>{typeof c.value === "string" ? c.value.replace(" GB", "G").replace(" MB", "M") : c.value}</span>
             {c.key === "ram" && snap && <span className="text-muted">{short(formatBytes(snap.ramUsed))}</span>}
           </span>
         ))}
@@ -118,7 +128,10 @@ export function PerfStrip({
         const body = (
           <>
             <div className={cx("text-[9px] font-bold tracking-widest", picked === c.key ? "text-accent" : "text-muted")}>{c.label}</div>
-            <div className={cx("font-mono tabular text-[13px] font-semibold leading-tight truncate", c.t ?? "text-fg")}>{c.value}</div>
+            <div className={cx("font-mono tabular text-[13px] font-semibold leading-tight truncate transition-colors duration-700", c.t ?? "text-fg")} style={c.color ? { color: c.color } : undefined}>
+              {c.color && <span className="inline-block h-1.5 w-1.5 rounded-full mr-1 mb-[2px] align-middle transition-colors duration-700" style={{ background: c.color }} aria-hidden />}
+              {c.value}
+            </div>
             {c.sub && <div className="text-[9px] text-muted tabular truncate">{c.sub}</div>}
           </>
         );

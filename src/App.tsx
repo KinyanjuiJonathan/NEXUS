@@ -87,9 +87,15 @@ export default function App() {
   // Timer expiry processing + periodic reminder horizon refresh (main window only).
   useEffect(() => {
     let last = 0;
+    let lastSweep = 0;
     const off = onTick(() => {
       void nexus().processTimers();
       const now = Date.now();
+      // Unfinished flexible blocks are re-planned once a minute (and straight away at start-up).
+      if (now - lastSweep > 60_000) {
+        lastSweep = now;
+        void nexus().autoReschedule().catch(() => {});
+      }
       if (now - last > 3600_000) {
         last = now;
         void nexus().resyncAllReminders();
@@ -110,7 +116,13 @@ export default function App() {
       const state = await activityState();
       if (!alive) return;
       if (state?.supported) {
-        const un = await listenTo<ActivityEvent>("nexus://activity", (ev) => void nexus().handleActivity(ev).catch(() => {}));
+        const un = await listenTo<ActivityEvent>("nexus://activity", (ev) => {
+          void nexus()
+            .handleActivity(ev)
+            // back from sleep, lock or a long absence: catch up on blocks that ended meanwhile
+            .then(() => (ev.kind === "back" ? nexus().autoReschedule() : undefined))
+            .catch(() => {});
+        });
         if (!alive) return un();
         off = un;
         // Catch up with whatever happened before this window was listening.

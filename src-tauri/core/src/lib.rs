@@ -383,6 +383,8 @@ impl Store {
             important: r.get::<_, i64>("important")? != 0,
             reminders: json_vec(r.get("reminders")?),
             color: r.get("color")?,
+            fixed: Some(r.get::<_, i64>("fixed")? != 0),
+            sched: json_opt(r.get("sched")?),
             created_at: r.get("created_at")?,
             updated_at: r.get("updated_at")?,
             deleted_at: r.get("deleted_at")?,
@@ -407,17 +409,20 @@ impl Store {
         }
         self.conn.execute(
             r#"INSERT INTO events (id, title, notes, start_at, end_at, tz, task_id, recurrence, important, reminders,
-                 color, created_at, updated_at, deleted_at)
-               VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
+                 color, created_at, updated_at, deleted_at, fixed, sched)
+               VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)
                ON CONFLICT(id) DO UPDATE SET
                  title=excluded.title, notes=excluded.notes, start_at=excluded.start_at, end_at=excluded.end_at,
                  tz=excluded.tz, task_id=excluded.task_id, recurrence=excluded.recurrence,
                  important=excluded.important, reminders=excluded.reminders, color=excluded.color,
-                 updated_at=excluded.updated_at, deleted_at=excluded.deleted_at"#,
+                 updated_at=excluded.updated_at, deleted_at=excluded.deleted_at,
+                 fixed=excluded.fixed, sched=excluded.sched"#,
             params![
                 e.id, e.title.trim(), e.notes, e.start_at, e.end_at, e.tz, e.task_id,
                 opt_json_string(&e.recurrence), e.important as i64, serde_json::to_string(&e.reminders)?,
-                e.color, e.created_at, e.updated_at, e.deleted_at
+                e.color, e.created_at, e.updated_at, e.deleted_at,
+                // Data from before fixed appointments existed: an appointment without a task is fixed.
+                e.fixed.unwrap_or(e.task_id.is_none()) as i64, opt_json_string(&e.sched)
             ],
         )?;
         Ok(())

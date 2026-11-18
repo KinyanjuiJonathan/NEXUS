@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PerfSnapshot } from "@/lib/platform";
-import { availableMetrics, formatMetric, graphPaths, metricRange, metricValue, pushSample } from "./perf";
+import { DEFAULT_THRESHOLDS, LEVEL_COLOR, availableMetrics, formatMetric, graphPaths, levelGradientStops, metricRange, metricValue, pushSample, thresholdsFor, usageLevel, type UsageLevel } from "./perf";
 
 const snap = (over: Partial<PerfSnapshot> = {}): PerfSnapshot => ({
   cpu: 37.4, ramUsed: 12 * 1024 ** 3, ramTotal: 32 * 1024 ** 3, ramPercent: 37.5, gpu: 55, gpuName: "GPU", vramUsed: 2 * 1024 ** 3, vramTotal: 8 * 1024 ** 3,
@@ -69,5 +69,57 @@ describe("graph history", () => {
     expect(line).toBe("M70 36M90 0L100 40");
     expect(area).toBe("M70 36L70 40L70 40ZM90 0L100 40L100 40L90 40Z");
     expect(graphPaths([], { min: 0, max: 100 }, 100, 40, 10)).toEqual({ line: "", area: "" });
+  });
+});
+
+describe("usage levels", () => {
+  it("is green below 60%, yellow from 60% and red from 80% by default", () => {
+    expect(DEFAULT_THRESHOLDS).toEqual({ elevated: 60, high: 80 });
+    expect([0, 35, 59.9].map((v) => usageLevel(v))).toEqual(["normal", "normal", "normal"]);
+    expect([60, 70, 79.9].map((v) => usageLevel(v))).toEqual(["elevated", "elevated", "elevated"]);
+    expect([80, 95, 100].map((v) => usageLevel(v))).toEqual(["high", "high", "high"]);
+    expect(usageLevel(null)).toBe("normal");
+    expect(LEVEL_COLOR).toEqual({ normal: "#22c55e", elevated: "#eab308", high: "#ef4444" });
+  });
+
+  it("follows custom thresholds", () => {
+    const t = { elevated: 40, high: 70 };
+    expect([39, 40, 69, 70].map((v) => usageLevel(v, t))).toEqual(["normal", "elevated", "elevated", "high"]);
+  });
+
+  it("does not flicker when usage hovers around a threshold", () => {
+    const run = (values: number[]) => {
+      let level: UsageLevel | null = null;
+      return values.map((v) => (level = usageLevel(v, DEFAULT_THRESHOLDS, level)));
+    };
+    // wobbling around 60%: turns yellow once and stays
+    expect(run([58, 60.5, 59.2, 60.1, 58.4, 61, 57.5])).toEqual(["normal", "elevated", "elevated", "elevated", "elevated", "elevated", "elevated"]);
+    // a real drop clears it
+    expect(run([62, 56.9])).toEqual(["elevated", "normal"]);
+    // around 80%
+    expect(run([79, 81, 78, 80.2, 77.5, 76.9, 50])).toEqual(["elevated", "high", "high", "high", "high", "elevated", "normal"]);
+    // rising is always immediate, even two levels at once
+    expect(run([10, 95, 10])).toEqual(["normal", "high", "normal"]);
+  });
+
+  it("colours each height of the graph by its level, blending at the thresholds", () => {
+    const stops = levelGradientStops(DEFAULT_THRESHOLDS);
+    expect(stops[0]).toEqual({ offset: 0, color: "#ef4444" }); // top of the graph = 100%
+    expect(stops[stops.length - 1]).toEqual({ offset: 1, color: "#22c55e" }); // bottom = 0%
+    const offsets = stops.map((s) => s.offset);
+    expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
+    const colorAt = (pct: number) => {
+      const o = 1 - pct / 100;
+      const i = stops.findIndex((s) => s.offset >= o);
+      return stops[i].color === stops[Math.max(0, i - 1)].color ? stops[i].color : "blend";
+    };
+    expect([30, 70, 90].map(colorAt)).toEqual(["#22c55e", "#eab308", "#ef4444"]);
+    expect([60, 80].map(colorAt)).toEqual(["blend", "blend"]);
+  });
+
+  it("applies to CPU now and is ready for other metrics", () => {
+    expect(thresholdsFor("cpu", { cpu: { elevated: 50, high: 75 } })).toEqual({ elevated: 50, high: 75 });
+    expect(thresholdsFor("cpu", undefined)).toEqual(DEFAULT_THRESHOLDS);
+    expect(thresholdsFor("ram", { cpu: DEFAULT_THRESHOLDS })).toBeNull();
   });
 });

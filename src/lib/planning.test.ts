@@ -19,7 +19,7 @@ const task = (o: Partial<Task>): Task => ({
 });
 const ev = (s: string, e: string, o: Partial<CalendarEvent> = {}): CalendarEvent => ({
   id: `e${++n}`, title: "Busy", notes: "", startAt: at(s), endAt: at(e), tz: NBO, taskId: null, recurrence: null, important: false,
-  reminders: [], color: null, createdAt: 0, updatedAt: 0, deletedAt: null, ...o,
+  reminders: [], color: null, fixed: o.taskId == null, sched: null, createdAt: 0, updatedAt: 0, deletedAt: null, ...o,
 });
 const session = (o: Partial<WorkSession>): WorkSession => ({ id: `w${++n}`, startedAt: at("2026-11-17T09:00"), endedAt: null, pauses: [], note: "", createdAt: 0, updatedAt: 0, ...o });
 

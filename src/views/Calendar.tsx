@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DateTime } from "luxon";
-import { Check, ChevronLeft, ChevronRight, Flag, Plus, Repeat, Star, TriangleAlert, Wand2 } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Flag, Lock, Plus, Repeat, RotateCcw, Star, TriangleAlert, Wand2 } from "lucide-react";
 import type { CalendarEvent, Occurrence, Task } from "@/data/types";
 import { useNexus, nexus } from "@/store";
 import { useUI } from "@/store/ui";
@@ -10,6 +10,8 @@ import { formatTime, formatWithZone, KENYA_ZONE, zoneAbbr } from "@/lib/time";
 import { Button, Segmented, cx } from "@/components/ui";
 import { choose, confirm } from "@/components/Confirm";
 import { PRIORITY_META } from "@/components/meta";
+import { SmartScheduleBar } from "@/components/SmartScheduleBar";
+import { autoBadge, moveHistory } from "@/lib/smart/format";
 import { dueOnDay, isHighPriority, scheduledTasks, taskCalendarState, tasksForDay, unscheduledOpenTasks } from "@/lib/calendarTasks";
 
 type Mode = "day" | "week" | "month";
@@ -125,6 +127,10 @@ function Legend() {
       {item(<Flag size={11} style={{ color: PRIORITY_META.high.color }} fill="currentColor" />, "high priority")}
       {item(<TriangleAlert size={11} className="text-danger" />, "overdue")}
       {item(<span className="h-3 w-3 rounded-full bg-success text-white flex items-center justify-center"><Check size={8} strokeWidth={4} /></span>, "completed")}
+      <span className="font-medium text-fg-2 ml-2">Blocks:</span>
+      {item(<Lock size={11} className="text-fg-2" />, "fixed appointment")}
+      {item(<span className="h-3 w-4 rounded-sm border border-dashed border-accent" />, "flexible")}
+      {item(<RotateCcw size={11} className="text-warning" />, "auto-rescheduled")}
     </div>
   );
 }
@@ -132,7 +138,10 @@ function Legend() {
 async function commitMove(occ: Occurrence, newStart: number, newEnd: number, zone: string, hour12: boolean) {
   const s = nexus();
   if (newStart === occ.start && newEnd === occ.end) return;
-  if (occ.event.important) {
+  if (occ.event.fixed && s.settings.smartProtectFixed) {
+    const ok = await confirm({ title: "Move a fixed appointment?", body: `“${occ.event.title}” is fixed (Do Not Reschedule). Move it yourself to ${formatWithZone(newStart, zone, hour12)}?`, confirmLabel: "Move it" });
+    if (!ok) return;
+  } else if (occ.event.important) {
     const ok = await confirm({ title: "Move an important appointment?", body: `“${occ.event.title}” → ${formatWithZone(newStart, zone, hour12)}`, confirmLabel: "Move it" });
     if (!ok) return;
   }
@@ -296,6 +305,9 @@ function TimeGrid({ days, zone, occ, tasks, now, hour12, texasZone }: { days: nu
                       } else height = Math.max(18, height + (minutes / 3600_000) * HOUR_PX);
                     }
                     const color = p.occ.event.color ?? (p.occ.event.important ? "#f59e0b" : "var(--accent)");
+                    const fixed = p.occ.event.fixed;
+                    const badge = autoBadge(p.occ.event);
+                    const history = moveHistory(p.occ.event, hour12);
                     return (
                       <div
                         key={p.occ.event.id + p.occ.start}
@@ -311,12 +323,16 @@ function TimeGrid({ days, zone, occ, tasks, now, hour12, texasZone }: { days: nu
                           left: `calc(${(p.col / p.cols) * 100}% + 2px)`,
                           width: `calc(${100 / p.cols}% - 4px)`,
                           transform: tx ? `translateX(${tx}px)` : undefined,
-                          background: `color-mix(in oklab, ${color} 20%, var(--bg-2))`,
-                          borderColor: `color-mix(in oklab, ${color} 50%, transparent)`,
+                          background: `color-mix(in oklab, ${color} ${fixed ? 24 : 14}%, var(--bg-2))`,
+                          borderColor: `color-mix(in oklab, ${color} ${fixed ? 60 : 45}%, transparent)`,
+                          // fixed appointments are solid; flexible blocks are dashed
+                          borderStyle: fixed ? "solid" : "dashed",
                         }}
-                        title={`${p.occ.event.title}\n${formatWithZone(p.occ.start, KENYA_ZONE, hour12)}\n${formatWithZone(p.occ.start, texasZone, hour12)}\nOriginal zone: ${p.occ.event.tz}`}
+                        title={`${p.occ.event.title}\n${fixed ? "Fixed appointment — never moved automatically" : "Flexible — NEXUS may re-plan it"}\n${formatWithZone(p.occ.start, KENYA_ZONE, hour12)}\n${formatWithZone(p.occ.start, texasZone, hour12)}\nOriginal zone: ${p.occ.event.tz}${badge ? `\n${badge.text}${history.length ? `:\n${history.join("\n")}` : ""}` : ""}`}
                       >
                         <div className="font-semibold text-fg truncate flex items-center gap-1">
+                          {fixed && <Lock size={10} className="shrink-0 text-fg-2" aria-label="Fixed appointment" />}
+                          {badge && (badge.attention ? <TriangleAlert size={10} className="shrink-0 text-danger" aria-label={badge.text} /> : <RotateCcw size={10} className="shrink-0 text-warning" aria-label={badge.text} />)}
                           {p.occ.event.important && <Star size={10} className="text-warning shrink-0" fill="currentColor" />}
                           {p.occ.recurring && <Repeat size={10} className="text-muted shrink-0" />}
                           <span className="truncate">{p.occ.event.title}</span>
@@ -386,8 +402,8 @@ function MonthGrid({ month, zone, events, tasks, now, hour12, onOpenDay }: { mon
           const inMonth = day.month === first.month;
           const isToday = day.hasSame(DateTime.fromMillis(now, { zone }), "day");
           const key = day.toISODate()!;
-          const items: ({ k: string; at: number } & ({ task: Task } | { task?: undefined; label: string; color: string; drag: { kind: string; id: string; start: number }; open: () => void }))[] = [
-            ...dayOcc.map((o) => ({ k: `e${o.event.id}${o.start}`, at: o.start, label: o.event.title, color: o.event.important ? "#f59e0b" : "var(--accent)", drag: { kind: "event", id: o.event.id, start: o.start }, open: () => ui.openEvent(o.event.id, undefined, o.seriesStart) })),
+          const items: ({ k: string; at: number } & ({ task: Task } | { task?: undefined; label: string; fixed: boolean; moved: boolean; color: string; drag: { kind: string; id: string; start: number }; open: () => void }))[] = [
+            ...dayOcc.map((o) => ({ k: `e${o.event.id}${o.start}`, at: o.start, label: o.event.title, fixed: o.event.fixed, moved: !!autoBadge(o.event), color: o.event.color ?? (o.event.important ? "#f59e0b" : "var(--accent)"), drag: { kind: "event", id: o.event.id, start: o.start }, open: () => ui.openEvent(o.event.id, undefined, o.seriesStart) })),
             ...due.map((t) => ({ k: `t${t.id}`, at: t.dueAt!, task: t })),
           ].sort((a, b) => a.at - b.at);
           return (
@@ -409,9 +425,11 @@ function MonthGrid({ month, zone, events, tasks, now, hour12, onOpenDay }: { mon
                   onDragStart={(e) => e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(it.drag))}
                   onClick={it.open}
                   className="text-left text-[11px] truncate rounded px-1.5 py-0.5 hover:brightness-125 shrink-0"
-                  style={{ color: "var(--text)", background: `color-mix(in oklab, ${it.color} 18%, transparent)`, borderLeft: `2px solid ${it.color}` }}
-                  title={`${formatTime(it.at, zone, hour12)} ${it.label}`}
+                  style={{ color: "var(--text)", background: `color-mix(in oklab, ${it.color} 18%, transparent)`, borderLeft: `2px ${it.fixed ? "solid" : "dashed"} ${it.color}` }}
+                  title={`${formatTime(it.at, zone, hour12)} ${it.label} — ${it.fixed ? "fixed appointment" : "flexible"}${it.moved ? ", auto-rescheduled" : ""}`}
                 >
+                  {it.fixed && <Lock size={9} className="inline mr-1 -mt-0.5 text-fg-2" aria-label="Fixed" />}
+                  {it.moved && <RotateCcw size={9} className="inline mr-1 -mt-0.5 text-warning" aria-label="Auto-rescheduled" />}
                   <span className="text-muted tabular mr-1">{formatTime(it.at, zone, hour12)}</span>
                   {it.label}
                 </button>
@@ -488,6 +506,7 @@ export default function Calendar() {
           <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={() => useUI.getState().openEvent(null)}>New</Button>
         </div>
       </div>
+      <SmartScheduleBar />
       {mode === "month" ? (
         <MonthGrid month={anchor} zone={zone} events={events} tasks={openTasks} now={now} hour12={settings.hour12} onOpenDay={(d) => { setAnchor(d); setMode("day"); }} />
       ) : (

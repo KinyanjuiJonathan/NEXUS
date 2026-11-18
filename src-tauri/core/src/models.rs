@@ -72,6 +72,13 @@ pub struct CalendarEvent {
     #[serde(default)]
     pub reminders: Vec<i64>,
     pub color: Option<String>,
+    /// Fixed appointments are never moved by the automatic scheduler. Missing in
+    /// data from older versions: appointments not linked to a task are then fixed.
+    #[serde(default)]
+    pub fixed: Option<bool>,
+    /// Scheduling metadata (how the time was chosen, automatic moves and their history).
+    #[serde(default)]
+    pub sched: Option<Value>,
     pub created_at: i64,
     pub updated_at: i64,
     pub deleted_at: Option<i64>,

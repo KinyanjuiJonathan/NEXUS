@@ -19,6 +19,8 @@ const META: Record<ActivityKind, { icon: React.ReactNode; color: string; group: 
   event_moved: { icon: <CalendarClock size={15} />, color: "var(--accent-2)", group: "schedule" },
   event_deleted: { icon: <CalendarX size={15} />, color: "var(--danger)", group: "schedule" },
   auto_planned: { icon: <Wand2 size={15} />, color: "var(--accent-3)", group: "schedule" },
+  smart_scheduled: { icon: <Wand2 size={15} />, color: "var(--accent)", group: "schedule" },
+  auto_rescheduled: { icon: <CalendarClock size={15} />, color: "var(--warning)", group: "schedule" },
   focus: { icon: <Flame size={15} />, color: "var(--accent-2)", group: "focus" },
   clock_in: { icon: <LogIn size={15} />, color: "var(--success)", group: "clock" },
   clock_out: { icon: <LogOut size={15} />, color: "var(--muted)", group: "clock" },

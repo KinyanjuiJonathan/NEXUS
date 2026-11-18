@@ -23,6 +23,8 @@ const ev = (start: string, end: string, over: Partial<CalendarEvent> = {}): Cale
   important: false,
   reminders: [],
   color: null,
+  fixed: over.taskId == null,
+  sched: null,
   createdAt: 0,
   updatedAt: 0,
   deletedAt: null,

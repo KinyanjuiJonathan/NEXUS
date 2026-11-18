@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { PerfMetric } from "@/data/types";
 import type { PerfSnapshot } from "@/lib/platform";
-import { GRAPH_POINTS, METRIC_LABEL, SAMPLE_MS, formatMetric, graphPaths, metricRange, metricValue } from "@/lib/perf";
+import { GRAPH_POINTS, LEVEL_COLOR, LEVEL_LABEL, METRIC_LABEL, SAMPLE_MS, formatMetric, graphPaths, levelGradientStops, metricRange, metricValue, thresholdsFor, useUsageLevel, type Thresholds } from "@/lib/perf";
 import { cx } from "./ui";
 
 const W = 100;
@@ -20,10 +20,17 @@ const COLOR: Record<PerfMetric, string> = {
  * Live graph of one metric over the last minute. A new point arrives every
  * second; in between, the whole line glides left with a compositor-only CSS
  * animation, so it looks continuous without a per-frame render loop.
+ *
+ * For metrics with usage levels (CPU), the line is coloured by height: green in
+ * the normal band, yellow when elevated, red when high, so the history shows
+ * at a glance when usage was up. The colour comes from one static gradient, so
+ * it costs nothing extra per sample.
  */
 export function PerfGraph({
-  history, metric, metrics, onMetric, unit = "C", height = 56, className,
+  history, metric, metrics, onMetric, unit = "C", height = 56, className, thresholds,
 }: {
+  /** Level thresholds per metric (Settings); metrics without them keep a single colour. */
+  thresholds?: { cpu: Thresholds };
   history: PerfSnapshot[];
   metric: PerfMetric;
   /** Metrics the user can switch between. */
@@ -42,7 +49,11 @@ export function PerfGraph({
   const real = values.filter((v): v is number => v != null);
   const avg = real.length ? real.reduce((a, b) => a + b, 0) / real.length : null;
   const peak = real.length ? Math.max(...real) : null;
-  const color = COLOR[shown];
+  const levels = thresholdsFor(shown, thresholds);
+  const level = useUsageLevel(latest, levels);
+  const color = level ? LEVEL_COLOR[level] : COLOR[shown];
+  const stops = levels ? levelGradientStops(levels) : null;
+  const paint = stops ? `url(#perf-level-${shown})` : color;
   const stamp = history.length ? history.length + ":" + (history[history.length - 1].cpu ?? 0) + ":" + (history[0].cpu ?? 0) : "0";
   const fmt = (v: number | null) => formatMetric(v, shown, unit);
 
@@ -65,7 +76,7 @@ export function PerfGraph({
         </div>
         <div className="ml-auto flex items-baseline gap-2 shrink-0 tabular">
           <span className="text-[9px] text-muted">avg {fmt(avg)} · peak {fmt(peak)}</span>
-          <span className="font-mono text-[13px] font-semibold" style={{ color }}>{fmt(latest)}{shown === "fps" && latest != null ? " fps" : ""}</span>
+          <span className="font-mono text-[13px] font-semibold transition-colors duration-700" style={{ color }} title={level ? `${LEVEL_LABEL[level]} ${METRIC_LABEL[shown]} usage` : undefined}>{fmt(latest)}{shown === "fps" && latest != null ? " fps" : ""}</span>
         </div>
       </div>
       <div className="relative overflow-hidden rounded-md" style={{ height }}>
@@ -78,11 +89,20 @@ export function PerfGraph({
               <stop offset="0%" stopColor={color} stopOpacity="0.38" />
               <stop offset="100%" stopColor={color} stopOpacity="0" />
             </linearGradient>
+            {stops && (
+              // In graph units, so each height always has the colour of its level.
+              <linearGradient id={`perf-level-${shown}`} gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2={H}>
+                {stops.map((s, i) => <stop key={i} offset={s.offset} stopColor={s.color} />)}
+              </linearGradient>
+            )}
           </defs>
+          {levels && [levels.elevated, levels.high].map((v, i) => (
+            <line key={v} x1="0" x2={W} y1={H * (1 - v / 100)} y2={H * (1 - v / 100)} stroke={i ? LEVEL_COLOR.high : LEVEL_COLOR.elevated} strokeOpacity="0.35" strokeWidth="1" strokeDasharray="1.5 2.5" vectorEffect="non-scaling-stroke" />
+          ))}
           {/* Re-keyed on every sample so the slide restarts from one step to the right. */}
           <g key={stamp} className="perf-slide" style={{ ["--perf-step" as string]: `${STEP}px`, animationDuration: `${SAMPLE_MS}ms` }}>
-            <path d={area} fill={`url(#perf-fill-${shown})`} />
-            <path d={line} fill="none" stroke={color} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+            <path d={area} fill={stops ? paint : `url(#perf-fill-${shown})`} fillOpacity={stops ? 0.16 : 1} />
+            <path d={line} fill="none" stroke={paint} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
           </g>
         </svg>
         <span className="absolute left-1 top-0.5 text-[8px] text-muted tabular">{fmt(range.max)}</span>

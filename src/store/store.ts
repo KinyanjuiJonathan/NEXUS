@@ -25,6 +25,9 @@ import { nextOccurrence } from "@/lib/recurrence";
 import * as cd from "@/lib/countdown";
 import { reminderForTimer, remindersForEvent, remindersForTask } from "@/lib/reminders";
 import { activeSession, openPause } from "@/lib/work";
+import { planDisplaced, planUnfinished, type Move, type RescheduleSettings } from "@/lib/smart/reschedule";
+import type { ScheduleRequest } from "@/lib/smart/parse";
+import type { Interval } from "@/lib/schedule";
 import { planTasks, type PlanBlock, type PlanOptions, type PlanResult } from "@/lib/planner";
 import { humanDuration } from "@/lib/countdown";
 import { formatWithZone } from "@/lib/time";
@@ -62,6 +65,13 @@ export const DEFAULT_SETTINGS: Settings = {
   perfGraphMetric: "cpu",
   dashboardPerf: true,
   typer: DEFAULT_TYPER,
+  smartEnabled: true,
+  smartAutoReschedule: true,
+  smartZone: "home",
+  smartProtectFixed: true,
+  smartNotify: true,
+  smartPeriods: { morning: [6, 12], afternoon: [12, 17], evening: [17, 22] },
+  perfThresholds: { cpu: { elevated: 60, high: 80 } },
   workAuto: true,
   workAutoHoldDay: null,
   typerIdleReturn: true,
@@ -179,6 +189,21 @@ export interface NexusState {
   autoPlan(opts?: PlanOptions): PlanResult;
   applyPlan(blocks: PlanBlock[]): Promise<CalendarEvent[]>;
 
+  // smart scheduling
+  /** Settings the slot finder and the automatic rescheduler work from. */
+  slotSettings(): RescheduleSettings;
+  /**
+   * Put an understood request on the calendar at `slot`: a fixed appointment,
+   * or a To-Do task with a flexible block of time reserved for it.
+   */
+  smartCreate(req: ScheduleRequest, slot: Interval, durationMin: number): Promise<{ task: Task | null; event: CalendarEvent }>;
+  /**
+   * Move flexible blocks whose time passed while their task is still open to
+   * the next suitable free time. Never completes a task and never touches a
+   * fixed appointment. Returns what it decided.
+   */
+  autoReschedule(): Promise<Move[]>;
+
   // reminders
   resyncAllReminders(): Promise<void>;
   snoozeReminder(r: ReminderItem, minutes?: number): Promise<void>;
@@ -196,7 +221,10 @@ export interface StoreDeps {
 }
 
 function mergeSettings(raw: Partial<Settings>): Settings {
-  const s = { ...DEFAULT_SETTINGS, ...raw, shortcuts: { ...DEFAULT_SHORTCUTS, ...(raw.shortcuts ?? {}) }, typer: { ...DEFAULT_TYPER, ...(raw.typer ?? {}) } };
+  const s = { ...DEFAULT_SETTINGS, ...raw, shortcuts: { ...DEFAULT_SHORTCUTS, ...(raw.shortcuts ?? {}) }, typer: { ...DEFAULT_TYPER, ...(raw.typer ?? {}) },
+    smartPeriods: { ...DEFAULT_SETTINGS.smartPeriods, ...(raw.smartPeriods ?? {}) },
+    perfThresholds: { cpu: { ...DEFAULT_SETTINGS.perfThresholds.cpu, ...(raw.perfThresholds?.cpu ?? {}) } },
+  };
   // Accept the legacy/alias "America/El_Paso" and guard against invalid zones.
   s.texasZone = normalizeZone(s.texasZone, TEXAS_CENTRAL) as Settings["texasZone"];
   if (s.texasZone !== "America/Chicago" && s.texasZone !== "America/Denver") s.texasZone = TEXAS_CENTRAL;
@@ -287,7 +315,8 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
       set({
         tasks: snap.tasks,
         categories: snap.categories,
-        events: snap.events,
+        // Data from before fixed appointments existed: an appointment without a task is fixed.
+        events: snap.events.map((e) => ({ ...e, fixed: e.fixed ?? e.taskId == null, sched: e.sched ?? null })),
         timers: snap.timers,
         focusSessions: snap.focusSessions,
         settings,
@@ -392,6 +421,59 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
     };
 
     let activityQueue: Promise<void> = Promise.resolve();
+    let rescheduling = false;
+
+    /** Apply decisions of the automatic scheduler, keeping a history on each block. */
+    const applyMoves = async (moves: Move[]) => {
+      const s = get().settings;
+      for (const m of moves) {
+        const e = get().events.find((x) => x.id === m.eventId);
+        if (!e || e.deletedAt) continue;
+        const ts = now();
+        const sched = e.sched ?? {};
+        const when = (ms: number) => formatWithZone(ms, e.tz, s.hour12);
+        if (m.to) {
+          const history = [...(sched.history ?? []), { at: ts, from: [e.startAt, e.endAt] as [number, number], to: [m.to.start, m.to.end] as [number, number], reason: m.reason }].slice(-20);
+          await saveEvent({ ...e, startAt: m.to.start, endAt: m.to.end, sched: { ...sched, origin: "auto", moves: (sched.moves ?? 0) + 1, history, attention: null }, updatedAt: ts });
+          const why = m.reason === "unfinished" ? "Not completed in its time" : "A fixed appointment took its time";
+          get().log("auto_rescheduled", m.title, `${why}: ${when(m.from.start)} → ${when(m.to.start)}`, e.taskId ?? e.id);
+          if (s.smartNotify) {
+            get().toast({
+              kind: "info",
+              title: m.reason === "unfinished" ? "Rescheduled automatically" : "Moved to make room",
+              body: `${m.title}: ${why.toLowerCase()}. New time ${when(m.to.start)}.`,
+              // Putting it back leaves it for the user to decide, so it is not moved again straight away.
+              action: { label: "Undo", run: () => void saveEvent({ ...e, sched: { ...sched, attention: "kept" }, updatedAt: now() }) },
+              ttl: 12_000,
+            });
+          }
+        } else {
+          await saveEvent({ ...e, sched: { ...sched, attention: m.problem ?? "nofit" }, updatedAt: ts });
+          const suggestion = m.suggestion;
+          const body =
+            m.problem === "deadline"
+              ? `It was not completed in its time, and the next free time${suggestion ? ` (${when(suggestion.start)})` : ""} is after its deadline.`
+              : m.problem === "limit"
+                ? "It has been moved automatically several times without being completed. Pick a time that works, or mark it complete."
+                : "It was not completed in its time and no free time was found in the next two weeks.";
+          get().log("auto_rescheduled", m.title, `Needs your decision: ${body}`, e.taskId ?? e.id);
+          get().toast({
+            kind: "warning",
+            title: `“${m.title}” needs a new time`,
+            body,
+            action: suggestion ? { label: `Use ${when(suggestion.start)}`, run: () => void applyMoves([{ ...m, to: suggestion, problem: undefined }]) } : undefined,
+            ttl: 0,
+          });
+        }
+      }
+    };
+
+    /** A fixed appointment now occupies `fixed`'s time: flexible blocks there are moved away. */
+    const makeRoomFor = async (fixed: CalendarEvent) => {
+      const s = get().settings;
+      if (!s.smartEnabled || !fixed.fixed) return;
+      await applyMoves(planDisplaced(fixed, get().tasks, get().events, now(), get().slotSettings()));
+    };
 
     const wh = () => {
       const s = get().settings;
@@ -627,6 +709,9 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           important: input.important ?? false,
           reminders: input.reminders ?? [...get().settings.defaultReminders],
           color: input.color ?? null,
+          // An appointment is fixed unless it is a block of time for a task.
+          fixed: input.fixed ?? input.taskId == null,
+          sched: input.sched ?? null,
           createdAt: ts,
           updatedAt: ts,
           deletedAt: null,
@@ -634,6 +719,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         if (!e.title) throw new Error("An appointment needs a title");
         await saveEvent(e);
         get().log("event_created", e.title, formatWithZone(e.startAt, e.tz, get().settings.hour12), e.id);
+        await makeRoomFor(e);
         return e;
       },
 
@@ -641,10 +727,14 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         const cur = get().events.find((e) => e.id === evId);
         if (!cur) return null;
         const next = { ...cur, ...patch, id: cur.id, updatedAt: now() };
+        const retimed = next.startAt !== cur.startAt || next.endAt !== cur.endAt;
+        // The user chose this time: it is theirs again, and the automatic-move count starts over.
+        if (retimed && cur.sched && patch.sched === undefined) next.sched = { ...cur.sched, origin: "user", moves: 0, attention: null };
         await saveEvent(next);
         if (patch.startAt !== undefined && patch.startAt !== cur.startAt) {
           get().log("event_moved", next.title, `→ ${formatWithZone(next.startAt, next.tz, get().settings.hour12)}`, next.id);
         }
+        if (retimed || (next.fixed && !cur.fixed)) await makeRoomFor(next);
         return next;
       },
 
@@ -900,6 +990,51 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
       autoPlan(opts) {
         const s = get().settings;
         return planTasks(get().tasks, get().events, wh(), now(), { bufferMin: s.planBufferMin, chunkMaxMin: s.planChunkMaxMin, ...opts });
+      },
+
+      slotSettings() {
+        const s = get().settings;
+        return {
+          homeZone: s.homeZone,
+          workStartHour: s.workStartHour,
+          workEndHour: s.workEndHour,
+          workDays: s.workDays,
+          bufferMin: s.planBufferMin,
+          periods: s.smartPeriods,
+          protectFixed: s.smartProtectFixed,
+        };
+      },
+
+      async smartCreate(req, slot, durationMin) {
+        const title = req.title.trim();
+        if (!title) throw new Error("Say what should be scheduled");
+        const sched = { origin: "smart" as const, period: req.period, zone: req.zone, request: req.text };
+        if (req.fixed) {
+          const event = await get().addEvent({ title, startAt: slot.start, endAt: slot.end, tz: req.zone, fixed: true, sched });
+          get().log("smart_scheduled", title, `Fixed appointment · ${formatWithZone(slot.start, req.zone, get().settings.hour12)}`, event.id);
+          return { task: null, event };
+        }
+        // Flexible work: a To-Do task plus the time reserved for it on the calendar.
+        const task = await get().addTask(
+          { title, estimateMin: durationMin, dueAt: req.deadline, dueTz: req.deadline != null ? req.zone : null, priority: req.priority ?? undefined, reminders: req.deadline != null ? undefined : [] },
+          { autoPlace: false },
+        );
+        const event = await get().addEvent({ title, startAt: slot.start, endAt: slot.end, tz: req.zone, taskId: task.id, fixed: false, reminders: [5], color: "#22d3ee", sched });
+        get().log("smart_scheduled", title, formatWithZone(slot.start, req.zone, get().settings.hour12), task.id);
+        return { task, event };
+      },
+
+      async autoReschedule() {
+        const s = get().settings;
+        if (!s.smartEnabled || !s.smartAutoReschedule || rescheduling || !get().ready) return [];
+        rescheduling = true;
+        try {
+          const moves = planUnfinished(get().tasks, get().events, now(), get().slotSettings());
+          await applyMoves(moves);
+          return moves;
+        } finally {
+          rescheduling = false;
+        }
       },
 
       async applyPlan(blocks) {

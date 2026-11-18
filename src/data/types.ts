@@ -86,9 +86,45 @@ export interface CalendarEvent {
   important: boolean;
   reminders: number[];
   color: string | null;
+  /**
+   * Fixed appointment (a meeting, a call, an interview): it stays where it is.
+   * The automatic scheduler never moves, shortens or overwrites it, and its time
+   * is unavailable to everything else. False = a flexible block of time for a
+   * task, which may be re-planned automatically.
+   */
+  fixed: boolean;
+  /** How this time was chosen and every automatic change made to it since. */
+  sched: SchedMeta | null;
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null;
+}
+
+export type DayPeriod = "morning" | "afternoon" | "evening" | "night";
+
+/** One automatic move of a time block. */
+export interface SchedMove {
+  at: number;
+  from: [number, number];
+  to: [number, number];
+  /** "unfinished": its time passed without the task being completed. "conflict": a fixed appointment took its place. */
+  reason: "unfinished" | "conflict";
+}
+
+export interface SchedMeta {
+  /** "user": the user picked the time. "smart": NEXUS picked it from a request. "auto": NEXUS has moved it since. */
+  origin?: "user" | "smart" | "auto";
+  /** Preferred part of the day and zone from the original request, reused when it is moved. */
+  period?: DayPeriod | null;
+  zone?: string;
+  /** The request as typed. */
+  request?: string;
+  /** Number of automatic moves so far. */
+  moves?: number;
+  /** Most recent automatic moves, oldest first. */
+  history?: SchedMove[];
+  /** Set when NEXUS could not move it by itself and the user has to decide. */
+  attention?: string | null;
 }
 
 /** A concrete occurrence of an event (recurring series are expanded). */
@@ -181,7 +217,9 @@ export type ActivityKind =
   | "auto_paused"
   | "paused"
   | "resumed"
-  | "auto_planned";
+  | "auto_planned"
+  | "smart_scheduled"
+  | "auto_rescheduled";
 
 /** One entry of the history of what has been done. */
 export interface ActivityEntry {
@@ -249,6 +287,20 @@ export interface Settings {
   dashboardPerf: boolean;
   /** Auto Typer options (the text itself is kept separately). */
   typer: TyperOptions;
+  /** Smart scheduling: understand typed requests and pick a free time automatically. */
+  smartEnabled: boolean;
+  /** Move flexible task blocks that ended without the task being completed to the next suitable time. */
+  smartAutoReschedule: boolean;
+  /** Zone a request is read in when it names none: "home" or an IANA zone. */
+  smartZone: string;
+  /** Never let the automatic scheduler change a fixed appointment, and ask before moving one by hand. */
+  smartProtectFixed: boolean;
+  /** Tell me whenever NEXUS moves something. */
+  smartNotify: boolean;
+  /** Hours [from, to) that "morning", "afternoon" and "evening" mean. */
+  smartPeriods: { morning: [number, number]; afternoon: [number, number]; evening: [number, number] };
+  /** Usage (percent) from which a metric is shown as elevated (yellow) and high (red). */
+  perfThresholds: { cpu: { elevated: number; high: number } };
   /** Start, pause and resume the work clock by itself from keyboard/mouse activity. */
   workAuto: boolean;
   /** ISO date on which the user clocked out by hand: automatic tracking stays off for that day. */

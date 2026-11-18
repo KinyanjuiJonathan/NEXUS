@@ -1,13 +1,39 @@
 import { memo } from "react";
 import { motion } from "framer-motion";
-import { Archive, ArchiveRestore, Check, Clock, GripVertical, ListChecks, Pause, Play, Repeat, RotateCcw, Trash2, Undo2 } from "lucide-react";
+import { Archive, ArchiveRestore, CalendarCheck, Check, Clock, GripVertical, ListChecks, Lock, Pause, Play, Repeat, RotateCcw, Trash2, TriangleAlert, Undo2 } from "lucide-react";
 import type { Category, Task } from "@/data/types";
 import { deadlineInfo, spentVsEstimate, humanDuration } from "@/lib/countdown";
 import { formatWithZone, KENYA_ZONE, formatTime, zoneAbbr } from "@/lib/time";
-import { nexus } from "@/store";
+import { nexus, useNexus } from "@/store";
+import { autoBadge, dayLabel, moveHistory } from "@/lib/smart/format";
 import { useUI } from "@/store/ui";
 import { Badge, IconButton, ProgressBar, cx } from "./ui";
 import { CategoryIcon, PRIORITY_META, URGENCY_COLOR, categoryOf } from "./meta";
+
+/** The time reserved on the calendar for a task, and whether NEXUS has moved it. */
+function PlannedTime({ taskId, now, hour12 }: { taskId: string; now: number; hour12: boolean }) {
+  // the block that is running or comes next; otherwise the most recent one (it may need a new time)
+  const block = useNexus((s) => {
+    const mine = s.events.filter((e) => e.taskId === taskId && !e.deletedAt && !e.recurrence);
+    return mine.filter((e) => e.endAt > now).sort((a, b) => a.startAt - b.startAt)[0] ?? mine.filter((e) => e.sched?.attention).sort((a, b) => b.endAt - a.endAt)[0] ?? null;
+  });
+  if (!block) return null;
+  const badge = autoBadge(block);
+  const history = moveHistory(block, hour12);
+  return (
+    <>
+      <span className="inline-flex items-center gap-1 text-accent" title={`Time reserved on the calendar (${block.fixed ? "fixed" : "flexible"})`}>
+        {block.fixed ? <Lock size={11} /> : <CalendarCheck size={11} />}
+        {dayLabel(block.startAt, block.tz, now)} {formatTime(block.startAt, block.tz, hour12)}–{formatTime(block.endAt, block.tz, hour12)} {zoneAbbr(block.tz, block.startAt)}
+      </span>
+      {badge && (
+        <span className={cx("inline-flex items-center gap-1 rounded px-1 font-medium", badge.attention ? "text-danger bg-[color-mix(in_oklab,var(--danger)_14%,transparent)]" : "text-warning bg-[color-mix(in_oklab,var(--warning)_14%,transparent)]")} title={history.length ? `Moved automatically:\n${history.join("\n")}` : undefined}>
+          {badge.attention ? <TriangleAlert size={10} /> : <RotateCcw size={10} />} {badge.text}
+        </span>
+      )}
+    </>
+  );
+}
 
 interface Props {
   task: Task;
@@ -79,6 +105,7 @@ export const TaskRow = memo(function TaskRow({ task: t, categories, now, hour12,
                 {done ? formatWithZone(t.dueAt, t.dueTz ?? KENYA_ZONE, hour12) : dl.label}
               </span>
             )}
+            {!done && !t.deletedAt && <PlannedTime taskId={t.id} now={Math.floor(now / 60_000) * 60_000} hour12={hour12} />}
             {t.estimateMin != null && (
               <span className={cx(sve.over && "text-warning")} title="Time spent vs estimate">
                 {t.spentMs > 0 ? sve.label : `~${humanDuration(t.estimateMin * 60_000)}`}

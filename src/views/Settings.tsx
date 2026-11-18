@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Clock, Wand2, Bell, Brain, Database, Download, Globe, Info, Keyboard, Mic, Monitor, Moon, PanelTop, Power, RefreshCw, Shield, Sun, Target, Upload } from "lucide-react";
+import { CalendarCheck, Clock, Wand2, Bell, Brain, Database, Download, Globe, Info, Keyboard, Mic, Monitor, Moon, PanelTop, Power, RefreshCw, Shield, Sun, Target, Upload } from "lucide-react";
 import { DEFAULT_SHORTCUTS, type PerfMetric, type Settings, type Shortcuts } from "@/data/types";
 import { BrandBlock } from "@/components/Brand";
 import { METRIC_LABEL } from "@/lib/perf";
@@ -209,6 +209,68 @@ export default function SettingsView() {
         <Toggle checked={settings.idlePauseTimers} onChange={(v) => set("idlePauseTimers", v)} label="Also pause running focus timers when idle" description="After 5 minutes without input, or as soon as the PC is locked or goes to sleep." />
       </Section>
 
+      <Section id="smart" title="Smart Scheduling" icon={<CalendarCheck size={16} />}>
+        <Toggle
+          checked={settings.smartEnabled}
+          onChange={(v) => set("smartEnabled", v)}
+          label="Enable Smart Scheduling"
+          description="Type what you need in plain words (“Repair the phone today, around 3 hours, in the evening Kenya time”) and NEXUS reads it, finds a free time and puts it in the To-Do list and on the calendar. Runs on this PC; no AI service is needed."
+        />
+        <Toggle
+          checked={settings.smartAutoReschedule}
+          disabled={!settings.smartEnabled}
+          onChange={async (v) => {
+            await s.setSetting("smartAutoReschedule", v);
+            if (v) void s.autoReschedule();
+          }}
+          label="Auto-Reschedule Incomplete Tasks"
+          description="When a flexible task's time passes and you have not marked it complete, NEXUS moves it to the next suitable free time (higher priority and nearer deadlines first). It never marks a task complete for you."
+        />
+        <Toggle
+          checked={settings.smartProtectFixed}
+          onChange={(v) => set("smartProtectFixed", v)}
+          label="Protect Fixed Appointments"
+          description="Fixed appointments are never moved, shortened or overwritten automatically, and you are asked before dragging one. Nothing is ever planned inside a fixed appointment, whatever this is set to."
+        />
+        <Toggle checked={settings.smartNotify} onChange={(v) => set("smartNotify", v)} label="Rescheduling Notifications" description="Tell me whenever NEXUS moves something. Moves are always recorded in History, and you are always told when NEXUS needs your decision." />
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Field label="Preferred Time Zone" hint="Used when a request names no zone. “Kenya time” or “Texas time” in the request always wins.">
+            <Select value={settings.smartZone} onChange={(e) => set("smartZone", e.target.value)}>
+              <option value="home">Home time zone ({settings.homeZone})</option>
+              <option value={KENYA_ZONE}>Kenya ({KENYA_ZONE})</option>
+              <option value={settings.texasZone}>Texas ({settings.texasZone})</option>
+              {[...new Set([settings.smartZone, ...ZONES])].filter((z) => z !== "home" && z !== KENYA_ZONE && z !== settings.texasZone).map((z) => <option key={z} value={z}>{z}</option>)}
+            </Select>
+          </Field>
+          <Field label="Scheduling Buffer (minutes)" hint="Free time kept before and after every appointment.">
+            <Input type="number" min={0} max={60} value={settings.planBufferMin} onChange={(e) => set("planBufferMin", Math.max(0, Math.min(60, Number(e.target.value) || 0)))} />
+          </Field>
+        </div>
+        <div>
+          <span className="text-xs font-medium text-fg-2">Preferred Working Hours</span>
+          <div className="grid sm:grid-cols-3 gap-3 items-end mt-1.5">
+            <Field label="From (hour)"><Input type="number" min={0} max={23} value={settings.workStartHour} onChange={(e) => set("workStartHour", Math.min(settings.workEndHour - 1, Math.max(0, Number(e.target.value))))} /></Field>
+            <Field label="To (hour)"><Input type="number" min={1} max={24} value={settings.workEndHour} onChange={(e) => set("workEndHour", Math.max(settings.workStartHour + 1, Math.min(24, Number(e.target.value))))} /></Field>
+            <p className="text-[11px] text-muted pb-2">In your home zone, on your working days (set under Time zones & working hours). Tasks with no day or time given are placed here.</p>
+          </div>
+        </div>
+        <div>
+          <span className="text-xs font-medium text-fg-2">Scheduling Preferences — what morning, afternoon and evening mean (hours)</span>
+          <div className="grid grid-cols-3 gap-3 mt-1.5">
+            {(["morning", "afternoon", "evening"] as const).map((p) => (
+              <Field key={p} label={p[0].toUpperCase() + p.slice(1)}>
+                <div className="flex items-center gap-1.5">
+                  <Input type="number" min={0} max={23} aria-label={`${p} from`} value={settings.smartPeriods[p][0]} onChange={(e) => set("smartPeriods", { ...settings.smartPeriods, [p]: [Math.max(0, Math.min(settings.smartPeriods[p][1] - 1, Number(e.target.value) || 0)), settings.smartPeriods[p][1]] })} />
+                  <span className="text-muted text-xs">to</span>
+                  <Input type="number" min={1} max={24} aria-label={`${p} to`} value={settings.smartPeriods[p][1]} onChange={(e) => set("smartPeriods", { ...settings.smartPeriods, [p]: [settings.smartPeriods[p][0], Math.max(settings.smartPeriods[p][0] + 1, Math.min(24, Number(e.target.value) || 24))] })} />
+                </div>
+              </Field>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted mt-1.5">These hours are read in the zone of the request, so “evening Kenya time” is evening in Nairobi wherever this PC is.</p>
+        </div>
+      </Section>
+
       <Section id="planning" title="Auto-placement" icon={<Wand2 size={16} />}>
         <Toggle checked={settings.autoPlaceNewTasks} onChange={(v) => set("autoPlaceNewTasks", v)} label="Automatically reserve time for new tasks with an estimate" description="Finds the best free slot(s) in your working hours before the deadline. Every placement can be undone, and existing appointments are never moved." />
         <div className="grid sm:grid-cols-2 gap-3">
@@ -248,6 +310,14 @@ export default function SettingsView() {
           <Select className="!w-40" value={settings.perfGraphMetric} disabled={!(settings.overlayPerf && settings.overlayGraph)} onChange={(e) => set("perfGraphMetric", e.target.value as PerfMetric)}>
             {(Object.keys(METRIC_LABEL) as PerfMetric[]).map((m) => <option key={m} value={m}>{m === "temp" ? "Temperature" : METRIC_LABEL[m]}</option>)}
           </Select>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm">CPU colour: yellow from</span>
+          <Input className="!w-20" type="number" min={1} max={98} aria-label="Elevated CPU threshold" value={settings.perfThresholds.cpu.elevated} onChange={(e) => set("perfThresholds", { cpu: { elevated: Math.max(1, Math.min(settings.perfThresholds.cpu.high - 1, Number(e.target.value) || 60)), high: settings.perfThresholds.cpu.high } })} />
+          <span className="text-sm">%, red from</span>
+          <Input className="!w-20" type="number" min={2} max={100} aria-label="High CPU threshold" value={settings.perfThresholds.cpu.high} onChange={(e) => set("perfThresholds", { cpu: { elevated: settings.perfThresholds.cpu.elevated, high: Math.max(settings.perfThresholds.cpu.elevated + 1, Math.min(100, Number(e.target.value) || 80)) } })} />
+          <span className="text-sm">%</span>
+          <span className="text-xs text-muted">Green below that. Used for the CPU figure and its graph, in the overlay and on the dashboard.</span>
         </div>
         <Toggle checked={settings.dashboardPerf} onChange={(v) => set("dashboardPerf", v)} label="Show the system monitor on the dashboard" description="The same live readings in the main window, sampled only while the dashboard is open." />
         <Toggle

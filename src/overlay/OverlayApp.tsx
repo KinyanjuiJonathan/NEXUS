@@ -261,7 +261,7 @@ export default function OverlayApp() {
               <Btn label="Hide overlay" onClick={() => void setOverlayVisible(false)}><X size={12} /></Btn>
             </div>
           </div>
-          {perfOn && <PerfStrip snap={perf} compact showFps={settings.overlayFps} showTemp={settings.overlayTemp} unit={settings.tempUnit} />}
+          {perfOn && <PerfStrip snap={perf} compact showFps={settings.overlayFps} showTemp={settings.overlayTemp} unit={settings.tempUnit} thresholds={settings.perfThresholds} />}
           {work.active && (
             <div className="flex items-center gap-1.5 text-[10px] text-muted">
               <span className={cx("h-1.5 w-1.5 rounded-full", work.pause ? "bg-warning" : "bg-success")} />
@@ -278,8 +278,8 @@ export default function OverlayApp() {
               <div className="w-px bg-line" />
               <MiniClock zone={settings.texasZone} tag={settings.texasZone === "America/Denver" ? "EL PASO" : "TEXAS"} hour12={settings.hour12} color="#a78bfa" />
             </div>
-            {perfOn && <PerfStrip snap={perf} showFps={settings.overlayFps} showTemp={settings.overlayTemp} unit={settings.tempUnit} picked={graphOn ? settings.perfGraphMetric : null} onPick={pickMetric} />}
-            {graphOn && <PerfGraph history={perfHistory} metric={settings.perfGraphMetric} metrics={graphMetrics} onMetric={(m) => void nexus().setSetting("perfGraphMetric", m)} unit={settings.tempUnit} height={50} className="shrink-0" />}
+            {perfOn && <PerfStrip snap={perf} showFps={settings.overlayFps} showTemp={settings.overlayTemp} unit={settings.tempUnit} picked={graphOn ? settings.perfGraphMetric : null} onPick={pickMetric} thresholds={settings.perfThresholds} />}
+            {graphOn && <PerfGraph history={perfHistory} metric={settings.perfGraphMetric} metrics={graphMetrics} onMetric={(m) => void nexus().setSetting("perfGraphMetric", m)} unit={settings.tempUnit} height={50} className="shrink-0" thresholds={settings.perfThresholds} />}
             <div className="rounded-xl bg-hover px-2.5 py-2">
               {TimerLine}
               {timer && timer.kind !== "stopwatch" && <ProgressBar value={progress(timer, now)} className="mt-1.5 !h-1" />}

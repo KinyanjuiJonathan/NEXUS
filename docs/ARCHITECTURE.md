@@ -42,6 +42,9 @@ Both windows hold their own copy of the app store. After every successful mutati
 | `lib/planner.ts` | Auto-placement into free working intervals (deadline-first, chunking, no tiny fragments, late flags) |
 | `lib/insights.ts` | Productivity analysis for the Insights page |
 | `lib/overlayGeometry.ts` | Mode sizes, opacity bounds, multi-monitor `ensureVisible` |
+| `lib/smart/parse.ts` | Offline reader for scheduling requests: separates day window, part of day, duration, exact/approximate start, deadline and zone, and returns clarification questions for ambiguous wording |
+| `lib/smart/slots.ts` | Slot finder: every event is busy (with buffer); searches the requested day/period (in the request's zone) or working hours, and returns the closest alternatives when nothing fits |
+| `lib/smart/reschedule.ts` | Decides moves for unfinished flexible blocks (priority, then deadline) and for blocks displaced by a new fixed appointment; never moves fixed events, stops after `MAX_AUTO_MOVES`, never proposes a slot past a future deadline. Applied by `store.autoReschedule` / `makeRoomFor`, which keep `sched.history` on the event |
 | `lib/calendarTasks.ts` | Which To-Do tasks appear on which calendar day, their pending / overdue / completed state, and the due time after a drag to another day |
 | `lib/perf.ts` | One shared 1 Hz poller per window with a one-minute history, metric selection and the SVG path maths for the live graph (`components/PerfGraph.tsx`) |
 | `lib/typer/engine.ts` | Auto Typer planner: markup parsing, the humanised keystroke plan (holds, gaps, overlap, bursts, typos, revisions) and rich-text paste conversion; tested by replaying plans into a model editor |
@@ -116,6 +119,8 @@ Indexes: `due_at`; `(status, deleted_at, archived_at)`; `completed_at`.
 `id` PK · `owner_kind` (`task`/`event`/`timer`/`custom`) · `owner_id` · `title` · `body` · `fire_at` · `fired_at` · `snoozed_until` · `dismissed_at` · `created_at`. Indexes: `(fired_at, dismissed_at, fire_at)`, `(owner_kind, owner_id)`.
 
 ### `settings`
+`events` gained two columns in schema v4: `fixed` (1 = fixed appointment; existing rows without a task were migrated to fixed) and `sched` (JSON: how the time was chosen, the preferred period/zone from the request, the number of automatic moves and their history, and an `attention` flag when the user has to decide).
+
 `key` TEXT PK · `value` TEXT (JSON) · `updated_at`. Holds preferences, time zones, overlay mode/opacity/per-mode sizes/visibility/pin/click-through (+ `overlayAllowClickThrough`, `overlayPerf`, `overlayFps`), shortcuts, reminder defaults, the active task, and so on. Window **positions** are persisted by `tauri-plugin-window-state` (validated against connected monitors).
 
 ### `work_sessions` (v3)

@@ -146,6 +146,7 @@ Toggle it with `Ctrl+Shift+Space`, the **Overlay switch at the bottom of the sid
 - **Pin** keeps it on top; unpin to let other windows cover it. Set **opacity** in Settings.
 - **Performance stats**: CPU, GPU, VRAM (used / total), RAM (**percentage** plus used / total) and FPS appear in every mode, updated once a second. Values at 90% or more turn amber. Turn them off with *Settings → Floating overlay → Show system performance*. Sampling only runs while the overlay is visible.
   - **CPU**: whole-system usage from the `% Processor Utility` counter, the figure Task Manager shows on Windows 10/11 (falling back to processor busy time where that counter is missing). The overlay and the dashboard share one reading per second, so they never disagree.
+  - **CPU colour**: green below 60%, yellow from 60%, red from 80% (changeable in *Settings → Floating overlay*). The figure, the dashboard tile and every part of the CPU graph take the colour of their level, so the graph's history shows when usage was up. A value hovering at a threshold does not flicker: it has to drop 3 points below before the colour steps back.
   - **RAM**: memory in use as a percentage of installed memory, with used / total underneath.
   - **Live graph**: press the graph button in the overlay header, or click any stat, for an animated graph of that metric over the last minute (Standard and Expanded modes). Switch metric with the tabs above the graph or by clicking another stat; click the graphed stat again to close it. One graph is shown at a time. The line glides between one-second samples using a transform-only animation, so it adds no measurable load.
   - **GPU / VRAM**: the GPU with the most dedicated memory, read from the same Windows performance counters Task Manager uses (NVIDIA, AMD and Intel; Windows 10 1709+). GPU % is the busiest engine (3D, copy, video…), matching Task Manager.
@@ -164,6 +165,33 @@ Toggle it with `Ctrl+Shift+Space`, the **Overlay switch at the bottom of the sid
 - **Multi-monitor**: if the monitor it was on is disconnected, or the resolution changes, the overlay is moved back onto a visible screen (top-right of the primary monitor).
 - **Performance**: it renders once per second and stops completely while hidden. Animations are minimal, with no video or polling, to avoid affecting games, calls or remote desktop.
 - **Limits** (by design): it won't draw over **exclusive-fullscreen** games (use borderless/windowed mode), the lock screen, UAC prompts, or DRM-protected content. NEXUS deliberately doesn't try to bypass these OS security boundaries.
+
+## Smart scheduling
+
+Type what you need in the **Tell NEXUS what to schedule** box (Dashboard and Calendar):
+
+> Repairing Mineh's phone today, in around 3 hours, preferably in the evening Kenya time.
+
+NEXUS reads the task ("Repairing Mineh's Phone"), the day (today), the length (about 3 hours), the preferred part of the day (evening) and the zone (Africa/Nairobi), looks at what is already on the calendar, and shows the free slot it chose with the start, end and zone (and the Texas equivalent). Press Enter and it is in the To-Do list and on the calendar. This runs entirely on your PC; no AI service is involved.
+
+- **Understands**: today / tomorrow / "next Friday" / "this weekend" / dates · morning, afternoon, evening, "later tonight" · lengths ("about 2 hours", "1h30", "half an hour") · exact times ("at 3pm", "3:00 PM to 4:00 PM") and approximate ones ("around 4", "in two hours") · deadlines ("by Friday 5pm", "before my next meeting") · "Kenya time" / "Texas time".
+- **Asks instead of guessing** when two readings would give different schedules: "today, in 3 hours" (how long, or how soon?), "at 9" (morning or evening?), "next Friday" said early in the week.
+- **Never double-books.** Everything already on the calendar is unavailable, with the scheduling buffer around it. If nothing is free where you asked, it offers the closest alternatives to pick from and creates nothing until you choose.
+
+**Fixed appointments and flexible tasks.** Every calendar entry is one or the other (appointment editor → *Scheduling type*):
+
+| | Fixed appointment 🔒 | Flexible task |
+|---|---|---|
+| For | Meetings, calls, interviews, classes | Time reserved to work on a task |
+| Moved automatically | Never | Yes, if not completed or if a fixed appointment needs its time |
+| Its time | Blocked for everything else | Blocked until it is moved |
+| In the calendar | Solid, with a lock | Dashed outline |
+
+Appointments you create are fixed unless they are a block for a task; a request with a set time for a meeting, call, interview and similar is made fixed automatically.
+
+**Unfinished tasks are re-planned, never completed for you.** Only you mark a task complete. When a flexible block's time passes with its task still open, NEXUS moves the block to the next suitable free time: critical and high priority first, then the nearest deadline, inside your working hours or the part of the day you originally asked for. The block is moved (not duplicated), marked *Auto-rescheduled* in the calendar and To-Do list with its previous times, recorded in History, and you get a notification with Undo. If the only free time is after the task's deadline, or the block has already been moved four times, NEXUS stops and asks you, proposing a time. This check runs every minute, at start-up and when you return from sleep or lock.
+
+Everything is configurable under *Settings → Smart Scheduling*: on/off, auto-rescheduling, protection of fixed appointments, notifications, the default time zone, the buffer, working hours, and what morning / afternoon / evening mean.
 
 ## Tasks on the calendar
 

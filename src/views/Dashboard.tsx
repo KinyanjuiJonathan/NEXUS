@@ -13,6 +13,7 @@ import { DualClock } from "@/components/DualClock";
 import { GettingStarted } from "@/components/GettingStarted";
 import { WorkClockCard } from "@/components/WorkClock";
 import { SystemMonitor } from "@/components/SystemMonitor";
+import { SmartScheduleBar } from "@/components/SmartScheduleBar";
 import { BarChart, DayTimeline } from "@/components/Charts";
 import { TaskRow } from "@/components/TaskRow";
 import { Button, Card, CardHeader, EmptyState, ProgressBar, ProgressRing, Stat } from "@/components/ui";
@@ -59,6 +60,8 @@ export default function Dashboard() {
           <Button variant="primary" icon={<Plus size={15} />} onClick={() => ui.openTask(null)}>New task</Button>
         </div>
       </div>
+
+      <SmartScheduleBar />
 
       <DualClock hour12={settings.hour12} texasZone={settings.texasZone} />
 

@@ -199,7 +199,7 @@ export function proposeReorganization(tasks: Task[], events: CalendarEvent[], no
     if (slot) {
       taken.push({
         id: `tmp-${t.id}`, title: t.title, notes: "", startAt: slot.start, endAt: slot.end, tz: wh.zone, taskId: t.id,
-        recurrence: null, important: false, reminders: [], color: null, createdAt: now, updatedAt: now, deletedAt: null,
+        recurrence: null, important: false, reminders: [], color: null, fixed: false, sched: null, createdAt: now, updatedAt: now, deletedAt: null,
       });
     }
   }

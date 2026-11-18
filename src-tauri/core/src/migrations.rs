@@ -170,6 +170,14 @@ pub const MIGRATIONS: &[&str] = &[
                CAST(f.duration_ms / 60000 AS TEXT) || ' min', f.task_id
         FROM focus_sessions f LEFT JOIN tasks t ON t.id = f.task_id;
     "#,
+    // v4 — fixed appointments vs flexible time blocks, and scheduling metadata.
+    // Existing appointments (not linked to a task) become fixed, so the automatic
+    // scheduler never moves them; time blocks reserved for a task stay flexible.
+    r#"
+    ALTER TABLE events ADD COLUMN fixed INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE events ADD COLUMN sched TEXT;
+    UPDATE events SET fixed = 1 WHERE task_id IS NULL;
+    "#,
 ];
 
 pub const LATEST: i64 = MIGRATIONS.len() as i64;

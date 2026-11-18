@@ -1,18 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarClock, Check, Star, Trash2, TriangleAlert } from "lucide-react";
+import { CalendarClock, Check, Lock, RotateCcw, Shuffle, Star, Trash2, TriangleAlert } from "lucide-react";
 import type { CalendarEvent } from "@/data/types";
 import { useNexus, nexus } from "@/store";
 import { useUI } from "@/store/ui";
 import { findConflicts } from "@/lib/schedule";
 import { formatWithZone } from "@/lib/time";
 import { humanDuration } from "@/lib/countdown";
-import { Button, Field, Input, Modal, Select, Textarea, Toggle } from "./ui";
+import { Button, Field, Input, Modal, Segmented, Select, Textarea, Toggle } from "./ui";
+import { alternativesFor } from "@/lib/smart/slots";
+import { autoBadge, moveHistory, slotLabel } from "@/lib/smart/format";
 import { ZonedDateTime } from "./ZonedDateTime";
 import { RecurrencePicker } from "./RecurrencePicker";
 import { ReminderPicker } from "./ReminderPicker";
 import { choose, confirm } from "./Confirm";
 
-type Draft = Pick<CalendarEvent, "title" | "notes" | "startAt" | "endAt" | "tz" | "taskId" | "recurrence" | "important" | "reminders">;
+type Draft = Pick<CalendarEvent, "title" | "notes" | "startAt" | "endAt" | "tz" | "taskId" | "recurrence" | "important" | "reminders" | "fixed">;
 
 export function EventEditor() {
   const { open, eventId, draft, occurrenceStart } = useUI((s) => s.eventEditor);
@@ -36,12 +38,19 @@ export function EventEditor() {
         recurrence: null,
         important: false,
         reminders: [...settings.defaultReminders],
+        // An appointment has a set time; a block reserved for a task can be re-planned.
+        fixed: draft?.taskId == null,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, eventId]);
 
   const conflicts = useMemo(() => (d ? findConflicts(events, { start: d.startAt, end: d.endAt }, existing?.id) : []), [d, events, existing?.id]);
+  // Free times to offer instead of a double-booking.
+  const alternatives = useMemo(
+    () => (d && conflicts.length && d.endAt > d.startAt ? alternativesFor({ start: d.startAt, end: d.endAt }, events, nexus().slotSettings(), Date.now(), d.tz, existing?.id) : []),
+    [d, conflicts.length, events, existing?.id],
+  );
   if (!d) return null;
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((x) => (x ? { ...x, [k]: v } : x));
   const duration = d.endAt - d.startAt;
@@ -160,6 +169,47 @@ export function EventEditor() {
             <span>
               Overlaps {conflicts.map((c) => `“${c.event.title}”`).slice(0, 3).join(", ")}
               {conflicts.length > 3 ? ` and ${conflicts.length - 3} more` : ""}.
+              {conflicts.some((c) => c.event.fixed) && " A fixed appointment keeps its time."}
+              {alternatives.length > 0 && (
+                <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-fg-2">
+                  Free instead:
+                  {alternatives.map((a) => (
+                    <Button key={a.start} type="button" size="sm" variant="soft" onClick={() => setD((x) => (x ? { ...x, startAt: a.start, endAt: a.end } : x))}>
+                      {slotLabel(a, d.tz, settings.hour12, Date.now())}
+                    </Button>
+                  ))}
+                </span>
+              )}
+            </span>
+          </div>
+        )}
+        <Field
+          label="Scheduling type"
+          hint={
+            d.fixed
+              ? "Fixed Time – Do Not Reschedule. It stays at this date and time: NEXUS never moves, shortens or overwrites it, nothing else is planned in its time, and only you can change it."
+              : "Flexible. NEXUS may move it to another free time if it is not completed, or if a fixed appointment needs its slot."
+          }
+        >
+          <div>
+            <Segmented
+              value={d.fixed ? "fixed" : "flexible"}
+              onChange={(v) => set("fixed", v === "fixed")}
+              options={[
+                { value: "flexible", label: <><Shuffle size={13} /> Flexible task</> },
+                { value: "fixed", label: <><Lock size={13} /> Fixed appointment</> },
+              ]}
+            />
+          </div>
+        </Field>
+        {existing && autoBadge(existing) && (
+          <div className="flex items-start gap-2 rounded-xl bg-hover px-3 py-2 text-xs text-fg-2">
+            <RotateCcw size={13} className="mt-0.5 shrink-0 text-warning" />
+            <span>
+              <b className="text-fg">{autoBadge(existing)!.text}.</b>
+              {moveHistory(existing, settings.hour12).slice(0, 4).map((line) => (
+                <span key={line} className="block text-muted">{line}</span>
+              ))}
             </span>
           </div>
         )}

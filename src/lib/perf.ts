@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { PerfMetric } from "@/data/types";
 import { native, perfSnapshot, perfStop, type PerfSnapshot } from "@/lib/platform";
 
@@ -54,6 +54,60 @@ export function formatMetric(v: number | null | undefined, metric: PerfMetric, u
   if (metric === "fps") return `${Math.round(v)}`;
   if (metric === "temp") return unit === "F" ? `${Math.round((v * 9) / 5 + 32)}°F` : `${Math.round(v)}°C`;
   return `${Math.round(v)}%`;
+}
+
+// ------------------------------------------------------------------ usage levels (green / yellow / red)
+
+export type UsageLevel = "normal" | "elevated" | "high";
+export interface Thresholds {
+  /** Percent from which usage is elevated (yellow). */
+  elevated: number;
+  /** Percent from which usage is high (red). */
+  high: number;
+}
+export const DEFAULT_THRESHOLDS: Thresholds = { elevated: 60, high: 80 };
+export const LEVEL_COLOR: Record<UsageLevel, string> = { normal: "#22c55e", elevated: "#eab308", high: "#ef4444" };
+export const LEVEL_LABEL: Record<UsageLevel, string> = { normal: "Normal", elevated: "Elevated", high: "High" };
+/** Usage must fall this far below a threshold before the colour steps back down. */
+export const LEVEL_HYSTERESIS = 3;
+const RANK: UsageLevel[] = ["normal", "elevated", "high"];
+
+/**
+ * Level for a usage percentage. Going up is immediate; going down needs the
+ * value to drop `LEVEL_HYSTERESIS` points under the threshold, so a value
+ * hovering around 60% or 80% does not flicker between colours.
+ */
+export function usageLevel(value: number | null | undefined, t: Thresholds = DEFAULT_THRESHOLDS, previous?: UsageLevel | null): UsageLevel {
+  const v = value ?? 0;
+  const raw = v >= t.high ? 2 : v >= t.elevated ? 1 : 0;
+  if (previous == null) return RANK[raw];
+  const prev = RANK.indexOf(previous);
+  if (raw >= prev) return RANK[raw];
+  const held = v >= t.high - LEVEL_HYSTERESIS ? 2 : v >= t.elevated - LEVEL_HYSTERESIS ? 1 : 0;
+  return RANK[Math.min(prev, Math.max(raw, held))];
+}
+
+/** Metrics that are coloured by level, and from which settings. Others keep their own colour for now. */
+export function thresholdsFor(metric: PerfMetric, configured: { cpu: Thresholds } | undefined): Thresholds | null {
+  return metric === "cpu" ? configured?.cpu ?? DEFAULT_THRESHOLDS : null;
+}
+
+/**
+ * Stops for a vertical gradient over a 0–100% graph (offset 0 = top = 100%):
+ * each part of the line takes the colour of the level it sits in, so the
+ * history shows when usage was normal, elevated or high. Colours blend over a
+ * narrow band at each threshold instead of switching abruptly.
+ */
+export function levelGradientStops(t: Thresholds, blend = 2): { offset: number; color: string }[] {
+  const at = (pct: number) => Math.min(1, Math.max(0, 1 - pct / 100));
+  return [
+    { offset: 0, color: LEVEL_COLOR.high },
+    { offset: at(t.high + blend), color: LEVEL_COLOR.high },
+    { offset: at(t.high - blend), color: LEVEL_COLOR.elevated },
+    { offset: at(t.elevated + blend), color: LEVEL_COLOR.elevated },
+    { offset: at(t.elevated - blend), color: LEVEL_COLOR.normal },
+    { offset: 1, color: LEVEL_COLOR.normal },
+  ];
 }
 
 /** Append a sample, keeping only the newest `limit`. */
@@ -209,4 +263,15 @@ export function usePerf(enabled: boolean, fps: boolean | null = null): PerfSnaps
 /** The last minute of samples (oldest first); empty until `usePerf` is active somewhere in this window. */
 export function usePerfHistory(): PerfSnapshot[] {
   return useSyncExternalStore(subscribe, () => state.history);
+}
+
+/** The level of a live value, remembered between renders so it changes with hysteresis. */
+export function useUsageLevel(value: number | null | undefined, t: Thresholds | null): UsageLevel | null {
+  const prev = useRef<UsageLevel | null>(null);
+  if (!t || value == null) {
+    prev.current = null;
+    return null;
+  }
+  prev.current = usageLevel(value, t, prev.current);
+  return prev.current;
 }

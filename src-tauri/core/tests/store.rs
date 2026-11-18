@@ -41,6 +41,8 @@ fn event(id: &str) -> CalendarEvent {
         important: true,
         reminders: vec![15],
         color: None,
+        fixed: None,
+        sched: None,
         created_at: 1,
         updated_at: 1,
         deleted_at: None,
@@ -331,4 +333,64 @@ fn v3_migration_backfills_history_from_existing_data() {
     assert_eq!(log.len(), 2);
     assert!(log.iter().any(|a| a.kind == "task_completed" && a.title == "Old report"));
     assert!(log.iter().any(|a| a.kind == "focus" && a.title == "Old report" && a.detail == "25 min"));
+}
+
+#[test]
+fn v4_migration_makes_existing_appointments_fixed_and_task_blocks_flexible() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("nexus.db");
+    {
+        let mut conn = rusqlite::Connection::open(&path).unwrap();
+        for (i, sql) in migrations::MIGRATIONS[..3].iter().enumerate() {
+            let tx = conn.transaction().unwrap();
+            tx.execute_batch(sql).unwrap();
+            tx.pragma_update(None, "user_version", i as i64 + 1).unwrap();
+            tx.commit().unwrap();
+        }
+        conn.execute("INSERT INTO events (id, title, start_at, end_at, tz, task_id, created_at, updated_at) VALUES ('zoom','Zoom call',1000,2000,'Africa/Nairobi',NULL,1,1)", []).unwrap();
+        conn.execute("INSERT INTO events (id, title, start_at, end_at, tz, task_id, created_at, updated_at) VALUES ('block','Write report',3000,4000,'Africa/Nairobi','t1',1,1)", []).unwrap();
+    }
+    let s = Store::open(&path).unwrap();
+    assert_eq!(s.schema_version().unwrap(), migrations::LATEST);
+    let events = s.list_events().unwrap();
+    let get = |id: &str| events.iter().find(|e| e.id == id).unwrap();
+    assert_eq!(get("zoom").fixed, Some(true));
+    assert_eq!(get("block").fixed, Some(false));
+    assert_eq!(get("zoom").title, "Zoom call");
+    assert_eq!(get("block").sched, None);
+}
+
+#[test]
+fn events_keep_their_scheduling_type_and_history() {
+    let s = Store::open_in_memory().unwrap();
+    let mut flexible = event("flex");
+    flexible.recurrence = None;
+    flexible.task_id = Some("t1".into());
+    flexible.fixed = Some(false);
+    flexible.sched = Some(json!({"origin":"smart","moves":1,"history":[{"at":5,"from":[1,2],"to":[3,4],"reason":"unfinished"}]}));
+    s.upsert_event(&flexible).unwrap();
+    let mut fixed = event("fixed");
+    fixed.fixed = Some(true);
+    s.upsert_event(&fixed).unwrap();
+    // data written before the field existed: no task means a fixed appointment
+    s.upsert_event(&event("legacy")).unwrap();
+    let mut legacy_block = event("legacy-block");
+    legacy_block.task_id = Some("t1".into());
+    s.upsert_event(&legacy_block).unwrap();
+
+    let events = s.list_events().unwrap();
+    let get = |id: &str| events.iter().find(|e| e.id == id).unwrap().clone();
+    assert_eq!(get("flex").fixed, Some(false));
+    assert_eq!(get("flex").sched.unwrap()["history"][0]["reason"], "unfinished");
+    assert_eq!(get("fixed").fixed, Some(true));
+    assert_eq!(get("legacy").fixed, Some(true));
+    assert_eq!(get("legacy-block").fixed, Some(false));
+
+    // survives export / import
+    let bundle = s.export_bundle().unwrap();
+    let mut fresh = Store::open_in_memory().unwrap();
+    fresh.import_bundle(&bundle).unwrap();
+    let again = fresh.list_events().unwrap();
+    assert_eq!(again.iter().find(|e| e.id == "flex").unwrap().sched, get("flex").sched);
+    assert_eq!(again.iter().find(|e| e.id == "fixed").unwrap().fixed, Some(true));
 }
