@@ -91,7 +91,7 @@ pub fn start(app: AppHandle) {
             }
             tick = tick.wrapping_add(1);
             let state = app.state::<ActivityState>();
-            if let Some((idle_ms, now_locked)) = sample(tick % 2 == 0, locked) {
+            if let Some((idle_ms, now_locked)) = sample(tick.is_multiple_of(2), locked) {
                 locked = now_locked;
                 tracker.set_threshold(state.threshold_ms.load(Ordering::Relaxed));
                 let events = tracker.feed(Sample { now_ms: now_ms(), mono_ms: started.elapsed().as_millis() as u64, idle_ms, locked });
@@ -108,7 +108,7 @@ pub fn start(app: AppHandle) {
                     let _ = app.emit(EVENT, event);
                 }
             }
-            if tick % HEARTBEAT_EVERY == 0 {
+            if tick.is_multiple_of(HEARTBEAT_EVERY) {
                 beat(&app);
             }
         }
