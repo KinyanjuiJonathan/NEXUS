@@ -201,7 +201,7 @@ export interface NexusState {
    * Put an understood request on the calendar at `slot`: a fixed appointment,
    * or a To-Do task with a flexible block of time reserved for it.
    */
-  smartCreate(req: ScheduleRequest, slot: Interval, durationMin: number): Promise<{ task: Task | null; event: CalendarEvent }>;
+  smartCreate(req: ScheduleRequest, slot: Interval, durationMin: number, opts?: { existingTaskId?: string | null }): Promise<{ task: Task | null; event: CalendarEvent }>;
   /**
    * Move flexible blocks whose time passed while their task is still open to
    * the next suitable free time. Never completes a task and never touches a
@@ -653,6 +653,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           await restoreBlocks(taskId, "task-done");
           return;
         }
+        if (cur.status === "done") return; // already completed: nothing to do twice
         await saveTask({ ...cur, status: "done", completedAt: ts, updatedAt: ts });
         // Time still reserved for it is no longer needed. A block already under way or over stays as a record.
         for (const e of blocksOf(taskId)) if (!e.deletedAt && !e.recurrence && e.startAt > ts) await removeBlock(e, "task-done");
@@ -1065,7 +1066,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         };
       },
 
-      async smartCreate(req, slot, durationMin) {
+      async smartCreate(req, slot, durationMin, opts) {
         const title = req.title.trim();
         if (!title) throw new Error("Say what should be scheduled");
         const sched = { origin: "smart" as const, period: req.period, zone: req.zone, request: req.text };
@@ -1077,11 +1078,13 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           return { task: null, event };
         }
         // Flexible work: a To-Do task plus the time reserved for it on the calendar.
-        const task = await get().addTask(
+        // A task that is already in the list is given its time; it is not added a second time.
+        const existing = opts?.existingTaskId ? get().tasks.find((t) => t.id === opts.existingTaskId && !t.deletedAt) : undefined;
+        const task = existing ?? await get().addTask(
           { title, notes, estimateMin: durationMin, dueAt: req.deadline, dueTz: req.deadline != null ? req.zone : null, priority: req.priority ?? undefined, reminders: req.deadline != null ? undefined : [] },
           { autoPlace: false },
         );
-        const event = await get().addEvent({ title, startAt: slot.start, endAt: slot.end, tz: req.zone, taskId: task.id, fixed: false, reminders: [5], color: "#22d3ee", sched });
+        const event = await get().addEvent({ title: existing?.title ?? title, startAt: slot.start, endAt: slot.end, tz: req.zone, taskId: task.id, fixed: false, reminders: [5], color: "#22d3ee", sched });
         get().log("smart_scheduled", title, formatWithZone(slot.start, req.zone, get().settings.hour12), task.id);
         return { task, event };
       },

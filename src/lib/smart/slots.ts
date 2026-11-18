@@ -134,7 +134,7 @@ export function resolveRequest(req: ScheduleRequest, events: CalendarEvent[], s:
   const bufferMs = Math.max(0, s.bufferMin) * MIN;
   const horizonEnd = now + (HORIZON_DAYS + 1) * DAY;
   const busy = busyIntervals(events, now, Math.max(horizonEnd, (req.window?.end ?? 0) + 8 * DAY), bufferMs);
-  const notBefore = now;
+  const notBefore = Math.max(now, req.earliest ?? 0);
 
   let deadline = req.deadline;
   if (req.beforeNextMeeting) {
@@ -187,7 +187,7 @@ export function resolveRequest(req: ScheduleRequest, events: CalendarEvent[], s:
   }
 
   // ---- a day and/or part of the day: the first free slot inside it
-  const from = Math.max(now, req.window?.start ?? now);
+  const from = Math.max(notBefore, req.window?.start ?? now);
   const to = req.window?.end ?? horizonEnd;
   const days = daysIn(from, to, req.zone);
   const hours = req.period ? periodHours(req.period, s) : null;

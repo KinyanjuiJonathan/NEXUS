@@ -168,13 +168,28 @@ Toggle it with `Ctrl+Shift+Space`, the **Overlay switch at the bottom of the sid
 
 ## Smart scheduling
 
-Type what you need in the **Tell NEXUS what to schedule** box (Dashboard and Calendar):
+Press **AI Schedule** in the Dashboard header (also on the Calendar) to open a compact panel, then type or dictate what you need:
 
 > Repairing Mineh's phone today, in around 3 hours, preferably in the evening Kenya time.
 
-NEXUS reads the task ("Repairing Mineh's Phone"), the day (today), the length (about 3 hours), the preferred part of the day (evening) and the zone (Africa/Nairobi), looks at what is already on the calendar, and shows the free slot it chose with the start, end and zone (and the Texas equivalent). Press Enter and it is in the To-Do list and on the calendar. This runs entirely on your PC; no AI service is involved.
+NEXUS reads the task ("Repair Mineh's Phone"), the day (today), the length (about 3 hours), the preferred part of the day (evening) and the zone (Africa/Nairobi), checks the calendar, schedules it in a free slot and replies with the start, end and zone (and the Texas equivalent). It is in the To-Do list and on the calendar at once. Everything runs on your PC; no AI service is involved.
 
-- **Writes the title for you.** The activity becomes a short, action-style title and the scheduling details stay out of it: "Repairing Mineh's phone today, for around 3 hours…" → **Repair Mineh's Phone**; "I need to finish my financial report tomorrow morning" → **Complete Financial Report**; "Schedule a Zoom interview with James on Friday at 4 PM" → **Zoom Interview with James**. Names and acronyms are kept as written. Click the title to change it before scheduling, or edit the task later; the request as you typed it is saved in the task's notes.
+**It is a conversation.** NEXUS remembers what you have been talking about and matches references against your saved calendar:
+
+> **You:** Schedule my gym session tomorrow at 6 PM Kenya time for one hour.
+> **NEXUS:** Scheduled: Gym Session — Tomorrow 6:00 PM – 7:00 PM EAT
+> **You:** I also need to finish reviewing my financial report. Schedule it before the time I'm going to the gym.
+> **NEXUS:** Scheduled: Review Financial Report — Tomorrow 9:00 AM – 10:00 AM EAT · before Gym Session (tomorrow 6 PM) · No length given: 60 minutes assumed.
+
+- **Several activities in one message**: "Tomorrow I need to review my financial report for two hours, attend a Zoom meeting at 3 PM, and go to the gym at 6 PM. Schedule the report before my meeting." creates three entries, the meeting as a fixed appointment, the report before it.
+- **Before / after are real constraints**: the chosen times must satisfy them, including chains (C after B, B after A). If an arrangement is impossible NEXUS says why and offers the nearest free times; nothing is created until you choose.
+- **Changing things**: "Move that task to after my meeting", "Move the first task to tomorrow", "Give me 30 minutes between those two activities", "Make the Zoom meeting fixed", "Reschedule everything except my interview", "Put the phone repair task before my evening appointment", "Schedule the remaining work after lunch".
+- **Never invents anything**: if "my dentist appointment" is not on the calendar it says so and schedules nothing against it; if "my meeting" could be two meetings it asks which.
+- **No duplicates**: referring to a task that is already in the To-Do list gives that task a time (using its saved estimate) instead of adding it again.
+- **Voice**: the microphone button dictates one instruction at a time into the text box, where you can check and edit it before sending. The microphone is off again as soon as that instruction ends, you press stop, or the panel closes. It uses the speech engine chosen under *Settings → Voice input*.
+- The panel is closed by default; minimising it (the – button or Esc) keeps the conversation and any unsent text, also across restarts.
+
+- **Writes the title for you.** The activity becomes a short, action-style title and the scheduling details stay out of it: "Repairing Mineh's phone today, for around 3 hours…" → **Repair Mineh's Phone**; "I need to finish my financial report tomorrow morning" → **Complete Financial Report**; "Schedule a Zoom interview with James on Friday at 4 PM" → **Zoom Interview with James**. Names and acronyms are kept as written. Click an entry in the reply to open and rename it, or edit the task later; the request as you typed it is saved in the task's notes.
 - **Understands**: today / tomorrow / "next Friday" / "this weekend" / dates · morning, afternoon, evening, "later tonight" · lengths ("about 2 hours", "1h30", "half an hour") · exact times ("at 3pm", "3:00 PM to 4:00 PM") and approximate ones ("around 4", "in two hours") · deadlines ("by Friday 5pm", "before my next meeting") · "Kenya time" / "Texas time".
 - **Asks instead of guessing** when two readings would give different schedules: "today, in 3 hours" (how long, or how soon?), "at 9" (morning or evening?), "next Friday" said early in the week.
 - **Never double-books.** Everything already on the calendar is unavailable, with the scheduling buffer around it. If nothing is free where you asked, it offers the closest alternatives to pick from and creates nothing until you choose.
@@ -197,6 +212,21 @@ Everything is configurable under *Settings → Smart Scheduling*: on/off, auto-r
 **One schedule everywhere.** The Dashboard, To-Do list, Calendar and the floating overlay all read the same stored tasks and calendar entries. Time reserved for a task follows the task: deleting the task takes its time off the calendar and out of the overlay's Schedule; restoring it from the Trash brings back time that is still ahead; completing it clears time that has not started (reopening restores it); renaming either one renames the other; emptying the Trash removes it for good. Deleting a repeating task asks whether to remove only this occurrence (the next one is scheduled) or the whole series.
 
 The overlay's **Schedule** section (Expanded mode) lists what is under way, coming up and overdue in time order, with the start time and the time remaining, a lock for fixed appointments, and a note when nothing is scheduled.
+
+## Completing tasks
+
+Marking a task complete always asks first: *Are you sure you want to mark "Repair Mineh's Phone" as completed?* with **Confirm Completion** and **Cancel**. This is the same in the To-Do list, the Dashboard, the Calendar and the floating overlay; voice and typed commands show what they will do and wait for confirmation too. Cancel changes nothing. After confirming, the completion time is recorded, every view updates, and the notification offers **Undo**. NEXUS never completes a task by itself.
+
+## Dashboard
+
+The two clocks sit with **Next appointment** and **Today's progress** as one scheduling overview. Below them are the work clock, the active countdown and four numbers, each of which opens its details when clicked:
+
+| Card | Opens |
+|---|---|
+| Tasks today | Today's tasks (due today, in progress, or with time reserved today) with time, priority and status; open, edit or complete each one |
+| Completed today | What you completed today and when, with **Restore** for anything completed by mistake |
+| Overdue | Open tasks past their deadline, the original deadline, priority and whether time is reserved; **Reschedule** opens Smart Reschedule |
+| Focus time today | Today's total and each focus session with its duration and task |
 
 ## Tasks on the calendar
 

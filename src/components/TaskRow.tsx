@@ -10,6 +10,7 @@ import { useUI } from "@/store/ui";
 import { Badge, IconButton, ProgressBar, cx } from "./ui";
 import { CategoryIcon, PRIORITY_META, URGENCY_COLOR, categoryOf } from "./meta";
 import { choose } from "./Confirm";
+import { confirmComplete } from "./complete";
 
 /** The time reserved on the calendar for a task, and whether NEXUS has moved it. */
 function PlannedTime({ taskId, now, hour12 }: { taskId: string; now: number; hour12: boolean }) {
@@ -77,7 +78,7 @@ export const TaskRow = memo(function TaskRow({ task: t, categories, now, hour12,
       )}
       {!t.deletedAt && (
         <button
-          onClick={() => void s.setTaskDone(t.id, !done)}
+          onClick={() => void (done ? s.setTaskDone(t.id, false) : confirmComplete(t.id))}
           aria-label={done ? "Mark as not done" : "Mark as done"}
           className={cx("mt-0.5 h-5 w-5 shrink-0 rounded-full border-2 flex items-center justify-center transition", done ? "bg-success border-success text-white" : "border-line-strong hover:border-accent")}
         >

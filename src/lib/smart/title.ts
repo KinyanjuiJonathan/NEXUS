@@ -7,8 +7,10 @@
  */
 
 const LEADS: RegExp[] = [
-  /^(?:please\s+)?(?:can you\s+|could you\s+|would you\s+)?(?:schedule|plan|add|create|book|set up|put|arrange|organi[sz]e)\s+(?:(?:a|an|the|some)\s+)?(?:(?:task|time|slot|block)\s+)?(?:(?:to|for)\s+)?/i,
+  /^(?:please\s+)?(?:can you\s+|could you\s+|would you\s+)?(?:schedule|plan|add|create|book|set up|put|arrange|organi[sz]e)\s+(?:(?:a|an|the|some)\s+)?(?:(?:task|time|slot|block|session)\s+)?(?:(?:to|for)\s+)?/i,
+  /^(?:a\s+|an\s+|some\s+)?(?:session|block|slot|time)\s+(?:to|for)\s+/i,
   /^(?:please\s+)?(?:remind me to|remember to|don'?t forget to|make sure (?:i|to))\s+/i,
+  /^(?:and\s+|then\s+|also\s+|and then\s+|and also\s+)+/i,
   /^(?:i|we)(?:\s+(?:really|also|still|just))?\s+(?:need|have|want|ought|would like|'d like|wish|plan|intend|am going|'m going|are going|'re going)\s+to\s+/i,
   /^(?:i|we)\s+(?:must|should|will|shall|can|gotta|wanna)\s+/i,
   /^(?:i'?ll|we'?ll|let me|let'?s|time to|need to|have to|got to|going to)\s+/i,
@@ -31,7 +33,7 @@ const E_VERBS = new Set(
     .filter(Boolean),
 );
 /** "-ing" words that are things, not actions, at the start of a title. */
-const ING_NOUNS = new Set(["meeting", "training", "briefing", "wedding", "building", "morning", "evening", "spring", "string", "thing", "king", "ring", "wing", "bring", "sing", "ping", "hearing", "opening", "screening", "onboarding", "boxing", "banking", "marketing", "accounting", "engineering", "housing", "painting", "booking", "funding", "pricing", "branding", "ceiling", "sibling", "darling", "viking", "bing"]);
+const ING_NOUNS = new Set(["remaining", "upcoming", "outstanding", "pending", "missing", "existing", "following", "coming", "ongoing", "incoming", "outgoing", "morning", "meeting", "training", "briefing", "wedding", "building", "morning", "evening", "spring", "string", "thing", "king", "ring", "wing", "bring", "sing", "ping", "hearing", "opening", "screening", "onboarding", "boxing", "banking", "marketing", "accounting", "engineering", "housing", "painting", "booking", "funding", "pricing", "branding", "ceiling", "sibling", "darling", "viking", "bing"]);
 /** After a leading "-ing" word, these mean it names an event ("Planning session"), not an action. */
 const EVENT_NOUNS = new Set(["session", "meeting", "class", "workshop", "course", "day", "team", "department", "call", "lesson", "seminar", "committee", "group"]);
 /** "Work on the … dashboard" means improving something that is being built. */
@@ -78,6 +80,15 @@ export function generateTitle(raw: string): string {
   let words = t.split(" ").filter(Boolean);
   if (!words.length) return "";
   if (/^(?:the|a|an)$/i.test(words[0]) && words.length > 1) words = words.slice(1);
+
+  // "attend a Zoom meeting" is the meeting; "go to the gym" is the gym
+  if (words.length > 1 && /^(?:attend|join|have|do)$/i.test(words[0]) && /^(?:a|an|the|my)$/i.test(words[1])) words = words.slice(2);
+  else if (words.length > 2 && /^(?:go|head|get)$/i.test(words[0]) && /^to$/i.test(words[1])) words = words.slice(/^(?:the|a|an|my)$/i.test(words[2]) && words.length > 3 ? 3 : 2);
+  // "finish reviewing the report" is about reviewing it
+  if (words.length > 1 && /^(?:finish|complete|continue|start|begin|keep)$/i.test(words[0]) && /^[a-z]{3,}ing$/i.test(words[1]) && !ING_NOUNS.has(words[1].toLowerCase())) words = words.slice(1);
+  // a possessive in front adds nothing: "my gym session" → "Gym Session"
+  if (words.length > 2 && /^my$/i.test(words[0])) words = words.slice(1);
+  if (!words.length) return "";
 
   // the activity as an action: "Repairing …" → "Repair …"
   const first = words[0].toLowerCase();

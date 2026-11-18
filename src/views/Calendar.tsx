@@ -10,7 +10,8 @@ import { formatTime, formatWithZone, KENYA_ZONE, zoneAbbr } from "@/lib/time";
 import { Button, Segmented, cx } from "@/components/ui";
 import { choose, confirm } from "@/components/Confirm";
 import { PRIORITY_META } from "@/components/meta";
-import { SmartScheduleBar } from "@/components/SmartScheduleBar";
+import { confirmComplete } from "@/components/complete";
+import { AiScheduleButton } from "@/components/AiScheduler";
 import { autoBadge, moveHistory } from "@/lib/smart/format";
 import { dueOnDay, isHighPriority, scheduledTasks, taskCalendarState, tasksForDay, unscheduledOpenTasks } from "@/lib/calendarTasks";
 
@@ -81,9 +82,8 @@ function TaskChip({ task, now, zone, hour12 }: { task: Task; now: number; zone: 
   const label = state === "done" ? "Completed" : state === "overdue" ? "Overdue" : "Pending";
   const toggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    const s = nexus();
-    await s.setTaskDone(task.id, state !== "done");
-    if (state !== "done") s.toast({ kind: "success", title: "Completed ✓", body: task.title, action: { label: "Undo", run: () => void nexus().setTaskDone(task.id, false) }, ttl: 5000 });
+    if (state === "done") await nexus().setTaskDone(task.id, false);
+    else await confirmComplete(task.id);
   };
   return (
     <div
@@ -503,10 +503,10 @@ export default function Calendar() {
           />
           <Segmented size="sm" value={mode} onChange={setMode} options={[{ value: "day", label: "Day" }, { value: "week", label: "Week" }, { value: "month", label: "Month" }]} />
           <Button size="sm" variant="outline" icon={<Wand2 size={14} />} onClick={() => useUI.getState().openAutoPlan(true)} title="Fit open tasks into free working time">Auto-plan</Button>
+          <AiScheduleButton size="sm" />
           <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={() => useUI.getState().openEvent(null)}>New</Button>
         </div>
       </div>
-      <SmartScheduleBar />
       {mode === "month" ? (
         <MonthGrid month={anchor} zone={zone} events={events} tasks={openTasks} now={now} hour12={settings.hour12} onOpenDay={(d) => { setAnchor(d); setMode("day"); }} />
       ) : (

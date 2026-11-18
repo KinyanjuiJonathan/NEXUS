@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import clsx from "clsx";
-import { X } from "lucide-react";
+import { ChevronRight, X } from "lucide-react";
 
 export const cx = clsx;
 
@@ -310,17 +310,30 @@ export function EmptyState({ icon, title, body, action }: { icon: ReactNode; tit
   );
 }
 
-export function Stat({ label, value, icon, tone, sub }: { label: string; value: ReactNode; icon: ReactNode; tone?: string; sub?: ReactNode }) {
-  return (
-    <Card className="p-4 flex items-center gap-3.5 min-w-0">
+export function Stat({ label, value, icon, tone, sub, onClick, hint }: { label: string; value: ReactNode; icon: ReactNode; tone?: string; sub?: ReactNode; onClick?: () => void; hint?: string }) {
+  const body = (
+    <>
       <div className="h-10 w-10 rounded-xl flex items-center justify-center shrink-0" style={{ color: tone ?? "var(--accent)", background: `color-mix(in oklab, ${tone ?? "var(--accent)"} 14%, transparent)` }}>
         {icon}
       </div>
       <div className="min-w-0">
         <div className="text-[22px] font-semibold leading-none tabular font-display">{value}</div>
-        <div className="text-xs text-muted mt-1 truncate">{label}</div>
+        <div className={cx("text-xs text-muted mt-1", onClick ? "leading-tight" : "truncate")}>{label}</div>
         {sub && <div className="text-[11px] text-fg-2 mt-0.5 truncate">{sub}</div>}
       </div>
-    </Card>
+    </>
+  );
+  if (!onClick) return <Card className="p-4 flex items-center gap-3.5 min-w-0">{body}</Card>;
+  // a statistic that opens its details: looks and behaves like a button
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={hint ?? `Show ${label.toLowerCase()}`}
+      className="group glass rounded-2xl p-4 flex items-center gap-3.5 min-w-0 text-left cursor-pointer transition duration-200 hover:-translate-y-0.5 hover:border-[color-mix(in_oklab,var(--accent)_55%,transparent)] hover:shadow-[0_10px_30px_-14px_var(--glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] active:translate-y-0"
+    >
+      {body}
+      <ChevronRight size={16} className="ml-auto shrink-0 text-muted opacity-50 transition group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:text-accent" aria-hidden />
+    </button>
   );
 }

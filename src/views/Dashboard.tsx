@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { StatDetails, type StatKind } from "@/components/StatDetails";
 import { DateTime } from "luxon";
 import { AlarmClock, CalendarClock, CheckCircle2, Flame, Hourglass, ListTodo, Pause, Play, Plus, RotateCcw, Sparkles, Target, TriangleAlert, Wand2 } from "lucide-react";
 import { useNexus, nexus } from "@/store";
@@ -13,7 +14,7 @@ import { DualClock } from "@/components/DualClock";
 import { GettingStarted } from "@/components/GettingStarted";
 import { WorkClockCard } from "@/components/WorkClock";
 import { SystemMonitor } from "@/components/SystemMonitor";
-import { SmartScheduleBar } from "@/components/SmartScheduleBar";
+import { AiScheduleButton } from "@/components/AiScheduler";
 import { BarChart, DayTimeline } from "@/components/Charts";
 import { TaskRow } from "@/components/TaskRow";
 import { Button, Card, CardHeader, EmptyState, ProgressBar, ProgressRing, Stat } from "@/components/ui";
@@ -29,7 +30,8 @@ export default function Dashboard() {
   }));
   const zone = settings.homeZone;
   const minute = Math.floor(now / 60_000);
-  const stats = useMemo(() => dayStats(tasks, focusSessions, now, zone), [tasks, focusSessions, minute, zone]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [detail, setDetail] = useState<StatKind | null>(null);
+  const stats = useMemo(() => dayStats(tasks, focusSessions, now, zone, events), [tasks, focusSessions, events, minute, zone]); // eslint-disable-line react-hooks/exhaustive-deps
   const week = useMemo(() => history(tasks, focusSessions, now, zone, 7), [tasks, focusSessions, minute, zone]); // eslint-disable-line react-hooks/exhaustive-deps
   const next = useMemo(() => nextAppointment(events, now), [events, minute]); // eslint-disable-line react-hooks/exhaustive-deps
   const todayOcc = useMemo(() => {
@@ -54,35 +56,82 @@ export default function Dashboard() {
             {greeting(hour)}. <span className="text-gradient">Let's make today count.</span>
           </h1>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <AiScheduleButton />
           <Button variant="outline" icon={<Wand2 size={15} />} onClick={() => ui.openAutoPlan(true)} title="Fit open tasks into your free working time">Auto-plan</Button>
           <Button variant="outline" icon={<CalendarClock size={15} />} onClick={() => ui.openEvent(null)}>Schedule</Button>
           <Button variant="primary" icon={<Plus size={15} />} onClick={() => ui.openTask(null)}>New task</Button>
         </div>
       </div>
 
-      <SmartScheduleBar />
+      {/* Scheduling overview: both clocks with the next appointment and today's progress. */}
+      <div className="grid gap-4 min-[1400px]:grid-cols-2">
+        <DualClock hour12={settings.hour12} texasZone={settings.texasZone} />
+        <div className="grid gap-4 sm:grid-cols-2">
+          {/* Next appointment */}
+          <Card>
+            <CardHeader title="Next appointment" icon={<AlarmClock size={16} />} />
+            <div className="px-5 pb-5">
+              {next ? (
+                (() => {
+                  const st = eventStatus(next.start, next.end, now);
+                  return (
+                    <button className="w-full text-left" onClick={() => ui.openEvent(next.event.id, undefined, next.seriesStart)}>
+                      <p className="text-lg font-semibold truncate">{next.event.important && <span className="text-warning">★ </span>}{next.event.title}</p>
+                      <p className="text-sm font-medium mt-1" style={{ color: st.live ? "var(--success)" : "var(--accent)" }}>{st.label}</p>
+                      {st.live && <ProgressBar value={st.progress} className="mt-2" tone="success" />}
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                        <div className="rounded-lg bg-hover px-2.5 py-1.5"><span className="text-cyan-400 font-semibold">KE</span> {formatTime(next.start, KENYA_ZONE, settings.hour12)} {zoneAbbr(KENYA_ZONE, next.start)}</div>
+                        <div className="rounded-lg bg-hover px-2.5 py-1.5"><span className="text-violet-400 font-semibold">TX</span> {formatTime(next.start, settings.texasZone, settings.hour12)} {zoneAbbr(settings.texasZone, next.start)}</div>
+                      </div>
+                      <p className="text-[11px] text-muted mt-2">{formatWithZone(next.start, next.event.tz, settings.hour12)} (original zone)</p>
+                    </button>
+                  );
+                })()
+              ) : (
+                <div className="flex flex-col items-start gap-2">
+                  <p className="text-lg font-semibold text-fg-2">Nothing scheduled</p>
+                  <p className="text-sm text-muted">Reserve time for what matters.</p>
+                  <Button size="sm" icon={<CalendarClock size={14} />} onClick={() => ui.openEvent(null)}>Schedule</Button>
+                </div>
+              )}
+            </div>
+          </Card>
 
-      <DualClock hour12={settings.hour12} texasZone={settings.texasZone} />
+          {/* Completion ring + suggestion */}
+          <Card>
+            <CardHeader title="Today's progress" icon={<Target size={16} />} />
+            <div className="px-5 pb-5 flex items-center gap-5">
+              <ProgressRing value={stats.completionRate} size={104} stroke={9} gradientId="dash-day">
+                <div className="text-center">
+                  <div className="text-2xl font-semibold tabular font-display">{Math.round(stats.completionRate * 100)}%</div>
+                  <div className="text-[10px] text-muted">{stats.completedToday}/{stats.totalToday}</div>
+                </div>
+              </ProgressRing>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] uppercase tracking-wider text-muted flex items-center gap-1"><Sparkles size={12} /> Suggested next</p>
+                {suggestion ? (
+                  <>
+                    <button className="text-sm font-semibold mt-1 text-left hover:text-accent" onClick={() => ui.openTask(suggestion.task.id)}>{suggestion.task.title}</button>
+                    <p className="text-xs text-muted mt-0.5">{suggestion.reason}</p>
+                    <Button size="sm" variant="soft" className="mt-2" icon={<Play size={13} />} onClick={() => void s.setActiveTask(suggestion.task.id)}>Start</Button>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted mt-1">Inbox zero. Enjoy it.</p>
+                )}
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
 
       <GettingStarted />
 
-      {/* The work clock sits beside the day's numbers instead of spanning the page. */}
-      <div className="grid gap-4 lg:grid-cols-[minmax(270px,340px)_minmax(0,1fr)]">
-      <WorkClockCard />
-      <div className="grid grid-cols-2 gap-4">
-        <Stat label="Tasks today" value={stats.totalToday} icon={<ListTodo size={18} />} sub={`${stats.pendingToday} pending`} />
-        <Stat label="Completed today" value={stats.completedToday} icon={<CheckCircle2 size={18} />} tone="var(--success)" />
-        <Stat label="Overdue" value={stats.overdue} icon={<TriangleAlert size={18} />} tone={stats.overdue ? "var(--danger)" : "var(--muted)"} sub={stats.overdue ? "Use Smart Reschedule" : "All on track"} />
-        <Stat label="Focus time today" value={humanDuration(stats.focusMsToday).replace(" sec", "s")} icon={<Flame size={18} />} tone="var(--accent-2)" />
-      </div>
-      </div>
-
-      <SystemMonitor />
-
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      {/* Work clock, the running timer and the day's numbers (each number opens its details). */}
+      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(260px,320px)_minmax(0,1fr)_minmax(0,1.15fr)]">
+        <WorkClockCard />
         {/* Active countdown / current task */}
-        <Card glow={!!timer} className="xl:col-span-1">
+        <Card glow={!!timer}>
           <CardHeader title="Active countdown" icon={<Hourglass size={16} />} />
           <div className="px-5 pb-5">
             {timer ? (
@@ -118,58 +167,16 @@ export default function Dashboard() {
             )}
           </div>
         </Card>
-
-        {/* Next appointment */}
-        <Card>
-          <CardHeader title="Next appointment" icon={<AlarmClock size={16} />} />
-          <div className="px-5 pb-5">
-            {next ? (
-              (() => {
-                const st = eventStatus(next.start, next.end, now);
-                return (
-                  <button className="w-full text-left" onClick={() => ui.openEvent(next.event.id, undefined, next.seriesStart)}>
-                    <p className="text-lg font-semibold truncate">{next.event.important && <span className="text-warning">★ </span>}{next.event.title}</p>
-                    <p className="text-sm font-medium mt-1" style={{ color: st.live ? "var(--success)" : "var(--accent)" }}>{st.label}</p>
-                    {st.live && <ProgressBar value={st.progress} className="mt-2" tone="success" />}
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                      <div className="rounded-lg bg-hover px-2.5 py-1.5"><span className="text-cyan-400 font-semibold">KE</span> {formatTime(next.start, KENYA_ZONE, settings.hour12)} {zoneAbbr(KENYA_ZONE, next.start)}</div>
-                      <div className="rounded-lg bg-hover px-2.5 py-1.5"><span className="text-violet-400 font-semibold">TX</span> {formatTime(next.start, settings.texasZone, settings.hour12)} {zoneAbbr(settings.texasZone, next.start)}</div>
-                    </div>
-                    <p className="text-[11px] text-muted mt-2">{formatWithZone(next.start, next.event.tz, settings.hour12)} (original zone)</p>
-                  </button>
-                );
-              })()
-            ) : (
-              <EmptyState icon={<CalendarClock size={22} />} title="Nothing scheduled" body="Reserve time for what matters." action={<Button size="sm" onClick={() => ui.openEvent(null)}>Schedule</Button>} />
-            )}
-          </div>
-        </Card>
-
-        {/* Completion ring + suggestion */}
-        <Card>
-          <CardHeader title="Today's progress" icon={<Target size={16} />} />
-          <div className="px-5 pb-5 flex items-center gap-5">
-            <ProgressRing value={stats.completionRate} size={104} stroke={9} gradientId="dash-day">
-              <div className="text-center">
-                <div className="text-2xl font-semibold tabular font-display">{Math.round(stats.completionRate * 100)}%</div>
-                <div className="text-[10px] text-muted">{stats.completedToday}/{stats.totalToday}</div>
-              </div>
-            </ProgressRing>
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] uppercase tracking-wider text-muted flex items-center gap-1"><Sparkles size={12} /> Suggested next</p>
-              {suggestion ? (
-                <>
-                  <button className="text-sm font-semibold mt-1 text-left hover:text-accent" onClick={() => ui.openTask(suggestion.task.id)}>{suggestion.task.title}</button>
-                  <p className="text-xs text-muted mt-0.5">{suggestion.reason}</p>
-                  <Button size="sm" variant="soft" className="mt-2" icon={<Play size={13} />} onClick={() => void s.setActiveTask(suggestion.task.id)}>Start</Button>
-                </>
-              ) : (
-                <p className="text-sm text-muted mt-1">Inbox zero. Enjoy it.</p>
-              )}
-            </div>
-          </div>
-        </Card>
+        <div className="grid grid-cols-2 gap-4 lg:col-span-2 xl:col-span-1">
+          <Stat label="Tasks today" value={stats.totalToday} icon={<ListTodo size={18} />} sub={`${stats.pendingToday} pending`} onClick={() => setDetail("today")} />
+          <Stat label="Completed today" value={stats.completedToday} icon={<CheckCircle2 size={18} />} tone="var(--success)" onClick={() => setDetail("completed")} />
+          <Stat label="Overdue" value={stats.overdue} icon={<TriangleAlert size={18} />} tone={stats.overdue ? "var(--danger)" : "var(--muted)"} sub={stats.overdue ? "Needs attention" : "All on track"} onClick={() => setDetail("overdue")} />
+          <Stat label="Focus time today" value={humanDuration(stats.focusMsToday).replace(" sec", "s")} icon={<Flame size={18} />} tone="var(--accent-2)" onClick={() => setDetail("focus")} />
+        </div>
       </div>
+      <StatDetails kind={detail} onClose={() => setDetail(null)} />
+
+      <SystemMonitor />
 
       <Card>
         <CardHeader title="Today's timeline" icon={<CalendarClock size={16} />} subtitle={`Appointments and deadlines · ${zone}`} right={<Button size="sm" variant="ghost" onClick={() => ui.setView("calendar")}>Open calendar</Button>} />

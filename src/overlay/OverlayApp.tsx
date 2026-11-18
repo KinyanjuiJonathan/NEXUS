@@ -87,10 +87,28 @@ export default function OverlayApp() {
     if (!settings.overlayGraph) void nexus().setSetting("overlayGraph", true);
   };
   const work = useWorkClock();
-  const completeTask = async (id: string, title: string) => {
-    await nexus().setTaskDone(id, true);
-    nexus().toast({ kind: "success", title: "Completed ✓", body: title, action: { label: "Undo", run: () => void nexus().setTaskDone(id, false) }, ttl: 5000 });
+  // Completing always asks first, here too: the question covers the overlay until answered.
+  const [confirming, setConfirming] = useState<{ id: string; title: string } | null>(null);
+  const [completing, setCompleting] = useState(false);
+  const completeTask = (id: string, title: string) => setConfirming({ id, title });
+  const confirmCompletion = async () => {
+    if (!confirming || completing) return;
+    setCompleting(true);
+    const { id, title } = confirming;
+    try {
+      await nexus().setTaskDone(id, true);
+      nexus().toast({ kind: "success", title: "Completed ✓", body: title, action: { label: "Undo", run: () => void nexus().setTaskDone(id, false) }, ttl: 6000 });
+    } finally {
+      setCompleting(false);
+      setConfirming(null);
+    }
   };
+  useEffect(() => {
+    if (!confirming) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setConfirming(null);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [confirming]);
 
   // Sync with the native window state & other windows.
   useEffect(() => {
@@ -250,7 +268,7 @@ export default function OverlayApp() {
         <button
           aria-label={`Mark “${active.title}” complete`}
           title="Mark the active task complete"
-          onClick={() => void completeTask(active.id, active.title)}
+          onClick={() => completeTask(active.id, active.title)}
           className="no-drag h-7 w-7 shrink-0 rounded-full flex items-center justify-center text-success bg-[color-mix(in_oklab,var(--success)_16%,transparent)] hover:bg-success hover:text-white transition"
         >
           <Check size={14} strokeWidth={3} />
@@ -357,7 +375,7 @@ export default function OverlayApp() {
                     const dl = deadlineInfo(t.dueAt, now, settings.deadlineWarningMin);
                     return (
                       <div key={t.id} className={cx("group flex items-center gap-2 rounded-lg px-1.5 py-1 text-[11px]", t.id === settings.activeTaskId ? "bg-[color-mix(in_oklab,var(--accent)_12%,transparent)]" : "hover:bg-hover")}>
-                        <button aria-label={`Complete “${t.title}”`} title="Mark complete" onClick={() => void completeTask(t.id, t.title)} className="h-4 w-4 rounded-full border-2 border-line-strong hover:border-success hover:bg-success/30 shrink-0 flex items-center justify-center text-success">
+                        <button aria-label={`Complete “${t.title}”`} title="Mark complete" onClick={() => completeTask(t.id, t.title)} className="h-4 w-4 rounded-full border-2 border-line-strong hover:border-success hover:bg-success/30 shrink-0 flex items-center justify-center text-success">
                           <Check size={9} strokeWidth={3} className="opacity-30 group-hover:opacity-100" />
                         </button>
                         <span className="flex-1 truncate">{t.title}</span>
@@ -421,6 +439,21 @@ export default function OverlayApp() {
       <div onPointerDown={() => void startResize()} className="no-drag absolute right-0 bottom-0 h-3.5 w-3.5 cursor-se-resize opacity-40 hover:opacity-100" aria-hidden>
         <svg viewBox="0 0 10 10" className="h-full w-full text-muted"><path d="M9 3L3 9M9 6L6 9" stroke="currentColor" strokeWidth="1.2" /></svg>
       </div>
+      {confirming && (
+        <div role="alertdialog" aria-modal="true" aria-label="Confirm completion" className="no-drag absolute inset-0 z-40 flex items-center justify-center rounded-[14px] bg-[rgba(var(--overlay-bg),0.94)] backdrop-blur-sm px-3">
+          <div className={cx("flex gap-2 w-full", mode === "mini" ? "items-center" : "flex-col items-stretch max-w-[300px]")}>
+            <p className={cx("text-fg min-w-0", mode === "mini" ? "text-[11px] flex-1 truncate" : "text-[13px] text-center leading-snug")} title={confirming.title}>
+              {mode === "mini" ? <>Mark <b>“{confirming.title}”</b> completed?</> : <>Are you sure you want to mark <b>“{confirming.title}”</b> as completed?</>}
+            </p>
+            <div className={cx("flex gap-1.5 shrink-0", mode !== "mini" && "justify-center")}>
+              <button autoFocus disabled={completing} onClick={() => void confirmCompletion()} className="h-7 px-2.5 rounded-lg text-[11px] font-semibold text-white bg-success hover:brightness-110 disabled:opacity-60 inline-flex items-center gap-1">
+                <Check size={12} strokeWidth={3} /> {mode === "mini" ? "Confirm" : "Confirm Completion"}
+              </button>
+              <button onClick={() => setConfirming(null)} className="h-7 px-2.5 rounded-lg text-[11px] font-medium bg-hover text-fg-2 hover:text-fg">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
       <Toasts position="top" />
     </div>
   );

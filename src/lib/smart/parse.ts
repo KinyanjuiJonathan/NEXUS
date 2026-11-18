@@ -27,6 +27,8 @@ export interface SmartContext {
   defaultZone: string;
   /** Which zone "Texas time" means. */
   texasZone: string;
+  /** Day to assume when the request names none (an instant on that day), e.g. the day the rest of the sentence is about. */
+  defaultDay?: number | null;
 }
 
 export interface Clarification {
@@ -46,6 +48,8 @@ export interface ScheduleRequest {
   durationApprox: boolean;
   /** Days the request allows, as [start, end) instants; null = no day was mentioned. */
   window: { start: number; end: number; label: string } | null;
+  /** The request itself named a day (as opposed to one being assumed). */
+  dated: boolean;
   period: DayPeriod | null;
   /** "later today / tonight": not before now. */
   later: boolean;
@@ -58,6 +62,8 @@ export interface ScheduleRequest {
   deadlineLabel: string | null;
   /** "before my next meeting": resolved against the calendar later. */
   beforeNextMeeting: boolean;
+  /** Not before this instant (set by "after …" relations in a conversation). */
+  earliest?: number | null;
   /** A commitment at a fixed time (meeting, call, interview…) rather than flexible work. */
   fixed: boolean;
   priority: Priority | null;
@@ -267,6 +273,12 @@ export function parseScheduleRequest(input: string, ctx: SmartContext, answers: 
     }
   }
 
+  const dated = !!window;
+  if (!window && ctx.defaultDay != null) {
+    const d = DateTime.fromMillis(ctx.defaultDay, { zone });
+    window = dayWindow(d, d.hasSame(now, "day") ? "today" : d.hasSame(now.plus({ days: 1 }), "day") ? "tomorrow" : d.toFormat("cccc d LLL"));
+  }
+
   // ---- start time
   let startAt: number | null = null;
   let endAt: number | null = null;
@@ -361,7 +373,7 @@ export function parseScheduleRequest(input: string, ctx: SmartContext, answers: 
     notes.push("A commitment at a set time, so it is a fixed appointment.");
   }
 
-  return { text: input, title, zone, zoneLabel, durationMin, durationApprox, window, period, later, startAt, startApprox, endAt, deadline, deadlineLabel, beforeNextMeeting, fixed, priority, questions, notes };
+  return { text: input, title, zone, zoneLabel, durationMin, durationApprox, window, dated, period, later, startAt, startApprox, endAt, deadline, deadlineLabel, beforeNextMeeting, fixed, priority, questions, notes };
 }
 
 export function fmtMinutes(mins: number): string {

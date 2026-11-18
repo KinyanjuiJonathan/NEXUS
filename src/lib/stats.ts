@@ -20,10 +20,43 @@ export function isTodayTask(t: Task, start: number, end: number): boolean {
   return t.status === "in_progress";
 }
 
-export function dayStats(tasks: Task[], focus: FocusSession[], now: number, zone: string): DayStats {
+/** Start and end of the day `now` falls on, in `zone`. */
+export function dayBounds(now: number, zone: string): { start: number; end: number } {
+  const d = DateTime.fromMillis(now, { zone }).startOf("day");
+  return { start: d.toMillis(), end: d.plus({ days: 1 }).toMillis() };
+}
+
+/**
+ * Today's tasks: due today, completed today, in progress, or with time
+ * reserved for them on today's calendar.
+ */
+export function todayTasks(tasks: Task[], events: CalendarEvent[], now: number, zone: string): Task[] {
+  const { start, end } = dayBounds(now, zone);
+  const planned = new Set(events.filter((e) => !e.deletedAt && e.taskId && !e.recurrence && e.startAt < end && e.endAt > start).map((e) => e.taskId));
+  return tasks.filter((t) => isTodayTask(t, start, end) || (planned.has(t.id) && !t.deletedAt && !t.archivedAt && t.status !== "done"));
+}
+
+/** Open tasks whose deadline has passed, oldest first. */
+export function overdueTasks(tasks: Task[], now: number): Task[] {
+  return tasks.filter((t) => !t.deletedAt && !t.archivedAt && t.status !== "done" && t.dueAt != null && t.dueAt < now).sort((a, b) => a.dueAt! - b.dueAt!);
+}
+
+/** Tasks completed on the day `now` falls on, most recent first. */
+export function completedToday(tasks: Task[], now: number, zone: string): Task[] {
+  const { start, end } = dayBounds(now, zone);
+  return tasks.filter((t) => !t.deletedAt && t.status === "done" && t.completedAt != null && t.completedAt >= start && t.completedAt < end).sort((a, b) => b.completedAt! - a.completedAt!);
+}
+
+/** Focus sessions that touch the day `now` falls on, most recent first. */
+export function focusToday(focus: FocusSession[], now: number, zone: string): FocusSession[] {
+  const { start, end } = dayBounds(now, zone);
+  return focus.filter((f) => f.endedAt >= start && f.startedAt < end).sort((a, b) => b.startedAt - a.startedAt);
+}
+
+export function dayStats(tasks: Task[], focus: FocusSession[], now: number, zone: string, events: CalendarEvent[] = []): DayStats {
   const start = DateTime.fromMillis(now, { zone }).startOf("day").toMillis();
   const end = DateTime.fromMillis(now, { zone }).endOf("day").toMillis() + 1;
-  const today = tasks.filter((t) => isTodayTask(t, start, end));
+  const today = todayTasks(tasks, events, now, zone);
   const completedToday = today.filter((t) => t.status === "done").length;
   const overdue = tasks.filter((t) => !t.deletedAt && !t.archivedAt && t.status !== "done" && t.dueAt != null && t.dueAt < now).length;
   const focusMsToday = focus.filter((f) => f.endedAt >= start && f.startedAt < end).reduce((a, f) => a + f.durationMs, 0);
