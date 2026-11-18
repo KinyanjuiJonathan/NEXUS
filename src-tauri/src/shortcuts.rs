@@ -1,5 +1,7 @@
 //! System-wide keyboard shortcuts (work even when NEXUS is not focused).
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
@@ -15,6 +17,13 @@ pub struct Shortcuts {
     pub quick_add: String,
     pub voice: String,
     pub show_main: String,
+    /// Added later than the others: older saved shortcut sets don't have it.
+    #[serde(default = "default_toggle_typer")]
+    pub toggle_typer: String,
+}
+
+fn default_toggle_typer() -> String {
+    "F6".into()
 }
 
 impl Default for Shortcuts {
@@ -25,9 +34,14 @@ impl Default for Shortcuts {
             quick_add: "CommandOrControl+Shift+N".into(),
             voice: "CommandOrControl+Shift+V".into(),
             show_main: "CommandOrControl+Shift+H".into(),
+            toggle_typer: default_toggle_typer(),
         }
     }
 }
+
+/// The Auto Typer shortcut is a bare function key by default, so it is only
+/// claimed while the Auto Typer screen is open; other apps keep the key the rest of the time.
+static TYPER_SHORTCUT_ON: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy)]
 enum Action {
@@ -36,6 +50,7 @@ enum Action {
     QuickAdd,
     Voice,
     ShowMain,
+    ToggleTyper,
 }
 
 fn run(app: &AppHandle, action: Action) {
@@ -61,6 +76,7 @@ fn run(app: &AppHandle, action: Action) {
             }
         }
         Action::ShowMain => show_main(app),
+        Action::ToggleTyper => crate::typer::toggle(app),
     }
 }
 
@@ -85,9 +101,13 @@ pub fn register(app: &AppHandle, sc: &Shortcuts) -> Vec<String> {
         (&sc.quick_add, Action::QuickAdd),
         (&sc.voice, Action::Voice),
         (&sc.show_main, Action::ShowMain),
+        (&sc.toggle_typer, Action::ToggleTyper),
     ];
     for (accel, action) in pairs {
         if accel.trim().is_empty() {
+            continue;
+        }
+        if matches!(action, Action::ToggleTyper) && !TYPER_SHORTCUT_ON.load(Ordering::SeqCst) {
             continue;
         }
         let res = gs.on_shortcut(accel.as_str(), move |app, _sc, ev| {
@@ -112,4 +132,11 @@ pub fn shortcuts_apply(app: AppHandle, shortcuts: Shortcuts) -> CmdResult<Vec<St
         s.set_setting("shortcuts", &serde_json::to_value(&shortcuts).map_err(friendly)?).map_err(friendly)?;
     }
     Ok(register(&app, &shortcuts))
+}
+
+/// Claim or give back the Auto Typer shortcut (the UI calls this as its screen opens and closes).
+#[tauri::command]
+pub fn typer_shortcut(app: AppHandle, enabled: bool) -> Vec<String> {
+    TYPER_SHORTCUT_ON.store(enabled, Ordering::SeqCst);
+    register(&app, &load(&app))
 }

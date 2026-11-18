@@ -6,6 +6,8 @@
 
 pub mod migrations;
 pub mod models;
+pub mod perf;
+pub mod typer;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

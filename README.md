@@ -2,6 +2,8 @@
 
 NEXUS is a Windows 10/11 desktop app that combines tasks, scheduling, Kenya ⇄ Texas dual clocks, live countdowns, focus timers, reliable reminders, voice commands, and an **always-on-top floating overlay** that stays visible while you work in other apps.
 
+**NEXUS · AI MAVERIX** — Powered by Digital Nomads 🇰🇪 🇺🇸
+
 It is a real application: data is stored in a local SQLite database, reminders are delivered by a background scheduler (even with every window closed to the tray), and the optional AI assistant runs through the Rust backend so your API key never touches the UI.
 
 ![Dashboard](docs/screenshots/dashboard.png)
@@ -65,6 +67,10 @@ More screens: [Calendar](docs/screenshots/calendar.png) · [Tasks](docs/screensh
 
 **Floating overlay**: always-on-top, draggable, resizable, adjustable opacity, pin/unpin, Mini/Standard/Expanded modes, **live CPU / GPU / VRAM / RAM / FPS and a temperature gauge** (like Xbox Game Bar), a **✓ button to complete the active task in every mode** (and checkboxes on every task in Expanded, plus a "Done today" list), work-clock controls, optional click-through with a global shortcut to disable it (or switch the feature off entirely), and it remembers its position and size per mode across monitors. See [below](#the-floating-overlay).
 
+**Auto Typer**: types your text into any other app with a human rhythm: varied key holds and gaps, bursts, pauses, typos that get corrected and later revisions, ending with exactly your text. Formatting (`**bold**`, `*italic*`, `# headings`, or rich text pasted from Word / Google Docs) is typed as real formatting, never as symbols. See [below](#auto-typer).
+
+**System monitor**: live CPU, RAM (percentage plus used / total), GPU, VRAM and temperature with an animated graph, on the dashboard and in the overlay. Both read the same sample, so they always agree.
+
 ## Install (Windows)
 
 1. Download the latest **`NEXUS_x.y.z_x64-setup.exe`** (NSIS, recommended) or **`.msi`** from the repository's GitHub **Releases** page, or from the **Actions → CI & Windows installer → Artifacts** of any build.
@@ -96,6 +102,8 @@ A "Getting started" checklist on the dashboard tracks these steps for you.
 | `Ctrl+Shift+N` | Quick add task |
 | `Ctrl+Shift+V` | Voice command |
 | `Ctrl+Shift+H` | Show the NEXUS window |
+| `F6` | Start / stop the Auto Typer (only claimed while the Auto Typer screen is open) |
+| `Esc` | Stop the Auto Typer while it is typing |
 
 **In the app:**
 
@@ -131,13 +139,15 @@ Speak (microphone button, `V`, or `Ctrl+Shift+V`) or type in the command center 
 
 ## The floating overlay
 
-Toggle it with `Ctrl+Shift+Space`, the title-bar button, or the tray menu.
+Toggle it with `Ctrl+Shift+Space`, the **Overlay switch at the bottom of the sidebar**, the title-bar button, *Settings → Floating overlay → Show the floating overlay*, or the tray menu. Closing the overlay with its ✕ only hides it: NEXUS, reminders and timers keep running, and any of those controls brings it straight back.
 
 - **Modes**: *Mini* shows the active task and countdown. *Standard* adds both clocks, progress, the next event, and voice/add buttons. *Expanded* adds quick add, a compact task list you can tick off, voice commands, and your schedule. Double-click the header, or use the expand button, to cycle modes.
 - **Move** it by dragging the header. **Resize** it with the bottom-right grip. Size is remembered **per mode** and position across restarts.
 - **Pin** keeps it on top; unpin to let other windows cover it. Set **opacity** in Settings.
-- **Performance stats**: CPU, GPU, VRAM (used / total), RAM (used / total) and FPS appear in every mode, updated once a second. Values at 90% or more turn amber. Turn them off with *Settings → Floating overlay → Show system performance*. Sampling only runs while the overlay is visible.
-  - **CPU / RAM**: whole-system usage.
+- **Performance stats**: CPU, GPU, VRAM (used / total), RAM (**percentage** plus used / total) and FPS appear in every mode, updated once a second. Values at 90% or more turn amber. Turn them off with *Settings → Floating overlay → Show system performance*. Sampling only runs while the overlay is visible.
+  - **CPU**: whole-system usage from the `% Processor Utility` counter, the figure Task Manager shows on Windows 10/11 (falling back to processor busy time where that counter is missing). The overlay and the dashboard share one reading per second, so they never disagree.
+  - **RAM**: memory in use as a percentage of installed memory, with used / total underneath.
+  - **Live graph**: press the graph button in the overlay header, or click any stat, for an animated graph of that metric over the last minute (Standard and Expanded modes). Switch metric with the tabs above the graph or by clicking another stat; click the graphed stat again to close it. One graph is shown at a time. The line glides between one-second samples using a transform-only animation, so it adds no measurable load.
   - **GPU / VRAM**: the GPU with the most dedicated memory, read from the same Windows performance counters Task Manager uses (NVIDIA, AMD and Intel; Windows 10 1709+). GPU % is the busiest engine (3D, copy, video…), matching Task Manager.
   - **FPS**: the frame rate of the app in the foreground (or the busiest app drawing frames if NEXUS itself is focused), measured by counting DirectX 9–12 present calls, as PresentMon and Game Bar do. Hover the value to see which app it belongs to. Vulkan/OpenGL titles that don't present through DirectX show "—".
   - **FPS permission (one-time):** Windows only lets administrators or members of the **Performance Log Users** group read these events. Without it, FPS shows a 🔒. To fix it without running NEXUS as admin, open **Terminal (Admin)**, run the command below, then **sign out and back in**:
@@ -154,6 +164,25 @@ Toggle it with `Ctrl+Shift+Space`, the title-bar button, or the tray menu.
 - **Multi-monitor**: if the monitor it was on is disconnected, or the resolution changes, the overlay is moved back onto a visible screen (top-right of the primary monitor).
 - **Performance**: it renders once per second and stops completely while hidden. Animations are minimal, with no video or polling, to avoid affecting games, calls or remote desktop.
 - **Limits** (by design): it won't draw over **exclusive-fullscreen** games (use borderless/windowed mode), the lock screen, UAC prompts, or DRM-protected content. NEXUS deliberately doesn't try to bypass these OS security boundaries.
+
+## Auto Typer
+
+Open **Auto Typer** in the sidebar (or press `9`).
+
+1. Type or paste your text. `**bold**`, `*italic*` (also `__bold__`, `_italic_`) and `# headings` are shown styled with the markers greyed out. Formatted text pasted from Word, Google Docs or a web page keeps its bold, italic and headings. **Ctrl+B / Ctrl+I** wrap the selection.
+2. Press **Start** (or `F6` from any app while the Auto Typer screen is open), then click into the text box you want during the countdown. NEXUS never types into its own windows: if it is still in front, it waits for you.
+3. Press `F6` or `Esc` to stop. Every key is released, and Caps Lock (switched off for the run) is restored.
+
+| Setting | What it does |
+|---|---|
+| Speed, Mistakes, Pauses | Raw keying speed, share of keys that get a typo (always corrected), and how long the pauses and breaks are |
+| Technique | Touch typing (keys overlap when fast), two-finger or one-handed |
+| Formatting | *Apply bold / italic* presses Ctrl+B / Ctrl+I around marked text (Word, Google Docs); *Drop markers* types plain text; *Type exactly as written* types the symbols |
+| Lock onto the text box | Ignores mouse clicks while typing so a click can't move the cursor, and pauses if the window changes, carrying on when you return. Stop with `F6` or `Esc` |
+| Revise with arrow keys and Delete | Off limits corrections to Backspace, for apps with autocomplete |
+| US keyboard layout | Holds Shift for symbols; turn off on other layouts |
+
+The target should be a plain text field: autocorrect, auto-indent or auto-closing brackets in the other app can throw corrections off. Apps running as administrator only accept the keystrokes if NEXUS runs as administrator too.
 
 ## Reminders & background behaviour
 
@@ -246,13 +275,15 @@ src/
   data/        types (domain model) + backends (Tauri IPC / localStorage)
   store/       zustand app store (all mutations auto-save) + UI state
   lib/         time, countdown, recurrence, schedule, reminders, assistant,
-               stats, overlayGeometry, voice/{parser,execute,engine}, platform
+               stats, overlayGeometry, perf, typer/{engine,controller},
+               voice/{parser,execute,engine}, platform
   components/  UI kit, editors, command center, charts, shell
-  views/       Dashboard, Tasks, Calendar, Focus, Clocks, Assistant, Settings
+  views/       Dashboard, Tasks, Calendar, Focus, Clocks, Assistant, Typer, Settings
   overlay/     floating overlay app
 src-tauri/
-  core/        nexus-core: SQLite persistence (+ tests in core/tests)
-  src/         Tauri shell: commands, overlay, shortcuts, scheduler, ai, speech
+  core/        nexus-core: SQLite persistence, typer playback loop, perf maths (+ tests)
+  src/         Tauri shell: commands, overlay, shortcuts, scheduler, ai, speech,
+               perf, typer, win_input, win_cpu
 ```
 
 ## Troubleshooting

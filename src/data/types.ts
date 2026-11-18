@@ -1,3 +1,4 @@
+import type { TyperOptions } from "@/lib/typer/engine";
 /**
  * NEXUS domain model.
  *
@@ -193,6 +194,8 @@ export interface ActivityEntry {
 }
 
 export type OverlayMode = "mini" | "standard" | "expanded";
+/** A system metric that can be charted over time. */
+export type PerfMetric = "cpu" | "ram" | "gpu" | "vram" | "fps" | "temp";
 /** America/Denver = Mountain time used by El Paso (tzdb has no America/El_Paso). */
 export type TexasZone = "America/Chicago" | "America/Denver";
 export type ThemeMode = "dark" | "light" | "system";
@@ -232,6 +235,14 @@ export interface Settings {
   /** Show CPU/GPU temperature in the overlay. */
   overlayTemp: boolean;
   tempUnit: "C" | "F";
+  /** Show the live performance graph in the overlay. */
+  overlayGraph: boolean;
+  /** Which metric the performance graph follows. */
+  perfGraphMetric: PerfMetric;
+  /** Show the system monitor card on the dashboard. */
+  dashboardPerf: boolean;
+  /** Auto Typer options (the text itself is kept separately). */
+  typer: TyperOptions;
   /** Minutes without keyboard/mouse input before the work clock auto-pauses. */
   idleMinutes: number;
   /** Resume automatically when activity returns after an auto-pause. */
@@ -262,6 +273,7 @@ export interface Shortcuts {
   quickAdd: string;
   voice: string;
   showMain: string;
+  toggleTyper: string;
 }
 
 export const DEFAULT_SHORTCUTS: Shortcuts = {
@@ -270,6 +282,7 @@ export const DEFAULT_SHORTCUTS: Shortcuts = {
   quickAdd: "CommandOrControl+Shift+N",
   voice: "CommandOrControl+Shift+V",
   showMain: "CommandOrControl+Shift+H",
+  toggleTyper: "F6",
 };
 
 export interface Snapshot {

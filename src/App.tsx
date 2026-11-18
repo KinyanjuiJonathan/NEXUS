@@ -13,6 +13,7 @@ import { AutoPlanDialog } from "@/components/AutoPlanDialog";
 import { useTheme } from "@/lib/useTheme";
 import { onTick } from "@/lib/ticker";
 import { idleSeconds, listenTo, playChime, signalReady } from "@/lib/platform";
+import { initTyper } from "@/lib/typer/controller";
 import type { ReminderItem } from "@/data/types";
 import Dashboard from "@/views/Dashboard";
 
@@ -24,6 +25,7 @@ const Assistant = lazy(() => import("@/views/Assistant"));
 const SettingsView = lazy(() => import("@/views/Settings"));
 const Insights = lazy(() => import("@/views/Insights"));
 const History = lazy(() => import("@/views/History"));
+const Typer = lazy(() => import("@/views/Typer"));
 
 const VIEWS: Record<View, React.ComponentType> = {
   dashboard: Dashboard,
@@ -34,6 +36,7 @@ const VIEWS: Record<View, React.ComponentType> = {
   assistant: Assistant,
   insights: Insights,
   history: History,
+  typer: Typer,
   settings: SettingsView,
 };
 
@@ -68,6 +71,8 @@ export default function App() {
         nexus().toast({ kind: "reminder", title: r.title, body: r.body, reminder: r, ttl: 0 });
       }),
     );
+    // Status updates and the global start/stop shortcut work from every screen.
+    initTyper();
     let un1: (() => void) | undefined;
     let un2: (() => void) | undefined;
     listenTo("nexus://quick-add", () => useUI.getState().openTask(null)).then((u) => (un1 = u));

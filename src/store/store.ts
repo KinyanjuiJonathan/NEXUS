@@ -1,4 +1,5 @@
 import { createStore } from "zustand/vanilla";
+import { DEFAULT_TYPER } from "@/lib/typer/engine";
 import type { Backend } from "@/data/backend";
 import {
   DEFAULT_SHORTCUTS,
@@ -55,6 +56,10 @@ export const DEFAULT_SETTINGS: Settings = {
   overlayAllowClickThrough: true,
   overlayTemp: true,
   tempUnit: "C",
+  overlayGraph: false,
+  perfGraphMetric: "cpu",
+  dashboardPerf: true,
+  typer: DEFAULT_TYPER,
   idleMinutes: 5,
   idleAutoResume: true,
   idlePauseTimers: true,
@@ -178,7 +183,7 @@ export interface StoreDeps {
 }
 
 function mergeSettings(raw: Partial<Settings>): Settings {
-  const s = { ...DEFAULT_SETTINGS, ...raw, shortcuts: { ...DEFAULT_SHORTCUTS, ...(raw.shortcuts ?? {}) } };
+  const s = { ...DEFAULT_SETTINGS, ...raw, shortcuts: { ...DEFAULT_SHORTCUTS, ...(raw.shortcuts ?? {}) }, typer: { ...DEFAULT_TYPER, ...(raw.typer ?? {}) } };
   // Accept the legacy/alias "America/El_Paso" and guard against invalid zones.
   s.texasZone = normalizeZone(s.texasZone, TEXAS_CENTRAL) as Settings["texasZone"];
   if (s.texasZone !== "America/Chicago" && s.texasZone !== "America/Denver") s.texasZone = TEXAS_CENTRAL;

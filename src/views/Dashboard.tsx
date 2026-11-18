@@ -12,6 +12,7 @@ import { formatTime, formatWithZone, KENYA_ZONE, zoneAbbr } from "@/lib/time";
 import { DualClock } from "@/components/DualClock";
 import { GettingStarted } from "@/components/GettingStarted";
 import { WorkClockCard } from "@/components/WorkClock";
+import { SystemMonitor } from "@/components/SystemMonitor";
 import { BarChart, DayTimeline } from "@/components/Charts";
 import { TaskRow } from "@/components/TaskRow";
 import { Button, Card, CardHeader, EmptyState, ProgressBar, ProgressRing, Stat } from "@/components/ui";
@@ -71,6 +72,8 @@ export default function Dashboard() {
         <Stat label="Overdue" value={stats.overdue} icon={<TriangleAlert size={18} />} tone={stats.overdue ? "var(--danger)" : "var(--muted)"} sub={stats.overdue ? "Use Smart Reschedule" : "All on track"} />
         <Stat label="Focus time today" value={humanDuration(stats.focusMsToday).replace(" sec", "s")} icon={<Flame size={18} />} tone="var(--accent-2)" />
       </div>
+
+      <SystemMonitor />
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         {/* Active countdown / current task */}

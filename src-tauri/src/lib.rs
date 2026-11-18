@@ -8,6 +8,11 @@ mod scheduler;
 mod shortcuts;
 mod speech;
 mod state;
+mod typer;
+#[cfg(windows)]
+mod win_cpu;
+#[cfg(windows)]
+mod win_input;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -40,6 +45,8 @@ fn setting_bool(app: &AppHandle, key: &str, default: bool) -> bool {
 
 #[tauri::command]
 fn app_quit(app: AppHandle) {
+    // Let go of any key the Auto Typer is holding before the process ends.
+    app.state::<typer::TyperState>().request_stop();
     app.state::<AppState>().quitting.store(true, Ordering::SeqCst);
     app.state::<AppState>().wake_scheduler();
     app.exit(0);
@@ -126,6 +133,7 @@ pub fn run() {
                 log::warn!("automatic backup failed: {e}");
             }
             app.manage(perf::PerfState::new());
+            app.manage(typer::TyperState::new());
             app.manage(AppState {
                 store: Mutex::new(store),
                 data_dir: data_dir.clone(),
@@ -199,6 +207,7 @@ pub fn run() {
             overlay::overlay_set_pinned,
             overlay::overlay_state,
             shortcuts::shortcuts_apply,
+            shortcuts::typer_shortcut,
             ai::ai_set_key,
             ai::ai_clear_key,
             ai::ai_has_key,
@@ -211,6 +220,9 @@ pub fn run() {
             commands::activity_add,
             commands::idle_seconds,
             perf::perf_stop,
+            typer::typer_start,
+            typer::typer_stop,
+            typer::typer_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running NEXUS");

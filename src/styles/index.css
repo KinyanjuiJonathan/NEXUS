@@ -226,3 +226,63 @@ html.overlay body {
 html.overlay body {
   overflow: hidden;
 }
+
+/* ------------------------------------------------------------------ live performance graph */
+/* Each new sample is drawn one step to the right of its place and glides in over the
+   sampling interval: transform-only, so it costs no layout or paint per frame. */
+@keyframes perf-slide {
+  from { transform: translateX(var(--perf-step, 0px)); }
+  to { transform: translateX(0); }
+}
+.perf-slide {
+  animation: perf-slide 1000ms linear both;
+  will-change: transform;
+}
+
+/* ------------------------------------------------------------------ auto typer editor */
+/* A transparent textarea sits exactly on top of a styled copy of its text. Both use the
+   same monospace metrics (bold and italic keep the same character width), so the caret
+   and selection line up with the formatted text underneath. */
+.typer-editor {
+  position: relative;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.typer-editor > pre,
+.typer-editor > textarea {
+  margin: 0;
+  padding: 12px 14px;
+  font: inherit;
+  letter-spacing: 0;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  tab-size: 4;
+  border: 0;
+  box-sizing: border-box;
+}
+.typer-editor > pre {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--text);
+}
+.typer-editor > textarea {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--accent);
+  outline: none;
+  overflow-y: auto;
+}
+.typer-editor > textarea::placeholder { color: var(--muted); }
+.typer-editor > textarea::selection { background: color-mix(in oklab, var(--accent) 30%, transparent); color: transparent; }
+.typer-editor .tm { color: color-mix(in oklab, var(--muted) 55%, transparent); }
+.typer-editor .tb { font-weight: 700; color: var(--accent); }
+.typer-editor .ti { font-style: italic; }

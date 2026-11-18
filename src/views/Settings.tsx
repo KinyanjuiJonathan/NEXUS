@@ -1,11 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Clock, Wand2, Bell, Brain, Database, Download, Globe, Keyboard, Mic, Monitor, Moon, PanelTop, Power, RefreshCw, Shield, Sun, Target, Upload } from "lucide-react";
-import { DEFAULT_SHORTCUTS, type Settings, type Shortcuts } from "@/data/types";
+import { Clock, Wand2, Bell, Brain, Database, Download, Globe, Info, Keyboard, Mic, Monitor, Moon, PanelTop, Power, RefreshCw, Shield, Sun, Target, Upload } from "lucide-react";
+import { DEFAULT_SHORTCUTS, type PerfMetric, type Settings, type Shortcuts } from "@/data/types";
+import { BrandBlock } from "@/components/Brand";
+import { METRIC_LABEL } from "@/lib/perf";
+import { useOverlayState } from "@/lib/useOverlay";
 import { useNexus, nexus } from "@/store";
 import { DEFAULT_SETTINGS } from "@/store/store";
 import { KENYA_ZONE, TEXAS_CENTRAL, TEXAS_MOUNTAIN, isValidZone, localZone } from "@/lib/time";
 import {
-  aiClearKey, aiHasKey, aiSetKey, applyShortcuts, dataInfo, ensureNotificationPermission, getAutostart, getOverlayState, invokeSafe, native, onOverlayState, setClickThrough,
+  aiClearKey, aiHasKey, aiSetKey, applyShortcuts, dataInfo, ensureNotificationPermission, getAutostart, invokeSafe, native, setClickThrough,
   pickOpenPath, pickSavePath, playChime, relaunch, setAutostart, setOverlayVisible, testNotification, type DataInfo,
 } from "@/lib/platform";
 import { voiceSupported, webSpeechAvailable } from "@/lib/voice/engine";
@@ -45,7 +48,8 @@ function ShortcutInput({ value, onChange }: { value: string; onChange: (v: strin
         if (e.ctrlKey || e.metaKey) parts.push("CommandOrControl");
         if (e.altKey) parts.push("Alt");
         if (e.shiftKey) parts.push("Shift");
-        if (parts.length === 0) return; // require a modifier for global shortcuts
+        // Global shortcuts need a modifier, except function keys, which are safe on their own.
+        if (parts.length === 0 && !/^F([1-9]|1\d|2[0-4])$/.test(e.code)) return;
         const key = e.code.startsWith("Key") ? e.code.slice(3) : e.code.startsWith("Digit") ? e.code.slice(5) : e.code === "Space" ? "Space" : e.key.length === 1 ? e.key.toUpperCase() : e.code;
         onChange([...parts, key].join("+"));
         setRec(false);
@@ -68,14 +72,8 @@ export default function SettingsView() {
   const [shortcutDraft, setShortcutDraft] = useState<Shortcuts>(settings.shortcuts);
   const [failed, setFailed] = useState<string[]>([]);
   const [customZone, setCustomZone] = useState("");
-  const [clickThroughOn, setClickThroughOn] = useState(false);
-
-  useEffect(() => {
-    let off: (() => void) | undefined;
-    void getOverlayState().then((s) => setClickThroughOn(s.clickThrough));
-    void onOverlayState((s) => setClickThroughOn(s.clickThrough)).then((u) => (off = u));
-    return () => off?.();
-  }, []);
+  const overlay = useOverlayState();
+  const clickThroughOn = overlay.clickThrough;
 
   useEffect(() => {
     void getAutostart().then(setAuto).catch(() => {});
@@ -221,13 +219,27 @@ export default function SettingsView() {
       <Section id="overlay" title="Floating overlay" icon={<PanelTop size={16} />}>
         <div className="flex flex-wrap items-center gap-3">
           <Segmented value={settings.overlayMode} onChange={(v) => set("overlayMode", v)} options={[{ value: "mini", label: "Mini" }, { value: "standard", label: "Standard" }, { value: "expanded", label: "Expanded" }]} />
-          <Button variant="soft" disabled={!native} onClick={() => void setOverlayVisible(true)}>Show overlay</Button>
         </div>
+        <Toggle
+          checked={overlay.visible}
+          disabled={!native}
+          onChange={(v) => void setOverlayVisible(v)}
+          label="Show the floating overlay"
+          description={`Closing the overlay only hides it; NEXUS keeps running. Bring it back here, from the Overlay switch in the sidebar, the tray menu, or with ${settings.shortcuts.toggleOverlay.replace("CommandOrControl", "Ctrl")}.`}
+        />
         <Field label={`Opacity — ${Math.round(settings.overlayOpacity * 100)}%`}>
           <input type="range" min={25} max={100} value={Math.round(settings.overlayOpacity * 100)} onChange={(e) => set("overlayOpacity", clampOpacity(Number(e.target.value) / 100))} className="accent-sky-500" />
         </Field>
         <Toggle checked={settings.overlayOnStartup} onChange={(v) => set("overlayOnStartup", v)} label="Show the overlay when NEXUS starts" />
-        <Toggle checked={settings.overlayPerf} onChange={(v) => set("overlayPerf", v)} label="Show system performance (CPU, GPU, VRAM, RAM)" description="Sampled about once a second, only while the overlay is visible." />
+        <Toggle checked={settings.overlayPerf} onChange={(v) => set("overlayPerf", v)} label="Show system performance (CPU, GPU, VRAM, RAM)" description="Sampled about once a second, only while the overlay is visible. CPU matches Task Manager; RAM is shown as a percentage with used / total." />
+        <Toggle checked={settings.overlayGraph} disabled={!settings.overlayPerf} onChange={(v) => set("overlayGraph", v)} label="Show a live performance graph" description="An animated graph of one metric over the last minute (Standard and Expanded modes). Click any stat in the overlay to graph it." />
+        <div className={cx("flex items-center gap-3", !(settings.overlayPerf && settings.overlayGraph) && "opacity-50")}>
+          <span className="text-sm">Graph shows</span>
+          <Select className="!w-40" value={settings.perfGraphMetric} disabled={!(settings.overlayPerf && settings.overlayGraph)} onChange={(e) => set("perfGraphMetric", e.target.value as PerfMetric)}>
+            {(Object.keys(METRIC_LABEL) as PerfMetric[]).map((m) => <option key={m} value={m}>{m === "temp" ? "Temperature" : METRIC_LABEL[m]}</option>)}
+          </Select>
+        </div>
+        <Toggle checked={settings.dashboardPerf} onChange={(v) => set("dashboardPerf", v)} label="Show the system monitor on the dashboard" description="The same live readings in the main window, sampled only while the dashboard is open." />
         <Toggle
           checked={settings.overlayFps}
           disabled={!settings.overlayPerf}
@@ -271,6 +283,7 @@ export default function SettingsView() {
             ["quickAdd", "Quick add task"],
             ["voice", "Voice command"],
             ["showMain", "Show NEXUS window"],
+            ["toggleTyper", "Start / stop Auto Typer (while its screen is open)"],
           ] as [keyof Shortcuts, string][]
         ).map(([k, label]) => (
           <div key={k} className="flex items-center justify-between gap-3">
@@ -340,13 +353,19 @@ export default function SettingsView() {
         <div className="grid sm:grid-cols-2 gap-x-8 gap-y-1.5 text-sm">
           {[
             ["Ctrl K", "Command center"], ["N / Ctrl N", "New task"], ["E", "New appointment"], ["V", "Voice command"], ["/", "Search tasks"],
-            ["1 – 8", "Switch views"], [",", "Settings"], ["Esc", "Close dialog"], ["← / →, T", "Calendar: previous/next, today"], ["D / W / M", "Calendar: day/week/month"],
+            ["1 – 9", "Switch views"], [",", "Settings"], ["Esc", "Close dialog"], ["← / →, T", "Calendar: previous/next, today"], ["D / W / M", "Calendar: day/week/month"],
             [settings.shortcuts.toggleOverlay.replace("CommandOrControl", "Ctrl"), "Show/hide overlay (global)"], [settings.shortcuts.toggleClickThrough.replace("CommandOrControl", "Ctrl"), "Overlay click-through (global)"],
             [settings.shortcuts.quickAdd.replace("CommandOrControl", "Ctrl"), "Quick add (global)"], [settings.shortcuts.voice.replace("CommandOrControl", "Ctrl"), "Voice (global)"],
+            [settings.shortcuts.toggleTyper.replace("CommandOrControl", "Ctrl"), "Start / stop Auto Typer (global)"], ["Esc", "Stop Auto Typer while it types"],
           ].map(([k, d]) => (
             <div key={k + d} className="flex items-center justify-between gap-3"><span className="text-fg-2">{d}</span><Kbd>{k}</Kbd></div>
           ))}
         </div>
+      </Section>
+
+      <Section id="about" title="About" icon={<Info size={16} />}>
+        <BrandBlock />
+        <p className="text-[11px] text-muted text-center">NEXUS {__APP_VERSION__} · An AI Maverix product</p>
       </Section>
     </div>
   );

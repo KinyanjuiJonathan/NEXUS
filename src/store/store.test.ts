@@ -4,7 +4,7 @@ import { createLocalBackend, memoryKV, readLocalReminders, type KV } from "@/dat
 import { createNexusStore } from "./store";
 import { executeIntent, findTarget } from "@/lib/voice/execute";
 import { parseCommand } from "@/lib/voice/parser";
-import { clampOpacity, ensureVisible, formatBytes, nextMode, PERF_EXTRA, sizeForMode } from "@/lib/overlayGeometry";
+import { clampOpacity, ensureVisible, formatBytes, GRAPH_EXTRA, nextMode, PERF_EXTRA, sizeForMode } from "@/lib/overlayGeometry";
 import { dayStats, history } from "@/lib/stats";
 import { suggestNext, proposeReorganization, breakdownLocally } from "@/lib/assistant";
 
@@ -305,6 +305,11 @@ describe("overlay positioning & settings", () => {
     expect(sizeForMode("standard", { standard: { w: 420, h: 250 } }, true)).toEqual({ w: 420, h: 270 + PERF_EXTRA.standard });
     expect(sizeForMode("standard", { standard: { w: 420, h: 400 } }, true)).toEqual({ w: 420, h: 400 });
     expect(sizeForMode("standard", undefined, false)).toEqual({ w: 360, h: 270 });
+    // the live graph needs more room, but only with the stats on and never in Mini mode
+    expect(sizeForMode("standard", {}, true, true)).toEqual({ w: 360, h: 270 + PERF_EXTRA.standard + GRAPH_EXTRA.standard });
+    expect(sizeForMode("standard", { standard: { w: 420, h: 300 } }, true, true)).toEqual({ w: 420, h: 270 + PERF_EXTRA.standard + GRAPH_EXTRA.standard });
+    expect(sizeForMode("standard", {}, false, true)).toEqual({ w: 360, h: 270 });
+    expect(sizeForMode("mini", {}, true, true)).toEqual({ w: 300, h: 72 + PERF_EXTRA.mini });
   });
 
   it("formats memory sizes for the stats strip", () => {

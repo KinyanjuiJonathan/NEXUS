@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CalendarClock, Check, CheckCircle2, ChevronDown, Expand, LogIn, LogOut, Mic, MousePointerClick, Pause, Pin, PinOff, Play, Plus, Shrink, X } from "lucide-react";
+import { Activity, CalendarClock, Check, CheckCircle2, ChevronDown, Expand, LogIn, LogOut, Mic, MousePointerClick, Pause, Pin, PinOff, Play, Plus, Shrink, X } from "lucide-react";
 import { useWorkClock } from "@/components/WorkClock";
-import type { OverlayMode, ReminderItem } from "@/data/types";
+import type { OverlayMode, PerfMetric, ReminderItem } from "@/data/types";
 import { useNexus, nexus, getBackend } from "@/store";
 import { useNow } from "@/lib/ticker";
 import { useTheme } from "@/lib/useTheme";
@@ -13,7 +13,10 @@ import { parseCommand } from "@/lib/voice/parser";
 import { clampOpacity, ensureVisible, nextMode, sizeForMode } from "@/lib/overlayGeometry";
 import { getOverlayState, listenTo, native, onOverlayState, playChime, setClickThrough, setOverlayVisible, setPinned, type OverlayState } from "@/lib/platform";
 import { CommandPanel } from "@/components/CommandBar";
-import { PerfStrip, usePerf } from "./PerfStrip";
+import { PerfStrip } from "./PerfStrip";
+import { PerfGraph } from "@/components/PerfGraph";
+import { AiMaverix, Flags, PoweredBy } from "@/components/Brand";
+import { availableMetrics, usePerf, usePerfHistory } from "@/lib/perf";
 import { Toasts } from "@/components/Toasts";
 import { ProgressBar, cx } from "@/components/ui";
 import { URGENCY_COLOR } from "@/components/meta";
@@ -72,6 +75,15 @@ export default function OverlayApp() {
   const perfOn = settings.overlayPerf;
   const allowCT = settings.overlayAllowClickThrough;
   const perf = usePerf(perfOn && (ov.visible || !native), settings.overlayFps);
+  const perfHistory = usePerfHistory();
+  const graphOn = perfOn && settings.overlayGraph;
+  const graphMetrics = availableMetrics(perf, settings.overlayFps, settings.overlayTemp);
+  /** Clicking a stat graphs it; clicking the one already graphed closes the graph. */
+  const pickMetric = (m: PerfMetric) => {
+    if (graphOn && settings.perfGraphMetric === m) return void nexus().setSetting("overlayGraph", false);
+    void nexus().setSetting("perfGraphMetric", m);
+    if (!settings.overlayGraph) void nexus().setSetting("overlayGraph", true);
+  };
   const work = useWorkClock();
   const completeTask = async (id: string, title: string) => {
     await nexus().setTaskDone(id, true);
@@ -108,7 +120,7 @@ export default function OverlayApp() {
     (async () => {
       const { getCurrentWindow, availableMonitors, primaryMonitor, PhysicalPosition, LogicalSize } = await import("@tauri-apps/api/window");
       const w = getCurrentWindow();
-      const size = sizeForMode(mode, nexus().settings.overlaySizes, nexus().settings.overlayPerf);
+      const size = sizeForMode(mode, nexus().settings.overlaySizes, nexus().settings.overlayPerf, nexus().settings.overlayGraph);
       await w.setSize(new LogicalSize(size.w, size.h));
       const [pos, outer, mons, prim, scale] = await Promise.all([w.outerPosition(), w.outerSize(), availableMonitors(), primaryMonitor(), w.scaleFactor()]);
       const rects = mons.map((m) => ({ x: m.position.x, y: m.position.y, w: m.size.width, h: m.size.height }));
@@ -120,7 +132,7 @@ export default function OverlayApp() {
         resizeTimer.current = setTimeout(async () => {
           const sf = await w.scaleFactor();
           const logical = { w: Math.round(payload.width / sf), h: Math.round(payload.height / sf) };
-          const cur = sizeForMode(modeRef.current, nexus().settings.overlaySizes, nexus().settings.overlayPerf);
+          const cur = sizeForMode(modeRef.current, nexus().settings.overlaySizes, nexus().settings.overlayPerf, nexus().settings.overlayGraph);
           if (Math.abs(cur.w - logical.w) > 2 || Math.abs(cur.h - logical.h) > 2) {
             await nexus().setSetting("overlaySizes", { ...nexus().settings.overlaySizes, [modeRef.current]: logical });
           }
@@ -128,7 +140,7 @@ export default function OverlayApp() {
       });
     })();
     return () => off?.();
-  }, [mode, perfOn]);
+  }, [mode, perfOn, graphOn]);
 
   const switchMode = (m: OverlayMode) => {
     setMode(m);
@@ -173,9 +185,16 @@ export default function OverlayApp() {
   const Header = (
     <div data-tauri-drag-region className="drag-region flex items-center gap-1 h-7 px-2 shrink-0">
       <span data-tauri-drag-region className="h-1.5 w-1.5 rounded-full bg-gradient-to-r from-cyan-400 to-violet-500" />
-      <span data-tauri-drag-region className="text-[10px] font-bold tracking-[0.3em] text-gradient mr-auto">NEXUS</span>
+      <span data-tauri-drag-region className="text-[10px] font-bold tracking-[0.3em] text-gradient">NEXUS</span>
+      <AiMaverix className="text-[8px] pointer-events-none" />
+      <Flags height={8} className="pointer-events-none mr-auto opacity-90" />
       <div className="no-drag flex items-center gap-0.5">
         {ov.clickThrough && <span className="text-[9px] text-accent mr-1">CLICK-THROUGH</span>}
+        {perfOn && (
+          <Btn label={graphOn ? "Hide the live performance graph" : "Show a live performance graph"} active={graphOn} onClick={() => void nexus().setSetting("overlayGraph", !settings.overlayGraph)}>
+            <Activity size={12} />
+          </Btn>
+        )}
         <Btn label={ov.pinned ? "Unpin (stop staying on top)" : "Pin on top"} active={ov.pinned} onClick={() => void setPinned(!ov.pinned)}>
           {ov.pinned ? <Pin size={12} /> : <PinOff size={12} />}
         </Btn>
@@ -259,7 +278,8 @@ export default function OverlayApp() {
               <div className="w-px bg-line" />
               <MiniClock zone={settings.texasZone} tag={settings.texasZone === "America/Denver" ? "EL PASO" : "TEXAS"} hour12={settings.hour12} color="#a78bfa" />
             </div>
-            {perfOn && <PerfStrip snap={perf} showFps={settings.overlayFps} showTemp={settings.overlayTemp} unit={settings.tempUnit} />}
+            {perfOn && <PerfStrip snap={perf} showFps={settings.overlayFps} showTemp={settings.overlayTemp} unit={settings.tempUnit} picked={graphOn ? settings.perfGraphMetric : null} onPick={pickMetric} />}
+            {graphOn && <PerfGraph history={perfHistory} metric={settings.perfGraphMetric} metrics={graphMetrics} onMetric={(m) => void nexus().setSetting("perfGraphMetric", m)} unit={settings.tempUnit} height={50} className="shrink-0" />}
             <div className="rounded-xl bg-hover px-2.5 py-2">
               {TimerLine}
               {timer && timer.kind !== "stopwatch" && <ProgressBar value={progress(timer, now)} className="mt-1.5 !h-1" />}
@@ -362,7 +382,10 @@ export default function OverlayApp() {
                     ))}
                   </>
                 )}
-                <button onClick={() => void openInMain(null)} className="text-[10px] text-accent self-start hover:underline">Open full calendar & scheduling →</button>
+                <div className="flex items-center justify-between gap-2">
+                  <button onClick={() => void openInMain(null)} className="text-[10px] text-accent hover:underline truncate">Open full calendar & scheduling →</button>
+                  <PoweredBy className="text-[9px] shrink-0" flagHeight={8} />
+                </div>
               </div>
             )}
           </div>

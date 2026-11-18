@@ -90,6 +90,8 @@ export interface PerfSnapshot {
   cpu: number;
   ramUsed: number;
   ramTotal: number;
+  /** Memory in use as a share of installed memory, 0–100. */
+  ramPercent: number;
   gpu: number | null;
   gpuName: string | null;
   vramUsed: number | null;
@@ -122,14 +124,45 @@ export async function idleSeconds(): Promise<number> {
   return Math.floor((Date.now() - lastLocalInput) / 1000);
 }
 
-/** Live system stats (desktop app only; null in a plain browser). */
-export async function perfSnapshot(fps: boolean): Promise<PerfSnapshot | null> {
+/**
+ * Live system stats (desktop app only; null in a plain browser).
+ * `fps`: true measures the foreground app's frame rate, false stops measuring
+ * it, null leaves it alone (for windows that don't show FPS).
+ */
+export async function perfSnapshot(fps: boolean | null): Promise<PerfSnapshot | null> {
   if (!native) return null;
   return invokeSafe<PerfSnapshot>("perf_snapshot", { fps });
 }
 
 export async function perfStop() {
   if (native) await invokeSafe("perf_stop").catch(() => {});
+}
+
+// ---------------------------------------------------------------- auto typer
+
+export interface TyperStatus {
+  state: "idle" | "countdown" | "waiting" | "typing" | "paused" | "done" | "stopped" | "error";
+  secondsLeft: number | null;
+  /** 0–1 share of planned keystrokes already sent. */
+  progress: number;
+  locked: boolean;
+  message: string | null;
+}
+
+export async function typerStart(job: { events: { t: number; down: boolean; key: string }[]; countdown: number; lock: boolean }) {
+  return invokeSafe<void>("typer_start", { job });
+}
+/** Claim (or give back) the global start/stop shortcut. Returns shortcuts that could not be registered. */
+export async function typerShortcut(enabled: boolean): Promise<string[]> {
+  if (!native) return [];
+  return invokeSafe<string[]>("typer_shortcut", { enabled }).catch(() => []);
+}
+export async function typerStop() {
+  if (native) await invokeSafe("typer_stop").catch(() => {});
+}
+export async function typerStatus(): Promise<TyperStatus | null> {
+  if (!native) return null;
+  return invokeSafe<TyperStatus>("typer_status").catch(() => null);
 }
 
 // ---------------------------------------------------------------- shortcuts / autostart

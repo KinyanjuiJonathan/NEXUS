@@ -1,6 +1,7 @@
 //! Live system performance for the overlay: CPU, RAM, GPU load, VRAM and FPS.
 //!
-//! * CPU / RAM — `sysinfo` (all platforms).
+//! * CPU — on Windows the `% Processor Utility` counter Task Manager shows, falling back
+//!   to `GetSystemTimes`; `sysinfo` elsewhere. RAM — `sysinfo` (all platforms).
 //! * GPU load / VRAM — Windows performance counters `\GPU Engine(*)\Utilization Percentage`
 //!   and `\GPU Adapter Memory(*)\Dedicated Usage` (the same source Task Manager uses,
 //!   vendor-independent on WDDM 2.x), restricted to the primary discrete adapter found via DXGI.
@@ -9,11 +10,16 @@
 //!   like PresentMon / Game Bar. Windows only allows this for administrators or members
 //!   of the "Performance Log Users" group; otherwise FPS reports `no_permission`.
 //!
-//! Sampling happens only when the overlay asks (about once per second while it is
-//! visible), and the FPS trace runs only while the overlay shows FPS.
+//! Sampling happens only when a window asks (about once per second while it is
+//! visible), and the FPS trace runs only while the overlay shows FPS. Windows that
+//! ask within the same second share one sample, so they always show the same values.
 
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
+use nexus_core::perf::percent;
+#[cfg(windows)]
+use nexus_core::perf::{cpu_percent, CpuTimes};
 use serde::Serialize;
 use sysinfo::{Components, System};
 use tauri::{AppHandle, Manager, State};
@@ -25,6 +31,8 @@ pub struct PerfSnapshot {
     pub cpu: f32,
     pub ram_used: u64,
     pub ram_total: u64,
+    /// Memory in use as a share of installed memory, 0–100.
+    pub ram_percent: f32,
     /// GPU load 0–100 (busiest engine of the main adapter), if available.
     pub gpu: Option<f32>,
     pub gpu_name: Option<String>,
@@ -42,7 +50,68 @@ pub struct PerfSnapshot {
     pub cpu_temp: Option<f32>,
 }
 
+/// A sample younger than this is reused, so every window sees the same numbers
+/// and the CPU reading always covers a full interval.
+const SHARE_FOR: Duration = Duration::from_millis(900);
+/// CPU usage is an average over the time since the previous reading; shorter
+/// intervals than this are too noisy to show.
+const CPU_MIN_INTERVAL: Duration = Duration::from_millis(400);
+
+struct CpuSampler {
+    at: Option<Instant>,
+    value: f32,
+    #[cfg(windows)]
+    times: Option<CpuTimes>,
+    #[cfg(windows)]
+    counter: crate::win_cpu::CpuCounter,
+}
+
+impl CpuSampler {
+    fn new() -> Self {
+        Self {
+            at: None,
+            value: 0.0,
+            #[cfg(windows)]
+            times: None,
+            #[cfg(windows)]
+            counter: crate::win_cpu::CpuCounter::new(),
+        }
+    }
+
+    /// Total CPU usage 0–100, averaged since the previous reading.
+    fn sample(&mut self, sys: &mut System) -> f32 {
+        if self.at.is_some_and(|at| at.elapsed() < CPU_MIN_INTERVAL) {
+            return self.value;
+        }
+        #[cfg(windows)]
+        {
+            let _ = &sys;
+            let now = crate::win_cpu::system_times().map(|(idle, kernel, user)| CpuTimes { idle, kernel, user });
+            let from_times = match (self.times, now) {
+                (Some(prev), Some(now)) => cpu_percent(prev, now),
+                _ => None,
+            };
+            self.times = now.or(self.times);
+            if let Some(v) = self.counter.utility().or(from_times) {
+                self.value = v;
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            sys.refresh_cpu_usage();
+            if self.at.is_some() {
+                self.value = sys.global_cpu_usage().clamp(0.0, 100.0);
+            }
+        }
+        self.at = Some(Instant::now());
+        self.value
+    }
+}
+
 pub struct PerfState {
+    cpu: Mutex<CpuSampler>,
+    /// Latest sample, shared by all windows.
+    shared: Mutex<Option<(Instant, PerfSnapshot)>>,
     sys: Mutex<System>,
     /// Temperature sensors; refreshed at most every 5 s (the WMI query is comparatively slow).
     components: Mutex<Option<(Components, std::time::Instant, Option<f32>)>>,
@@ -52,22 +121,53 @@ pub struct PerfState {
 
 impl PerfState {
     pub fn new() -> Self {
+        let mut sys = System::new();
+        let mut cpu = CpuSampler::new();
+        // Take the first reading now, so the first value shown already covers real time.
+        cpu.sample(&mut sys);
         Self {
-            sys: Mutex::new(System::new()),
+            cpu: Mutex::new(cpu),
+            shared: Mutex::new(None),
+            sys: Mutex::new(sys),
             components: Mutex::new(None),
             #[cfg(windows)]
             win: Mutex::new(None),
         }
     }
 
-    fn snapshot(&self, want_fps: bool) -> PerfSnapshot {
+    /// `want_fps`: `Some(true)` measure FPS, `Some(false)` stop measuring it,
+    /// `None` leave it as it is (the caller doesn't show FPS).
+    fn snapshot(&self, want_fps: Option<bool>) -> PerfSnapshot {
+        // Held while sampling: a second window asking at the same moment waits and shares the result.
+        let mut shared = self.shared.lock().unwrap_or_else(|e| e.into_inner());
+        if want_fps == Some(false) {
+            self.stop_fps();
+        }
+        if let Some((at, snap)) = shared.as_ref() {
+            let needs_fps = want_fps == Some(true) && snap.fps_status == "off";
+            if at.elapsed() < SHARE_FOR && !needs_fps {
+                let mut snap = snap.clone();
+                if want_fps == Some(false) && snap.fps_status != "unsupported" {
+                    snap.fps = None;
+                    snap.fps_app = None;
+                    snap.fps_status = "off".into();
+                }
+                return snap;
+            }
+        }
+        let snap = self.sample(want_fps);
+        *shared = Some((Instant::now(), snap.clone()));
+        snap
+    }
+
+    fn sample(&self, want_fps: Option<bool>) -> PerfSnapshot {
         let mut snap = PerfSnapshot { fps_status: "unsupported".into(), ..Default::default() };
-        if let Ok(mut sys) = self.sys.lock() {
-            sys.refresh_cpu_usage();
+        if let (Ok(mut sys), Ok(mut cpu)) = (self.sys.lock(), self.cpu.lock()) {
+            snap.cpu = cpu.sample(&mut sys);
             sys.refresh_memory();
-            snap.cpu = sys.global_cpu_usage().clamp(0.0, 100.0);
             snap.ram_used = sys.used_memory();
             snap.ram_total = sys.total_memory();
+            snap.ram_percent = percent(snap.ram_used, snap.ram_total);
         }
         snap.cpu_temp = self.cpu_temp();
         #[cfg(windows)]
@@ -80,7 +180,7 @@ impl PerfState {
                 snap.vram_used = g.vram_used;
                 snap.vram_total = w.vram_total();
                 snap.gpu_name = w.gpu_name();
-                if want_fps {
+                if want_fps == Some(true) || (want_fps.is_none() && w.fps_running()) {
                     let (fps, pid, status) = w.fps();
                     snap.fps = fps;
                     snap.fps_status = status.into();
@@ -90,7 +190,9 @@ impl PerfState {
                         snap.fps_app = sys.process(p).map(|pr| pr.name().to_string_lossy().to_string());
                     }
                 } else {
-                    w.stop_fps();
+                    if want_fps == Some(false) {
+                        w.stop_fps();
+                    }
                     snap.fps_status = "off".into();
                 }
             }
@@ -164,7 +266,7 @@ mod tests {
 }
 
 #[tauri::command]
-pub async fn perf_snapshot(app: AppHandle, fps: bool) -> PerfSnapshot {
+pub async fn perf_snapshot(app: AppHandle, fps: Option<bool>) -> PerfSnapshot {
     // PDH/ETW calls can block briefly; keep them off the main thread.
     tauri::async_runtime::spawn_blocking(move || app.state::<PerfState>().snapshot(fps))
         .await
@@ -400,6 +502,10 @@ mod win {
                     self.fps = FpsState::Failed(std::time::Instant::now());
                 }
             }
+        }
+
+        pub fn fps_running(&self) -> bool {
+            matches!(self.fps, FpsState::Running(_))
         }
 
         pub fn stop_fps(&mut self) {
