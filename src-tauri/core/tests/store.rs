@@ -307,6 +307,10 @@ fn work_sessions_and_activity_history() {
     fresh.import_bundle(&bundle).unwrap();
     assert_eq!(fresh.list_activity(0, 10).unwrap().len(), 2);
     assert_eq!(fresh.list_work_sessions(0).unwrap().len(), 1);
+    // clearing the history leaves everything else alone
+    fresh.clear_activity().unwrap();
+    assert!(fresh.list_activity(0, 10).unwrap().is_empty());
+    assert_eq!(fresh.list_work_sessions(0).unwrap().len(), 1);
 }
 
 #[test]

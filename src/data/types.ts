@@ -107,8 +107,11 @@ export interface SchedMove {
   at: number;
   from: [number, number];
   to: [number, number];
-  /** "unfinished": its time passed without the task being completed. "conflict": a fixed appointment took its place. */
-  reason: "unfinished" | "conflict";
+  /**
+   * "unfinished": its time passed without the task being completed. "conflict": a fixed appointment took its place.
+   * "pushed": an unfinished task took its place. "bulk": the user moved every task at once.
+   */
+  reason: "unfinished" | "conflict" | "pushed" | "bulk";
 }
 
 export interface SchedMeta {
@@ -131,6 +134,12 @@ export interface SchedMeta {
    * with the task (restore / reopen) if its time has not passed.
    */
   removed?: "task-deleted" | "task-done" | null;
+  /** Total time the task was given (kept when what is left is moved to a shorter block). */
+  targetMs?: number;
+  /** Time already clocked on it in earlier blocks, plus time counted by hand. */
+  workedMs?: number;
+  /** Time before this instant with no clock-in has already been counted by hand. */
+  creditedTo?: number | null;
 }
 
 /** A concrete occurrence of an event (recurring series are expanded). */
@@ -225,7 +234,8 @@ export type ActivityKind =
   | "resumed"
   | "auto_planned"
   | "smart_scheduled"
-  | "auto_rescheduled";
+  | "auto_rescheduled"
+  | "time_counted";
 
 /** One entry of the history of what has been done. */
 export interface ActivityEntry {

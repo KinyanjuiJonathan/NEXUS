@@ -90,7 +90,7 @@ describe("smart scheduling in the app", () => {
     expect(live()).toHaveLength(2); // moved, not duplicated
     expect(moved.sched).toMatchObject({ origin: "auto", moves: 1 });
     expect(moved.sched!.history).toEqual([{ at: clock.now, from: [block.startAt, block.endAt], to: [moved.startAt, moved.endAt], reason: "unfinished" }]);
-    expect(notifications()).toContain("Rescheduled automatically");
+    expect(notifications()).toContain("Pushed forward");
     expect(store.getState().activity.map((a) => a.kind)).toContain("auto_rescheduled");
 
     // running it again changes nothing (no loop)

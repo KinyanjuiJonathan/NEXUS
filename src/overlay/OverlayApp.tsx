@@ -6,9 +6,10 @@ import { useNexus, nexus, getBackend } from "@/store";
 import { useNow } from "@/lib/ticker";
 import { useTheme } from "@/lib/useTheme";
 import { clockFor, KENYA_ZONE, formatTime } from "@/lib/time";
-import { deadlineInfo, elapsedMs, formatClock, humanDuration, progress, remainingMs } from "@/lib/countdown";
+import { deadlineInfo, elapsedMs, formatClock, hoursMinutes, humanDuration, progress, remainingMs } from "@/lib/countdown";
 import { findMissed } from "@/lib/schedule";
 import { agenda, untilLabel, type AgendaItem } from "@/lib/smart/agenda";
+import { blockClock, clockState } from "@/lib/taskClock";
 import { dayLabel } from "@/lib/smart/format";
 import { openTasks, scoreTask } from "@/lib/assistant";
 import { parseCommand } from "@/lib/voice/parser";
@@ -65,7 +66,7 @@ function Btn({ label, onClick, active, children, className }: { label: string; o
 
 export default function OverlayApp() {
   const now = useNow();
-  const { tasks, events, timers, settings } = useNexus((s) => ({ tasks: s.tasks, events: s.events, timers: s.timers, settings: s.settings }));
+  const { tasks, events, timers, settings, workSessions } = useNexus((s) => ({ tasks: s.tasks, events: s.events, timers: s.timers, settings: s.settings, workSessions: s.workSessions }));
   const [ov, setOv] = useState<OverlayState>({ visible: true, clickThrough: false, pinned: true });
   const [mode, setMode] = useState<OverlayMode>(settings.overlayMode);
   const [voice, setVoice] = useState(false);
@@ -187,6 +188,19 @@ export default function OverlayApp() {
   );
   const next = schedule.find((i) => i.status !== "overdue") ?? null;
   const overdueCount = schedule.filter((i) => i.status === "overdue").length;
+  /** Task under way: is the work clock counting, and how much of its time is clocked. */
+  const taskNow = (i: AgendaItem) => {
+    const e = events.find((x) => x.id === i.eventId);
+    if (!e) return null;
+    const c = blockClock(e, workSessions, now);
+    const { state } = clockState(workSessions);
+    const label = state === "working" ? "counting" : state === "away" ? "away" : state === "break" ? "break" : "not clocked in";
+    return (
+      <span className="shrink-0 tabular" style={{ color: state === "working" ? "var(--success)" : "var(--warning)" }} title={`Work clock: ${label}. ${hoursMinutes(c.workedMs)} of ${hoursMinutes(c.targetMs)} clocked.`}>
+        {label} · {hoursMinutes(c.workedMs)}/{hoursMinutes(c.targetMs)}
+      </span>
+    );
+  };
   const itemColor = (i: AgendaItem) => (i.status === "overdue" ? "var(--danger)" : i.status === "now" ? "var(--success)" : i.start - now < 3600_000 ? "var(--warning)" : "var(--muted)");
   const itemIcon = (i: AgendaItem, size = 11) =>
     i.kind === "fixed" ? <Lock size={size} className="shrink-0 text-accent-2" aria-label="Fixed appointment" /> : i.kind === "deadline" ? <Flag size={size} className="shrink-0 text-warning" aria-label="Due" /> : <CalendarCheck size={size} className="shrink-0 text-accent" aria-label="Flexible task" />;
@@ -421,6 +435,7 @@ export default function OverlayApp() {
                         <span className="tabular text-muted shrink-0">{itemWhen(i)}</span>
                         <span className={cx("truncate flex-1", i.status === "overdue" ? "text-danger" : "text-fg")}>{i.title}</span>
                         {i.moved && <RotateCcw size={9} className="shrink-0 text-warning" aria-label="Auto-rescheduled" />}
+                        {i.status === "now" && i.kind === "flexible" && taskNow(i)}
                         <span className="shrink-0 tabular font-medium" style={{ color: itemColor(i) }}>{untilLabel(i, now)}</span>
                       </div>
                     ))}

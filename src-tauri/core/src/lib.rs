@@ -188,6 +188,12 @@ impl Store {
         Ok(())
     }
 
+    /// Empty the history log. Nothing else is touched.
+    pub fn clear_activity(&self) -> Result<()> {
+        self.conn.execute("DELETE FROM activity_log", [])?;
+        Ok(())
+    }
+
     /// Newest-first history since `since`, at most `limit` entries.
     pub fn list_activity(&self, since: i64, limit: i64) -> Result<Vec<ActivityEntry>> {
         let mut stmt = self.conn.prepare("SELECT id, at, kind, title, detail, ref_id FROM activity_log WHERE at >= ?1 ORDER BY at DESC LIMIT ?2")?;

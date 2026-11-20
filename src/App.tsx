@@ -10,6 +10,7 @@ import { EventEditor } from "@/components/EventEditor";
 import { CommandPalette } from "@/components/CommandBar";
 import { SmartReschedule } from "@/components/SmartReschedule";
 import { AutoPlanDialog } from "@/components/AutoPlanDialog";
+import { RescheduleAllDialog } from "@/components/RescheduleAll";
 import { AiSchedulerPanel } from "@/components/AiScheduler";
 import { useTheme } from "@/lib/useTheme";
 import { onTick } from "@/lib/ticker";
@@ -218,6 +219,7 @@ export default function App() {
         <CommandPalette />
         <SmartReschedule />
         <AutoPlanDialog />
+        <RescheduleAllDialog />
         <AiSchedulerPanel />
         <ConfirmHost />
         <Toasts />

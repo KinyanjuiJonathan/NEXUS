@@ -161,7 +161,8 @@ export function findMissed(tasks: Task[], events: CalendarEvent[], now: number, 
     }
   }
   for (const o of expandEvents(events, now - lookbackDays * DAY, now)) {
-    if (o.end > now || o.recurring || !o.event.taskId) continue;
+    // "worked": its planned time was clocked in full, so it was not missed.
+    if (o.end > now || o.recurring || !o.event.taskId || o.event.sched?.attention === "worked") continue;
     const t = byId.get(o.event.taskId);
     if (!t || t.status === "done" || t.deletedAt) continue;
     if (out.some((m) => m.taskId === t.id)) continue;

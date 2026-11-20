@@ -25,7 +25,8 @@ import { nextOccurrence } from "@/lib/recurrence";
 import * as cd from "@/lib/countdown";
 import { reminderForTimer, remindersForEvent, remindersForTask } from "@/lib/reminders";
 import { activeSession, openPause } from "@/lib/work";
-import { planDisplaced, planUnfinished, type Move, type RescheduleSettings } from "@/lib/smart/reschedule";
+import { planBulk, planDisplaced, planUnfinished, type BulkTarget, type Move, type RescheduleSettings } from "@/lib/smart/reschedule";
+import { blockClock, currentBlock, unclockedMs } from "@/lib/taskClock";
 import type { ScheduleRequest } from "@/lib/smart/parse";
 import type { Interval } from "@/lib/schedule";
 import { planTasks, type PlanBlock, type PlanOptions, type PlanResult } from "@/lib/planner";
@@ -208,6 +209,12 @@ export interface NexusState {
    * fixed appointment. Returns what it decided.
    */
   autoReschedule(): Promise<Move[]>;
+  /** Move every open task's reserved time at once: later by a set amount, or starting again from a moment. Fixed appointments stay. */
+  rescheduleAll(target: BulkTarget): Promise<Move[]>;
+  /** "I was working": count the time the clock skipped during this task's block (inactivity, or not being clocked in). Returns the ms counted. */
+  countAway(eventId: string): Promise<number>;
+  /** Empty the history log. Tasks, appointments, work sessions and statistics are kept. */
+  clearHistory(): Promise<void>;
 
   // reminders
   resyncAllReminders(): Promise<void>;
@@ -406,7 +413,15 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         set({ toasts: get().toasts.filter((x) => x.title !== AWAY_TOAST) });
         if (away >= LONG_AWAY_MS) {
           get().log("resumed", "Resumed after inactivity", `${humanDuration(away)} idle not counted`, w.id);
-          get().toast({ kind: "success", title: "Welcome back", body: `${humanDuration(away)} of inactivity wasn't counted.`, ttl: 6000 });
+          // Away in the middle of a task: the time can still be counted if the work went on elsewhere.
+          const cur = currentBlock(get().tasks, get().events, ts);
+          get().toast({
+            kind: "success",
+            title: "Welcome back",
+            body: cur ? `${humanDuration(away)} of inactivity wasn't counted towards “${cur.task.title}”.` : `${humanDuration(away)} of inactivity wasn't counted.`,
+            action: cur ? { label: "I was working on it", run: () => void get().countAway(cur.event.id) } : undefined,
+            ttl: cur ? 20_000 : 6000,
+          });
         }
       }
       await ensureAutoWork(at);
@@ -491,19 +506,42 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         const when = (ms: number) => formatWithZone(ms, e.tz, s.hour12);
         if (m.to) {
           const history = [...(sched.history ?? []), { at: ts, from: [e.startAt, e.endAt] as [number, number], to: [m.to.start, m.to.end] as [number, number], reason: m.reason }].slice(-20);
-          await saveEvent({ ...e, startAt: m.to.start, endAt: m.to.end, sched: { ...sched, origin: "auto", moves: (sched.moves ?? 0) + 1, history, attention: null }, updatedAt: ts });
-          const why = m.reason === "unfinished" ? "Not completed in its time" : "A fixed appointment took its time";
+          // What was clocked stays with the task: only the rest is given a new time.
+          const partly = m.reason === "unfinished" && (m.workedMs ?? 0) >= 60_000 && m.targetMs != null;
+          const carried = m.reason === "unfinished" && m.targetMs != null ? { workedMs: m.workedMs ?? 0, targetMs: m.targetMs, creditedTo: null } : {};
+          const pushed = m.reason === "pushed";
+          await saveEvent({ ...e, startAt: m.to.start, endAt: m.to.end, sched: { ...sched, ...carried, origin: "auto", moves: (sched.moves ?? 0) + (pushed ? 0 : 1), history, attention: null }, updatedAt: ts });
+          const why =
+            m.reason === "unfinished"
+              ? partly
+                ? `${humanDuration(m.workedMs!)} of ${humanDuration(m.targetMs!)} clocked, ${humanDuration(m.to.end - m.to.start)} left`
+                : "No time was clocked on it"
+              : pushed
+                ? "An unfinished task needed its time"
+                : "A fixed appointment took its time";
           get().log("auto_rescheduled", m.title, `${why}: ${when(m.from.start)} → ${when(m.to.start)}`, e.taskId ?? e.id);
           if (s.smartNotify) {
             get().toast({
               kind: "info",
-              title: m.reason === "unfinished" ? "Rescheduled automatically" : "Moved to make room",
-              body: `${m.title}: ${why.toLowerCase()}. New time ${when(m.to.start)}.`,
+              title: m.reason === "unfinished" ? (partly ? "Rest of the task moved forward" : "Pushed forward") : "Moved to make room",
+              body: `${m.title}: ${why.charAt(0).toLowerCase()}${why.slice(1)}. New time ${when(m.to.start)}.`,
               // Putting it back leaves it for the user to decide, so it is not moved again straight away.
               action: { label: "Undo", run: () => void saveEvent({ ...e, sched: { ...sched, attention: "kept" }, updatedAt: now() }) },
               ttl: 12_000,
             });
           }
+        } else if (m.problem === "worked") {
+          // The planned time was clocked in full: it is the user's call whether the task is finished.
+          await saveEvent({ ...e, sched: { ...sched, attention: "worked" }, updatedAt: ts });
+          get().log("auto_rescheduled", m.title, `Planned time clocked in full (${humanDuration(m.targetMs ?? 0)}). Waiting for you to mark it complete.`, e.taskId ?? e.id);
+          const taskId = e.taskId;
+          get().toast({
+            kind: "success",
+            title: `Time is up for “${m.title}”`,
+            body: `You clocked the full ${humanDuration(m.targetMs ?? 0)}. Is it finished? If not, it stays open until you mark it complete or give it more time.`,
+            action: taskId ? { label: "Mark complete", run: () => void get().setTaskDone(taskId, true) } : undefined,
+            ttl: 0,
+          });
         } else {
           await saveEvent({ ...e, sched: { ...sched, attention: m.problem ?? "nofit" }, updatedAt: ts });
           const suggestion = m.suggestion;
@@ -786,6 +824,14 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         const retimed = next.startAt !== cur.startAt || next.endAt !== cur.endAt;
         // The user chose this time: it is theirs again, and the automatic-move count starts over.
         if (retimed && cur.sched && patch.sched === undefined) next.sched = { ...cur.sched, origin: "user", moves: 0, attention: null };
+        // Time already clocked on a task's block goes with it to its new time.
+        if (retimed && patch.sched === undefined && cur.taskId && !cur.fixed && !cur.recurrence) {
+          const c = blockClock(cur, get().workSessions, now());
+          if (c.workedMs > 0) {
+            const resized = next.endAt - next.startAt !== cur.endAt - cur.startAt;
+            next.sched = { ...(next.sched ?? {}), workedMs: c.workedMs, targetMs: resized ? c.workedMs + (next.endAt - next.startAt) : c.targetMs, creditedTo: null };
+          }
+        }
         await saveEvent(next);
         if (patch.startAt !== undefined && patch.startAt !== cur.startAt) {
           get().log("event_moved", next.title, `→ ${formatWithZone(next.startAt, next.tz, get().settings.hour12)}`, next.id);
@@ -1094,12 +1140,102 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         if (!s.smartEnabled || !s.smartAutoReschedule || rescheduling || !get().ready) return [];
         rescheduling = true;
         try {
-          const moves = planUnfinished(get().tasks, get().events, now(), get().slotSettings());
+          const moves = planUnfinished(get().tasks, get().events, now(), get().slotSettings(), get().workSessions);
           await applyMoves(moves);
           return moves;
         } finally {
           rescheduling = false;
         }
+      },
+
+      async rescheduleAll(target) {
+        const moves = planBulk(get().tasks, get().events, now(), get().slotSettings(), target);
+        const s = get().settings;
+        const before: CalendarEvent[] = [];
+        let first: number | null = null;
+        for (const m of moves) {
+          const e = get().events.find((x) => x.id === m.eventId);
+          if (!e || e.deletedAt || !m.to) continue;
+          const ts = now();
+          before.push(e);
+          const sched = e.sched ?? {};
+          const c = blockClock(e, get().workSessions, ts);
+          const history = [...(sched.history ?? []), { at: ts, from: [e.startAt, e.endAt] as [number, number], to: [m.to.start, m.to.end] as [number, number], reason: "bulk" as const }].slice(-20);
+          await saveEvent({
+            ...e,
+            startAt: m.to.start,
+            endAt: m.to.end,
+            sched: { ...sched, ...(c.workedMs > 0 ? { workedMs: c.workedMs, targetMs: c.targetMs, creditedTo: null } : {}), origin: "user", moves: 0, history, attention: null },
+            updatedAt: ts,
+          });
+          first = first == null ? m.to.start : Math.min(first, m.to.start);
+        }
+        const n = before.length;
+        const stuck = moves.filter((m) => !m.to).length;
+        if (n) {
+          get().log("task_rescheduled", `Rescheduled ${n} task${n === 1 ? "" : "s"} at once`, `Now starting ${formatWithZone(first!, s.homeZone, s.hour12)}`);
+          get().toast({
+            kind: "success",
+            title: `${n} task${n === 1 ? "" : "s"} rescheduled`,
+            body: `Now starting ${formatWithZone(first!, s.homeZone, s.hour12)}. Fixed appointments were not moved.${stuck ? ` ${stuck} could not be fitted in and stayed where ${stuck === 1 ? "it was" : "they were"}.` : ""}`,
+            action: {
+              label: "Undo",
+              run: () =>
+                void (async () => {
+                  for (const e of before) await saveEvent({ ...e, updatedAt: now() });
+                })(),
+            },
+            ttl: 15_000,
+          });
+        } else {
+          get().toast({ kind: "info", title: "Nothing to reschedule", body: stuck ? "No free time was found for the open tasks." : "There are no open tasks with reserved time to move.", ttl: 5000 });
+        }
+        return moves;
+      },
+
+      async countAway(eventId) {
+        const e = get().events.find((x) => x.id === eventId);
+        if (!e || e.deletedAt) return 0;
+        const ts = now();
+        const from = e.startAt;
+        const to = Math.min(ts, e.endAt);
+        if (to <= from) return 0;
+        let counted = 0;
+        // Inactivity pauses inside the block are taken back, so the work clock counts that time too.
+        for (const w of get().workSessions) {
+          const kept: WorkSession["pauses"] = [];
+          let changed = false;
+          for (const p of w.pauses) {
+            const end = p.end ?? (w.endedAt == null ? ts : w.endedAt);
+            const a = Math.max(p.start, from);
+            const b = Math.min(end, to);
+            if (p.reason !== "idle" || b <= a) {
+              kept.push(p);
+              continue;
+            }
+            changed = true;
+            counted += b - a;
+            if (p.start < a) kept.push({ ...p, end: a });
+            if (end > b) kept.push({ ...p, start: b, end: p.end == null ? null : end });
+          }
+          if (changed) await saveWork({ ...w, pauses: kept, updatedAt: ts });
+        }
+        // Time with no clock-in at all is credited to the task itself.
+        const since = Math.max(from, e.sched?.creditedTo ?? from);
+        const unclocked = unclockedMs(get().workSessions, since, to, ts);
+        counted += unclocked;
+        if (counted < 1000) return 0;
+        const cur = get().events.find((x) => x.id === eventId) ?? e;
+        await saveEvent({ ...cur, sched: { ...(cur.sched ?? {}), workedMs: (cur.sched?.workedMs ?? 0) + unclocked, creditedTo: to }, updatedAt: ts });
+        set({ toasts: get().toasts.filter((x) => x.title !== AWAY_TOAST) });
+        get().log("time_counted", cur.title, `${humanDuration(counted)} away from the computer counted as work`, cur.taskId ?? cur.id);
+        get().toast({ kind: "success", title: "Counted as work", body: `${humanDuration(counted)} added to “${cur.title}”.`, ttl: 5000 });
+        return counted;
+      },
+
+      async clearHistory() {
+        set({ activity: [] });
+        await backend.clearActivity();
       },
 
       async applyPlan(blocks) {

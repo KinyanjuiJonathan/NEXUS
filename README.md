@@ -57,7 +57,7 @@ More screens: [Calendar](docs/screenshots/calendar.png) · [Tasks](docs/screensh
 
 **Insights** (main app): clocked hours, focus minutes and completions per day · on-time rate · estimate accuracy (actual vs. estimated time) · your most productive hours and weekdays · focus by category · idle time excluded · completion streak · written findings such as "Tasks take ~47% longer than you estimate". Ranges are 7, 30 or 90 days, with optional coaching from Claude.
 
-**History** (main app): a searchable, filterable timeline of everything done, including completed tasks (on time or late, time tracked), focus sessions, clock-ins and outs, auto-pauses and resumes, schedule changes and auto-planning. You can reopen completed tasks from it. Existing completed tasks and focus sessions were imported when upgrading.
+**History** (main app): a searchable, filterable timeline of everything done, including completed tasks (on time or late, time tracked), focus sessions, clock-ins and outs, auto-pauses and resumes, schedule changes and auto-planning. You can reopen completed tasks from it. **Clear history** deletes every entry after a confirmation; tasks, appointments, work clock totals and statistics are kept. Existing completed tasks and focus sessions were imported when upgrading.
 
 **Dashboard**: tasks today, completed, pending and overdue · next appointment with countdown · active timer · focus time today · progress ring · 7-day completion and focus-minute charts · a timeline of today's appointments and deadlines · up-next list · missed items.
 
@@ -206,6 +206,19 @@ NEXUS reads the task ("Repair Mineh's Phone"), the day (today), the length (abou
 Appointments you create are fixed unless they are a block for a task; a request with a set time for a meeting, call, interview and similar is made fixed automatically.
 
 **Unfinished tasks are re-planned, never completed for you.** Only you mark a task complete. When a flexible block's time passes with its task still open, NEXUS moves the block to the next suitable free time: critical and high priority first, then the nearest deadline, inside your working hours or the part of the day you originally asked for. The block is moved (not duplicated), marked *Auto-rescheduled* in the calendar and To-Do list with its previous times, recorded in History, and you get a notification with Undo. If the only free time is after the task's deadline, or the block has already been moved four times, NEXUS stops and asks you, proposing a time. This check runs every minute, at start-up and when you return from sleep or lock.
+
+**The work clock decides what was done.** A flexible task only uses up its reserved time while the work clock is running. Time away from the computer (inactivity, lock, sleep, or not being clocked in) does not count. When the block ends with the task still open:
+
+- nothing clocked: the whole block is pushed forward to the next free time;
+- part clocked: only the rest is moved (“40 min of 2 h clocked, 1 h 20 min left”), and the clocked time stays with the task;
+- later flexible tasks that are in the way are pushed along behind it in their original order, around fixed appointments. Tasks with a deadline keep their time;
+- all of it clocked: the block stays, the task stays open, and NEXUS asks whether it is finished (**Mark complete**). It is never completed for you, and it is not listed as missed.
+
+Fixed appointments are not affected: they start and end by the clock on the wall.
+
+While a task's time is under way the dashboard shows **Current task**: whether the clock is counting (*Working*, *Away since 10:42 · not counted*, *On break*, *Not clocked in*), how much of the planned time is clocked, and **Complete**. If the clock skipped time while you were working away from the keyboard, **I was working** counts it (the same choice is offered in the *Welcome back* notice); the work clock total is corrected too. The overlay shows the same status next to the task under way.
+
+**Reschedule all** (Calendar and Tasks) moves every open task's reserved time at once: later by 30 minutes up to a week (or any number of minutes), or starting again from a date and time you pick. A preview lists each task's old and new time before anything changes; fixed appointments stay where they are and tasks are fitted around them, and the notification afterwards has Undo.
 
 Everything is configurable under *Settings → Smart Scheduling*: on/off, auto-rescheduling, protection of fixed appointments, notifications, the default time zone, the buffer, working hours, and what morning / afternoon / evening mean.
 

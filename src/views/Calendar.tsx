@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DateTime } from "luxon";
-import { Check, ChevronLeft, ChevronRight, Flag, Lock, Plus, Repeat, RotateCcw, Star, TriangleAlert, Wand2 } from "lucide-react";
+import { CalendarClock, Check, ChevronLeft, ChevronRight, Flag, Lock, Plus, Repeat, RotateCcw, Star, TriangleAlert, Wand2 } from "lucide-react";
 import type { CalendarEvent, Occurrence, Task } from "@/data/types";
 import { useNexus, nexus } from "@/store";
 import { useUI } from "@/store/ui";
@@ -503,6 +503,7 @@ export default function Calendar() {
           />
           <Segmented size="sm" value={mode} onChange={setMode} options={[{ value: "day", label: "Day" }, { value: "week", label: "Week" }, { value: "month", label: "Month" }]} />
           <Button size="sm" variant="outline" icon={<Wand2 size={14} />} onClick={() => useUI.getState().openAutoPlan(true)} title="Fit open tasks into free working time">Auto-plan</Button>
+          <Button size="sm" variant="outline" icon={<CalendarClock size={14} />} onClick={() => useUI.getState().openRescheduleAll(true)} title="Move every open task to a later date or time">Reschedule all</Button>
           <AiScheduleButton size="sm" />
           <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={() => useUI.getState().openEvent(null)}>New</Button>
         </div>

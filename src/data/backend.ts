@@ -35,6 +35,7 @@ export interface Backend {
   upsertWork(w: WorkSession): Promise<void>;
   deleteWork(id: string): Promise<void>;
   addActivity(a: ActivityEntry): Promise<void>;
+  clearActivity(): Promise<void>;
   syncReminders(kind: ReminderItem["ownerKind"], ownerId: string, items: PlannedReminder[]): Promise<void>;
   clearReminders(kind: ReminderItem["ownerKind"], ownerId: string): Promise<void>;
   snoozeReminder(id: string, minutes: number): Promise<void>;
@@ -83,6 +84,7 @@ export async function createTauriBackend(): Promise<Backend> {
     upsertWork: (session) => invoke("work_upsert", { session }),
     deleteWork: (id) => invoke("work_delete", { id }),
     addActivity: (entry) => invoke("activity_add", { entry }),
+    clearActivity: () => invoke("activity_clear"),
     syncReminders: (ownerKind, ownerId, items) => invoke("reminders_sync", { ownerKind, ownerId, items }),
     clearReminders: (ownerKind, ownerId) => invoke("reminders_clear", { ownerKind, ownerId }),
     snoozeReminder: (id, minutes) => invoke("reminder_snooze", { id, minutes }),
@@ -246,6 +248,10 @@ export function createLocalBackend(kv: KV = memoryKV(), opts: { label?: string; 
     },
     async addActivity(a) {
       upsert(db.activity, a);
+      return ok();
+    },
+    async clearActivity() {
+      db.activity = [];
       return ok();
     },
     async syncReminders(kind, ownerId, items) {

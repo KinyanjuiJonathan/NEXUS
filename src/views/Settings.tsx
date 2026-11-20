@@ -224,7 +224,7 @@ export default function SettingsView() {
             if (v) void s.autoReschedule();
           }}
           label="Auto-Reschedule Incomplete Tasks"
-          description="When a flexible task's time passes and you have not marked it complete, NEXUS moves it to the next suitable free time (higher priority and nearer deadlines first). It never marks a task complete for you."
+          description="A flexible task only uses up its time while the work clock is running. When its time passes and it is not marked complete, whatever was not clocked is pushed forward to the next free time, and later flexible tasks move along behind it. Fixed appointments never move, and NEXUS never marks a task complete for you."
         />
         <Toggle
           checked={settings.smartProtectFixed}

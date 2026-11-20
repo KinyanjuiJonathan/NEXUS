@@ -226,6 +226,7 @@ pub fn run() {
             commands::work_upsert,
             commands::work_delete,
             commands::activity_add,
+            commands::activity_clear,
             commands::idle_seconds,
             perf::perf_stop,
             typer::typer_start,

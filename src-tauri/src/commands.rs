@@ -119,6 +119,13 @@ pub fn activity_add(app: AppHandle, win: WebviewWindow, state: State<AppState>, 
     Ok(())
 }
 
+#[tauri::command]
+pub fn activity_clear(app: AppHandle, win: WebviewWindow, state: State<AppState>) -> CmdResult<()> {
+    store!(state).clear_activity().map_err(friendly)?;
+    broadcast_change(&app, win.label(), "activity");
+    Ok(())
+}
+
 /// Seconds since the last keyboard/mouse input anywhere in Windows (None where unsupported).
 #[tauri::command]
 pub fn idle_seconds() -> Option<u64> {

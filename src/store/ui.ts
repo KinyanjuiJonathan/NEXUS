@@ -17,6 +17,8 @@ interface UIState {
   command: { open: boolean; listen: boolean; initial?: string };
   reschedule: MissedItem | null;
   autoPlan: boolean;
+  rescheduleAll: boolean;
+  openRescheduleAll(open: boolean): void;
   openAutoPlan(open: boolean): void;
   setView(v: View): void;
   openTask(taskId: string | null, defaults?: UIState["taskEditor"]["defaults"]): void;
@@ -36,6 +38,8 @@ export const useUI = create<UIState>((set) => ({
   reschedule: null,
   autoPlan: false,
   openAutoPlan: (autoPlan) => set({ autoPlan }),
+  rescheduleAll: false,
+  openRescheduleAll: (rescheduleAll) => set({ rescheduleAll }),
   setView: (view) => set({ view }),
   openTask: (taskId, defaults) => set({ taskEditor: { open: true, taskId, defaults } }),
   closeTask: () => set((s) => ({ taskEditor: { ...s.taskEditor, open: false } })),

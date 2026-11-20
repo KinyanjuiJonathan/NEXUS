@@ -7,6 +7,7 @@ import type { ActivityEntry, ActivityKind } from "@/data/types";
 import { useNexus, nexus } from "@/store";
 import { formatTime } from "@/lib/time";
 import { Button, Card, EmptyState, Input, cx } from "@/components/ui";
+import { confirm } from "@/components/Confirm";
 
 const META: Record<ActivityKind, { icon: React.ReactNode; color: string; group: Filter }> = {
   task_completed: { icon: <CheckCircle2 size={15} />, color: "var(--success)", group: "completed" },
@@ -27,6 +28,7 @@ const META: Record<ActivityKind, { icon: React.ReactNode; color: string; group: 
   auto_paused: { icon: <Pause size={15} />, color: "var(--warning)", group: "clock" },
   paused: { icon: <Pause size={15} />, color: "var(--warning)", group: "clock" },
   resumed: { icon: <Play size={15} />, color: "var(--success)", group: "clock" },
+  time_counted: { icon: <Play size={15} />, color: "var(--success)", group: "clock" },
 };
 
 type Filter = "all" | "completed" | "focus" | "clock" | "schedule" | "tasks";
@@ -81,6 +83,26 @@ export default function History() {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <Input placeholder="Search history" value={q} onChange={(e) => setQ(e.target.value)} className="pl-8" />
         </div>
+        <Button
+          size="sm"
+          variant="outline"
+          icon={<Trash2 size={14} />}
+          disabled={activity.length === 0}
+          title="Delete every history entry"
+          onClick={async () => {
+            const ok = await confirm({
+              title: "Clear history?",
+              body: `All ${activity.length} history entries will be deleted for good. Your tasks, appointments, work clock totals and statistics are kept.`,
+              confirmLabel: "Clear history",
+              danger: true,
+            });
+            if (!ok) return;
+            await nexus().clearHistory();
+            nexus().toast({ kind: "success", title: "History cleared", ttl: 4000 });
+          }}
+        >
+          Clear history
+        </Button>
       </div>
       {groups.length === 0 ? (
         <Card><EmptyState icon={<HistoryIcon size={22} />} title="No history yet" body="Complete tasks, run focus sessions or clock in and they'll show up here." /></Card>

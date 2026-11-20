@@ -14,6 +14,8 @@ import { DualClock } from "@/components/DualClock";
 import { GettingStarted } from "@/components/GettingStarted";
 import { WorkClockCard } from "@/components/WorkClock";
 import { SystemMonitor } from "@/components/SystemMonitor";
+import { CurrentTaskStatus } from "@/components/TaskStatus";
+import { currentBlock } from "@/lib/taskClock";
 import { AiScheduleButton } from "@/components/AiScheduler";
 import { BarChart } from "@/components/Charts";
 import { TaskRow } from "@/components/TaskRow";
@@ -34,6 +36,7 @@ export default function Dashboard() {
   const stats = useMemo(() => dayStats(tasks, focusSessions, now, zone, events), [tasks, focusSessions, events, minute, zone]); // eslint-disable-line react-hooks/exhaustive-deps
   const week = useMemo(() => history(tasks, focusSessions, now, zone, 7), [tasks, focusSessions, minute, zone]); // eslint-disable-line react-hooks/exhaustive-deps
   const next = useMemo(() => nextAppointment(events, now), [events, minute]); // eslint-disable-line react-hooks/exhaustive-deps
+  const current = useMemo(() => currentBlock(tasks, events, now), [tasks, events, minute]); // eslint-disable-line react-hooks/exhaustive-deps
   const missed = useMemo(() => findMissed(tasks, events, now).slice(0, 4), [tasks, events, minute]); // eslint-disable-line react-hooks/exhaustive-deps
   const upNext = useMemo(() => openTasks(tasks).sort((a, b) => scoreTask(b, now) - scoreTask(a, now)).slice(0, 5), [tasks, minute]); // eslint-disable-line react-hooks/exhaustive-deps
   const suggestion = useMemo(() => suggestNext(tasks, now), [tasks, minute]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -66,9 +69,11 @@ export default function Dashboard() {
         <div className="contents">
           {/* Next appointment */}
           <Card>
-            <CardHeader title="Next appointment" icon={<AlarmClock size={16} />} />
+            <CardHeader title={current ? "Current task" : "Next appointment"} icon={<AlarmClock size={16} />} />
             <div className="px-5 pb-5">
-              {next ? (
+              {current ? (
+                <CurrentTaskStatus event={current.event} task={current.task} now={now} />
+              ) : next ? (
                 (() => {
                   const st = eventStatus(next.start, next.end, now);
                   return (
