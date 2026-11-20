@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { StatDetails, type StatKind } from "@/components/StatDetails";
 import { DateTime } from "luxon";
-import { AlarmClock, Lock, CalendarClock, CheckCircle2, Flame, Hourglass, ListTodo, Pause, Play, Plus, RotateCcw, Sparkles, Target, TriangleAlert, Wand2 } from "lucide-react";
+import { AlarmClock, CalendarClock, CheckCircle2, Flame, Hourglass, ListTodo, Pause, Play, Plus, RotateCcw, Sparkles, Target, TriangleAlert, Wand2 } from "lucide-react";
 import { useNexus, nexus } from "@/store";
 import { useUI } from "@/store/ui";
 import { useNow } from "@/lib/ticker";
@@ -10,7 +10,7 @@ import { findMissed } from "@/lib/schedule";
 import { suggestNext, openTasks, scoreTask } from "@/lib/assistant";
 import { eventStatus, formatClock, humanDuration, progress, remainingMs, elapsedMs } from "@/lib/countdown";
 import { formatTime, formatWithZone, KENYA_ZONE, zoneAbbr } from "@/lib/time";
-import { WorldClockCard } from "@/components/DualClock";
+import { DualClock } from "@/components/DualClock";
 import { GettingStarted } from "@/components/GettingStarted";
 import { WorkClockCard } from "@/components/WorkClock";
 import { SystemMonitor } from "@/components/SystemMonitor";
@@ -18,16 +18,6 @@ import { AiScheduleButton } from "@/components/AiScheduler";
 import { BarChart } from "@/components/Charts";
 import { TaskRow } from "@/components/TaskRow";
 import { Button, Card, CardHeader, EmptyState, ProgressBar, ProgressRing, Stat } from "@/components/ui";
-
-/** Slim header shared by the three overview cards, so they line up. */
-function OverviewHeader({ title, icon }: { title: string; icon: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-2 px-4 pt-3.5 min-w-0">
-      <span className="text-accent shrink-0">{icon}</span>
-      <h3 className="text-[12px] font-semibold uppercase tracking-[0.12em] text-fg-2 truncate">{title}</h3>
-    </div>
-  );
-}
 
 function greeting(hour: number) {
   return hour < 5 ? "Working late" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
@@ -67,67 +57,68 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Level 2: world clock, next appointment and today's progress on one line. */}
+      {/* Level 2: Kenya and Texas time. */}
+      <DualClock hour12={settings.hour12} texasZone={settings.texasZone} />
+
+      {/* Level 3: work clock, next appointment and today's progress on one line. */}
       <div className="grid gap-4 md:grid-cols-3">
-        <WorldClockCard hour12={settings.hour12} texasZone={settings.texasZone} />
-
-        {/* Next appointment */}
-        <Card className="flex flex-col min-w-0">
-          <OverviewHeader title="Next appointment" icon={<AlarmClock size={15} />} />
-          <div className="px-4 pt-3 pb-4 flex-1 flex flex-col justify-center min-w-0">
-            {next ? (
-              (() => {
-                const st = eventStatus(next.start, next.end, now);
-                return (
-                  <button className="w-full text-left min-w-0" onClick={() => ui.openEvent(next.event.id, undefined, next.seriesStart)} title={`${next.event.title}\n${formatWithZone(next.start, next.event.tz, settings.hour12)} (original zone)`}>
-                    <p className="text-base font-semibold truncate">
-                      {next.event.fixed && <Lock size={12} className="inline mr-1.5 -mt-0.5 text-accent-2" aria-label="Fixed appointment" />}
-                      {next.event.important && <span className="text-warning">★ </span>}
-                      {next.event.title}
-                    </p>
-                    <p className="text-[13px] font-medium mt-0.5" style={{ color: st.live ? "var(--success)" : "var(--accent)" }}>{st.label}</p>
-                    {st.live && <ProgressBar value={st.progress} className="mt-2" tone="success" />}
-                    <div className="mt-2.5 grid grid-cols-2 gap-2 text-[11px] tabular whitespace-nowrap">
-                      <div className="rounded-lg bg-hover px-2 py-1.5 truncate"><span className="text-cyan-400 font-semibold">KE</span> {formatTime(next.start, KENYA_ZONE, settings.hour12)} {zoneAbbr(KENYA_ZONE, next.start)}</div>
-                      <div className="rounded-lg bg-hover px-2 py-1.5 truncate"><span className="text-violet-400 font-semibold">TX</span> {formatTime(next.start, settings.texasZone, settings.hour12)} {zoneAbbr(settings.texasZone, next.start)}</div>
-                    </div>
-                  </button>
-                );
-              })()
-            ) : (
-              <div className="flex flex-col items-start gap-1.5">
-                <p className="text-base font-semibold text-fg-2">Nothing scheduled</p>
-                <p className="text-[13px] text-muted">Reserve time for what matters.</p>
-                <Button size="sm" className="!h-7" icon={<CalendarClock size={13} />} onClick={() => ui.openEvent(null)}>Schedule</Button>
-              </div>
-            )}
-          </div>
-        </Card>
-
-        {/* Completion ring + suggestion */}
-        <Card className="flex flex-col min-w-0">
-          <OverviewHeader title="Today's progress" icon={<Target size={15} />} />
-          <div className="px-4 pt-3 pb-4 flex-1 flex items-center gap-4 min-w-0">
-            <ProgressRing value={stats.completionRate} size={76} stroke={7} gradientId="dash-day">
-              <div className="text-center">
-                <div className="text-lg font-semibold tabular font-display leading-none">{Math.round(stats.completionRate * 100)}%</div>
-                <div className="text-[10px] text-muted mt-0.5">{stats.completedToday}/{stats.totalToday}</div>
-              </div>
-            </ProgressRing>
-            <div className="min-w-0 flex-1">
-              <p className="text-[10px] uppercase tracking-wider text-muted flex items-center gap-1"><Sparkles size={11} /> Suggested next</p>
-              {suggestion ? (
-                <>
-                  <button className="block max-w-full text-[13px] font-semibold mt-0.5 text-left truncate hover:text-accent" title={suggestion.task.title} onClick={() => ui.openTask(suggestion.task.id)}>{suggestion.task.title}</button>
-                  <p className="text-[11px] text-muted leading-snug line-clamp-2" title={suggestion.reason}>{suggestion.reason}</p>
-                  <Button size="sm" variant="soft" className="mt-1.5 !h-7" icon={<Play size={12} />} onClick={() => void s.setActiveTask(suggestion.task.id)}>Start</Button>
-                </>
+        <WorkClockCard />
+        <div className="contents">
+          {/* Next appointment */}
+          <Card>
+            <CardHeader title="Next appointment" icon={<AlarmClock size={16} />} />
+            <div className="px-5 pb-5">
+              {next ? (
+                (() => {
+                  const st = eventStatus(next.start, next.end, now);
+                  return (
+                    <button className="w-full text-left" onClick={() => ui.openEvent(next.event.id, undefined, next.seriesStart)}>
+                      <p className="text-lg font-semibold truncate">{next.event.important && <span className="text-warning">★ </span>}{next.event.title}</p>
+                      <p className="text-sm font-medium mt-1" style={{ color: st.live ? "var(--success)" : "var(--accent)" }}>{st.label}</p>
+                      {st.live && <ProgressBar value={st.progress} className="mt-2" tone="success" />}
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs" title={`${formatWithZone(next.start, next.event.tz, settings.hour12)} (original zone)`}>
+                        <div className="rounded-lg bg-hover px-2.5 py-1.5"><span className="text-cyan-400 font-semibold">KE</span> {formatTime(next.start, KENYA_ZONE, settings.hour12)} {zoneAbbr(KENYA_ZONE, next.start)}</div>
+                        <div className="rounded-lg bg-hover px-2.5 py-1.5"><span className="text-violet-400 font-semibold">TX</span> {formatTime(next.start, settings.texasZone, settings.hour12)} {zoneAbbr(settings.texasZone, next.start)}</div>
+                      </div>
+  
+                    </button>
+                  );
+                })()
               ) : (
-                <p className="text-[13px] text-muted mt-1">Inbox zero. Enjoy it.</p>
+                <div className="flex flex-col items-start gap-2">
+                  <p className="text-lg font-semibold text-fg-2">Nothing scheduled</p>
+                  <p className="text-sm text-muted">Reserve time for what matters.</p>
+                  <Button size="sm" icon={<CalendarClock size={14} />} onClick={() => ui.openEvent(null)}>Schedule</Button>
+                </div>
               )}
             </div>
-          </div>
-        </Card>
+          </Card>
+
+          {/* Completion ring + suggestion */}
+          <Card>
+            <CardHeader title="Today's progress" icon={<Target size={16} />} />
+            <div className="px-5 pb-5 flex items-center gap-5">
+              <ProgressRing value={stats.completionRate} size={92} stroke={8} gradientId="dash-day">
+                <div className="text-center">
+                  <div className="text-2xl font-semibold tabular font-display">{Math.round(stats.completionRate * 100)}%</div>
+                  <div className="text-[10px] text-muted">{stats.completedToday}/{stats.totalToday}</div>
+                </div>
+              </ProgressRing>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] uppercase tracking-wider text-muted flex items-center gap-1"><Sparkles size={12} /> Suggested next</p>
+                {suggestion ? (
+                  <>
+                    <button className="text-sm font-semibold mt-1 text-left hover:text-accent" onClick={() => ui.openTask(suggestion.task.id)}>{suggestion.task.title}</button>
+                    <p className="text-xs text-muted mt-0.5">{suggestion.reason}</p>
+                    <Button size="sm" variant="soft" className="mt-2" icon={<Play size={13} />} onClick={() => void s.setActiveTask(suggestion.task.id)}>Start</Button>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted mt-1">Inbox zero. Enjoy it.</p>
+                )}
+              </div>
+            </div>
+          </Card>
+        </div>
       </div>
 
       <GettingStarted />
@@ -172,9 +163,8 @@ export default function Dashboard() {
           </Card>
       </div>
 
-      {/* Work clock and the running timer. */}
-      <div className="grid gap-4 md:grid-cols-[minmax(260px,340px)_minmax(0,1fr)]">
-        <WorkClockCard />
+      {/* The running timer. */}
+      <div className="grid gap-4">
         {/* Active countdown / current task */}
         <Card glow={!!timer}>
           <CardHeader title="Active countdown" icon={<Hourglass size={16} />} />

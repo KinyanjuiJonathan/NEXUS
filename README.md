@@ -219,7 +219,7 @@ Marking a task complete always asks first: *Are you sure you want to mark "Repai
 
 ## Dashboard
 
-The dashboard reads top to bottom, and everything down to the system monitor fits on screen without scrolling: (1) the greeting with the AI Schedule, Auto-plan and New task buttons on one line; (2) the **World clock** (Kenya and Texas), **Next appointment** and **Today's progress** side by side on one line; (3) the system monitor, with all readings and the live graph on one line; (4) four productivity numbers; (5) Up next, tasks completed and focus minutes over the last 7 days; then the work clock beside the active countdown. Each of the four numbers opens its details when clicked:
+The dashboard reads top to bottom, and everything down to the system monitor fits on screen without scrolling: (1) the greeting with the AI Schedule, Auto-plan and New task buttons on one line; (2) Kenya and Texas time as two full-size clocks; (3) the work clock, **Next appointment** and **Today's progress** side by side; (4) the system monitor, with all readings and the live graph on one line; (5) four productivity numbers; (6) Up next, tasks completed and focus minutes over the last 7 days; then the active countdown. Each of the four numbers opens its details when clicked:
 
 | Card | Opens |
 |---|---|
