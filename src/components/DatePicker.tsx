@@ -13,8 +13,10 @@ const POP_W = 292;
  * days and the time are read in.
  */
 export function DateTimePicker({
-  value, zone, onChange, hour12, withTime = true, allowEmpty = false, min, placeholder = "Pick a date", className, ariaLabel,
+  value, zone, onChange, hour12, withTime = true, allowEmpty = false, min, placeholder = "Pick a date", className, ariaLabel, format,
 }: {
+  /** Custom text for the button (the calendar still opens on the value). */
+  format?: () => string;
   value: number | null;
   zone: string;
   onChange: (ms: number | null) => void;
@@ -95,7 +97,7 @@ export function DateTimePicker({
     if (!Number.isFinite(h) || !Number.isFinite(m)) return;
     onChange((selected ?? today).set({ hour: h, minute: m, second: 0, millisecond: 0 }).toMillis());
   };
-  const label = selected ? selected.toFormat(withTime ? (hour12 ? "ccc d LLL yyyy · h:mm a" : "ccc d LLL yyyy · HH:mm") : "ccc d LLL yyyy") : placeholder;
+  const label = format ? format() : selected ? selected.toFormat(withTime ? (hour12 ? "ccc d LLL yyyy · h:mm a" : "ccc d LLL yyyy · HH:mm") : "ccc d LLL yyyy") : placeholder;
   const quick: [string, DateTime][] = [["Today", today], ["Tomorrow", today.plus({ days: 1 })], ["In a week", today.plus({ days: 7 })]];
 
   return (

@@ -60,19 +60,21 @@ export function SystemMonitor() {
   };
   return (
     <Card>
-      <div className="flex items-center gap-2 px-4 pt-3.5 min-w-0">
-        <Cpu size={15} className="text-accent shrink-0" />
-        <h3 className="text-[12px] font-semibold uppercase tracking-[0.12em] text-fg-2 whitespace-nowrap">System monitor</h3>
-        <span className="text-[11px] text-muted truncate">live · same readings as the floating overlay</span>
-      </div>
-      {/* Every reading and the graph share one line; on a narrow window the graph drops below. */}
-      <div className="px-4 pt-2.5 pb-4 grid gap-2.5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] items-stretch">
-        <div className="grid gap-2 self-start" style={{ gridTemplateColumns: `repeat(${metrics.length}, minmax(0, 1fr))` }}>
-          {metrics.map((m) => (
-            <Tile key={m} label={m === "temp" ? "TEMP" : m.toUpperCase()} value={formatMetric(v(m), m, unit)} sub={subs[m]} hot={m !== "temp" && !levels[m] && hot(m)} active={m === shown} onClick={() => setMetric(m)} color={levels[m] ? LEVEL_COLOR[levels[m]!] : undefined} percent={levels[m] ? v(m) : undefined} />
-          ))}
+      {/* Readings on the left under the title; the graph on the right starts level with the title, so it gets the extra height without the card growing. */}
+      <div className="px-4 pt-3.5 pb-4 grid gap-2.5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] items-start">
+        <div className="flex flex-col gap-2.5 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <Cpu size={15} className="text-accent shrink-0" />
+            <h3 className="text-[12px] font-semibold uppercase tracking-[0.12em] text-fg-2 whitespace-nowrap">System monitor</h3>
+            <span className="text-[11px] text-muted truncate">live · same readings as the floating overlay</span>
+          </div>
+          <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${metrics.length}, minmax(0, 1fr))` }}>
+            {metrics.map((m) => (
+              <Tile key={m} label={m === "temp" ? "TEMP" : m.toUpperCase()} value={formatMetric(v(m), m, unit)} sub={subs[m]} hot={m !== "temp" && !levels[m] && hot(m)} active={m === shown} onClick={() => setMetric(m)} color={levels[m] ? LEVEL_COLOR[levels[m]!] : undefined} percent={levels[m] ? v(m) : undefined} />
+            ))}
+          </div>
         </div>
-        <PerfGraph history={history} metric={shown} metrics={metrics} onMetric={setMetric} unit={unit} height={84} thresholds={thresholds} />
+        <PerfGraph history={history} metric={shown} metrics={metrics} onMetric={setMetric} unit={unit} height={112} thresholds={thresholds} />
       </div>
     </Card>
   );

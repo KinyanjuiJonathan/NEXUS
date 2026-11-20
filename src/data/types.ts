@@ -1,5 +1,5 @@
 import type { TyperOptions } from "@/lib/typer/engine";
-import type { WorkPlans } from "@/lib/workPlan";
+import type { WorkPlans, WorkWeek } from "@/lib/workPlan";
 /**
  * NEXUS domain model.
  *
@@ -135,7 +135,7 @@ export interface SchedMeta {
    * went to the trash, or was completed before the block began. It comes back
    * with the task (restore / reopen) if its time has not passed.
    */
-  removed?: "task-deleted" | "task-done" | null;
+  removed?: "task-deleted" | "task-done" | "merged" | null;
   /** Total time the task was given (kept when what is left is moved to a shorter block). */
   targetMs?: number;
   /** Time already clocked on it in earlier blocks, plus time counted by hand. */
@@ -270,6 +270,8 @@ export interface Settings {
   homeZone: string;
   /** When the user intends to work, per day (ISO date in the home zone). Days without one follow the latest. */
   workPlans: WorkPlans;
+  /** Usual hours per weekday (ISO 1 = Monday): [start, end] in minutes after midnight in the home zone, or "off". */
+  workWeek: WorkWeek;
   /** Ask "when do you intend to work today?" on the first use of each day. */
   workPlanAsk: boolean;
   /** Hours of work in a usual day (the default length offered when asking). */

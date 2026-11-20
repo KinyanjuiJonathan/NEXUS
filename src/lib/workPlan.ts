@@ -12,6 +12,13 @@ import { DateTime } from "luxon";
 
 export type DayPlan = { start: number; end: number; zone: string } | { off: true };
 export type WorkPlans = Record<string, DayPlan>;
+/**
+ * Usual hours for each weekday (ISO 1 = Monday … 7 = Sunday): start and end in
+ * minutes after midnight in the home zone, or "off". An end at or before the
+ * start runs into the next day. Weekdays without an entry follow the latest
+ * day plan, then the fixed hours.
+ */
+export type WorkWeek = Partial<Record<number, [number, number] | "off">>;
 
 export interface WorkHours {
   zone: string;
@@ -21,6 +28,8 @@ export interface WorkHours {
   days: number[];
   /** Plans by ISO date in `zone`. */
   plans?: WorkPlans;
+  /** Usual hours per weekday. */
+  week?: WorkWeek;
 }
 
 interface Interval {
@@ -32,6 +41,7 @@ const MIN = 60_000;
 const isOff = (p: DayPlan | undefined): p is { off: true } => !!p && "off" in p;
 
 export const dayKey = (ms: number, zone: string) => DateTime.fromMillis(ms, { zone }).toISODate()!;
+export const isoWeekday = (ms: number, zone: string) => DateTime.fromMillis(ms, { zone }).weekday;
 
 /** The pattern a day without its own plan follows: the latest planned day's start (minutes after midnight) and length. */
 export function usualPattern(plans: WorkPlans | undefined, zone: string): { offsetMin: number; lengthMs: number } | null {
@@ -49,6 +59,13 @@ export function hoursFor(key: string, wh: WorkHours): (Interval & { planned: boo
   if (isOff(own)) return null;
   if (own) return { start: own.start, end: own.end, planned: true };
   const day = DateTime.fromISO(key, { zone: wh.zone }).startOf("day");
+  const weekly = wh.week?.[day.weekday];
+  if (weekly === "off") return null;
+  if (weekly) {
+    const start = day.plus({ minutes: weekly[0] }).toMillis();
+    const end = day.plus({ minutes: weekly[1] > weekly[0] ? weekly[1] : weekly[1] + 24 * 60 }).toMillis();
+    return { start, end, planned: false };
+  }
   const usual = usualPattern(wh.plans, wh.zone);
   if (usual) {
     const start = day.plus({ minutes: usual.offsetMin }).toMillis();
@@ -73,8 +90,8 @@ export function workWindows(from: number, to: number, wh: WorkHours): Interval[]
 }
 
 /** Working hours as the schedulers need them, from the settings. */
-export function workHours(s: { homeZone: string; workStartHour: number; workEndHour: number; workDays: number[]; workPlans?: WorkPlans }): WorkHours {
-  return { zone: s.homeZone, startHour: s.workStartHour, endHour: s.workEndHour, days: s.workDays, plans: s.workPlans };
+export function workHours(s: { homeZone: string; workStartHour: number; workEndHour: number; workDays: number[]; workPlans?: WorkPlans; workWeek?: WorkWeek }): WorkHours {
+  return { zone: s.homeZone, startHour: s.workStartHour, endHour: s.workEndHour, days: s.workDays, plans: s.workPlans, week: s.workWeek };
 }
 
 /** Plans worth keeping: the last two weeks and everything ahead. */

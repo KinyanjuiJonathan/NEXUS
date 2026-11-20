@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { DateTime } from "luxon";
-import type { CalendarEvent, Task } from "@/data/types";
+import type { CalendarEvent } from "@/data/types";
 import { createLocalBackend, memoryKV } from "@/data/backend";
 import { createNexusStore } from "@/store/store";
-import { planQueueMove, queueOf, type RescheduleSettings } from "@/lib/smart/reschedule";
+import { queueOf, type RescheduleSettings } from "@/lib/smart/reschedule";
 import { workingWindows } from "@/lib/smart/slots";
 import { hoursFor, prunePlans, usualPattern, workWindows, type WorkHours } from "./workPlan";
 
@@ -109,17 +109,5 @@ describe("in the app", () => {
     expect(event(a.e.id).sched).toMatchObject({ origin: "user" });
     expect(await s().moveInQueue(a.e.id, 1)).toBe(false); // already last
     expect(await s().moveInQueue(zoom.id, -1)).toBe(false); // fixed appointments are not in the queue
-  });
-
-  it("falls back to the first free times when the swapped stretch would run into a fixed appointment", () => {
-    const task = (id: string): Task => ({ id, title: id, notes: "", priority: "medium", categoryId: "work", status: "todo", dueAt: null, dueTz: NBO, estimateMin: 60, spentMs: 0, sortOrder: 0, recurrence: null, reminders: [], subtasks: [], completedAt: null, archivedAt: null, deletedAt: null, createdAt: 0, updatedAt: 0 });
-    const ev = (id: string, start: string, end: string, taskId: string | null): CalendarEvent => ({ id, title: id, notes: "", startAt: at(start), endAt: at(end), tz: NBO, taskId, recurrence: null, important: false, reminders: [], color: null, fixed: taskId == null, sched: null, createdAt: 0, updatedAt: 0, deletedAt: null });
-    const s: RescheduleSettings = { homeZone: NBO, workStartHour: 9, workEndHour: 17, workDays: [1, 2, 3, 4, 5, 6, 7], bufferMin: 10, periods: { morning: [6, 12], afternoon: [12, 17], evening: [17, 22] }, protectFixed: true };
-    // short A before the meeting, long B after it: B does not fit in A's place
-    const events = [ev("a", "2026-11-21T12:00", "2026-11-21T12:30", "A"), ev("zoom", "2026-11-21T12:30", "2026-11-21T13:30", null), ev("b", "2026-11-21T14:00", "2026-11-21T16:00", "B")];
-    const moves = planQueueMove([task("A"), task("B")], events, at("2026-11-21T10:00"), s, "b", -1);
-    expect(moves.map((m) => m.eventId)).toEqual(["b", "a"]);
-    expect(moves[0].to!.end).toBeLessThanOrEqual(moves[1].to!.start);
-    for (const m of moves) expect(m.to!.end <= events[1].startAt || m.to!.start >= events[1].endAt).toBe(true);
   });
 });

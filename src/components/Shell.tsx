@@ -63,6 +63,15 @@ export function TitleBar() {
         <button onClick={() => openCommand(false)} className="hidden lg:flex items-center gap-2 h-7 px-2.5 rounded-lg text-xs text-muted hover:text-fg hover:bg-hover transition">
           Command <Kbd>Ctrl K</Kbd>
         </button>
+        <button
+          onClick={() => useUI.getState().openTimeHours(true)}
+          title="Time zone & working hours"
+          aria-label={`Time zone and working hours. Times are shown in ${settings.homeZone}`}
+          className="flex items-center gap-1.5 h-7 px-2 rounded-lg text-xs text-muted hover:text-fg hover:bg-hover transition"
+        >
+          <Globe size={14} className="text-accent" />
+          <span className="hidden xl:inline tabular">{settings.homeZone.split("/").pop()!.replace(/_/g, " ")}</span>
+        </button>
         <IconButton label="Voice command (Ctrl+Shift+V)" onClick={() => openCommand(true)}>
           <Mic size={16} />
         </IconButton>

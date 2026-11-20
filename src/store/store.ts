@@ -25,7 +25,7 @@ import { nextOccurrence } from "@/lib/recurrence";
 import * as cd from "@/lib/countdown";
 import { reminderForTimer, remindersForEvent, remindersForTask } from "@/lib/reminders";
 import { activeSession, openPause } from "@/lib/work";
-import { planBulk, planDisplaced, planQueueMove, planUnfinished, type BulkTarget, type Move, type RescheduleSettings } from "@/lib/smart/reschedule";
+import { planBulk, planDisplaced, planMerges, planQueueOrder, planUnfinished, queueUnits, type BulkTarget, type Move, type RescheduleSettings, type UnitPlan } from "@/lib/smart/reschedule";
 import { blockClock, currentBlock, unclockedMs } from "@/lib/taskClock";
 import { dayKey, prunePlans, workHours, type DayPlan } from "@/lib/workPlan";
 import type { ScheduleRequest } from "@/lib/smart/parse";
@@ -44,6 +44,7 @@ export const DEFAULT_SETTINGS: Settings = {
   // Every day can be a working day; the daily "when do you intend to work?" answer decides the hours.
   workDays: [1, 2, 3, 4, 5, 6, 7],
   workPlans: {},
+  workWeek: {},
   workPlanAsk: true,
   workDayHours: 8,
   defaultReminders: [15, 0],
@@ -218,6 +219,10 @@ export interface NexusState {
   rescheduleAll(target: BulkTarget): Promise<Move[]>;
   /** Move a task one place up (-1) or down (+1) the queue of upcoming flexible tasks. False when it cannot move. */
   moveInQueue(eventId: string, dir: -1 | 1): Promise<boolean>;
+  /** Put the queue of upcoming flexible tasks in this order (task ids). Each position keeps its start time; later tasks follow. */
+  reorderQueue(taskIds: string[]): Promise<boolean>;
+  /** Join split tasks back into one block wherever their whole length now fits. Returns how many were joined. */
+  mergeSplitTasks(): Promise<number>;
   /** "I was working": count the time the clock skipped during this task's block (inactivity, or not being clocked in). Returns the ms counted. */
   countAway(eventId: string): Promise<number>;
   /** Say when you intend to work on a day (ISO date in the home zone): hours, a day off, or null to forget the answer. */
@@ -570,6 +575,62 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           });
         }
       }
+    };
+
+    let merging = false;
+
+    /** Put the stored events back exactly as they were in `before` (undo of a bulk change). */
+    const restoreEvents = async (before: CalendarEvent[]) => {
+      const was = new Map(before.map((e) => [e.id, e]));
+      for (const e of get().events) {
+        const old = was.get(e.id);
+        if (old && (old.startAt !== e.startAt || old.endAt !== e.endAt || old.deletedAt !== e.deletedAt || old.title !== e.title)) await saveEvent({ ...old, updatedAt: now() });
+      }
+    };
+
+    /**
+     * Apply new times for tasks' blocks. Parts merged into the first block are
+     * taken off the calendar; the time clocked on them and their planned
+     * totals are added up, so nothing is lost or counted twice.
+     */
+    const applyUnits = async (plans: UnitPlan[], reason: "queue" | "merge") => {
+      let changed = 0;
+      for (const p of plans) {
+        const task = get().tasks.find((t) => t.id === p.taskId);
+        for (const [k, part] of p.parts.entries()) {
+          const e = get().events.find((x) => x.id === part.eventId);
+          if (!e || e.deletedAt) continue;
+          const joining = k === 0 && p.merged.length > 0;
+          if (!joining && part.to.start === e.startAt && part.to.end === e.endAt) continue;
+          const ts = now();
+          let sched = { ...(e.sched ?? {}) };
+          let title = e.title;
+          if (joining) {
+            const all = [e, ...p.merged.map((id) => get().events.find((x) => x.id === id)).filter((x): x is CalendarEvent => !!x)];
+            const worked = all.reduce((a, b) => a + (b.sched?.workedMs ?? 0), 0);
+            if (worked > 0 || all.some((b) => b.sched?.targetMs != null)) {
+              sched.workedMs = worked;
+              sched.targetMs = all.reduce((a, b) => a + (b.sched?.targetMs ?? b.endAt - b.startAt), 0);
+            }
+            // "Report (1/2)" is "Report" again
+            title = task?.title ?? e.title.replace(/\s*\(\d+\/\d+\)$/, "");
+          }
+          if (part.to.start !== e.startAt || part.to.end !== e.endAt) {
+            const history = [...(sched.history ?? []), { at: ts, from: [e.startAt, e.endAt] as [number, number], to: [part.to.start, part.to.end] as [number, number], reason: reason === "queue" ? ("queue" as const) : ("bulk" as const) }].slice(-20);
+            sched = { ...sched, history, attention: null, ...(reason === "queue" ? { origin: "user" as const, moves: 0 } : {}) };
+          }
+          await saveEvent({ ...e, title, startAt: part.to.start, endAt: part.to.end, sched, updatedAt: ts });
+          changed++;
+        }
+        for (const id of p.merged) {
+          const e = get().events.find((x) => x.id === id);
+          if (e && !e.deletedAt) {
+            await saveEvent({ ...e, deletedAt: now(), updatedAt: now(), sched: { ...(e.sched ?? {}), removed: "merged" } });
+            changed++;
+          }
+        }
+      }
+      return changed;
     };
 
     /** A fixed appointment now occupies `fixed`'s time: flexible blocks there are moved away. */
@@ -1116,6 +1177,8 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           workEndHour: s.workEndHour,
           workDays: s.workDays,
           plans: s.workPlans,
+          week: s.workWeek,
+          chunkMaxMin: s.planChunkMaxMin,
           bufferMin: s.planBufferMin,
           periods: s.smartPeriods,
           protectFixed: s.smartProtectFixed,
@@ -1152,6 +1215,8 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         try {
           const moves = planUnfinished(get().tasks, get().events, now(), get().slotSettings(), get().workSessions);
           await applyMoves(moves);
+          // room may have opened up for a task that had to be split
+          await get().mergeSplitTasks();
           return moves;
         } finally {
           rescheduling = false;
@@ -1159,6 +1224,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
       },
 
       async rescheduleAll(target) {
+        const snapshot = get().events;
         const moves = planBulk(get().tasks, get().events, now(), get().slotSettings(), target);
         const s = get().settings;
         const before: CalendarEvent[] = [];
@@ -1180,6 +1246,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           });
           first = first == null ? m.to.start : Math.min(first, m.to.start);
         }
+        await get().mergeSplitTasks();
         const n = before.length;
         const stuck = moves.filter((m) => !m.to).length;
         if (n) {
@@ -1190,10 +1257,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
             body: `Now starting ${formatWithZone(first!, s.homeZone, s.hour12)}. Fixed appointments were not moved.${stuck ? ` ${stuck} could not be fitted in and stayed where ${stuck === 1 ? "it was" : "they were"}.` : ""}`,
             action: {
               label: "Undo",
-              run: () =>
-                void (async () => {
-                  for (const e of before) await saveEvent({ ...e, updatedAt: now() });
-                })(),
+              run: () => void restoreEvents(snapshot),
             },
             ttl: 15_000,
           });
@@ -1204,21 +1268,44 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
       },
 
       async moveInQueue(eventId, dir) {
-        const moves = planQueueMove(get().tasks, get().events, now(), get().slotSettings(), eventId, dir);
-        if (!moves.length) return false;
+        const e = get().events.find((x) => x.id === eventId);
+        const order = queueUnits(get().tasks, get().events, now()).map((u) => u.taskId);
+        const i = e?.taskId ? order.indexOf(e.taskId) : -1;
+        const j = i + dir;
+        if (i < 0 || j < 0 || j >= order.length) return false;
+        [order[i], order[j]] = [order[j], order[i]];
+        return get().reorderQueue(order);
+      },
+
+      async reorderQueue(taskIds) {
+        const before = get().events;
+        const plans = planQueueOrder(get().tasks, before, now(), get().slotSettings(), taskIds);
+        const changed = await applyUnits(plans, "queue");
+        if (!changed) return false;
         const s = get().settings;
-        for (const m of moves) {
-          const e = get().events.find((x) => x.id === m.eventId);
-          if (!e || !m.to) continue;
-          const ts = now();
-          const sched = e.sched ?? {};
-          const history = [...(sched.history ?? []), { at: ts, from: [e.startAt, e.endAt] as [number, number], to: [m.to.start, m.to.end] as [number, number], reason: "queue" as const }].slice(-20);
-          // The user chose this order: the block is theirs again.
-          await saveEvent({ ...e, startAt: m.to.start, endAt: m.to.end, sched: { ...sched, origin: "user", moves: 0, history, attention: null }, updatedAt: ts });
-        }
-        const me = moves.find((m) => m.eventId === eventId)!;
-        get().log("task_rescheduled", me.title, `Moved ${dir < 0 ? "up" : "down"} the queue → ${formatWithZone(me.to!.start, s.homeZone, s.hour12)}`, me.taskId ?? me.eventId);
+        const merged = plans.filter((p) => p.merged.length).length;
+        get().log("task_rescheduled", "Queue reordered", plans.map((p) => p.title).join(" → ").slice(0, 300));
+        get().toast({
+          kind: "success",
+          title: "Queue updated",
+          body: `${plans[0].title} is now first, at ${formatWithZone(plans[0].parts[0].to.start, s.homeZone, s.hour12)}.${merged ? ` ${merged} split task${merged === 1 ? " was" : "s were"} joined into one block.` : ""}`,
+          action: { label: "Undo", run: () => void restoreEvents(before) },
+          ttl: 8000,
+        });
         return true;
+      },
+
+      async mergeSplitTasks() {
+        if (merging || !get().ready) return 0;
+        merging = true;
+        try {
+          const plans = planMerges(get().tasks, get().events, now(), get().slotSettings());
+          await applyUnits(plans, "merge");
+          for (const p of plans) get().log("task_rescheduled", p.title, `Its ${p.merged.length + 1} parts were joined into one block (${humanDuration(p.parts[0].to.end - p.parts[0].to.start)})`, p.taskId);
+          return plans.length;
+        } finally {
+          merging = false;
+        }
       },
 
       async countAway(eventId) {

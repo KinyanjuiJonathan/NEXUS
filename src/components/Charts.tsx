@@ -12,7 +12,7 @@ export function BarChart({ data, unit, color = "var(--accent)", height = 140, ca
   const [hover, setHover] = useState<number | null>(null);
   const max = Math.max(1, ...data.map((d) => d.value));
   const W = 100 / data.length;
-  const ticks = [0, Math.ceil(max / 2), max];
+  const ticks = [...new Set([0, Math.ceil(max / 2), max])];
   return (
     <figure className="relative">
       <div className="relative flex" style={{ height }}>

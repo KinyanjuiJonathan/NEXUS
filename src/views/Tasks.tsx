@@ -1,25 +1,28 @@
 import { useMemo, useState } from "react";
-import { DateTime } from "luxon";
 import { AnimatePresence } from "framer-motion";
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Wand2, Archive, CalendarClock, CalendarDays, CheckCircle2, Inbox, ListTodo, Plus, Search, Sun, Trash2, TriangleAlert, CalendarRange, History } from "lucide-react";
-import type { Priority, Task } from "@/data/types";
+import { ListOrdered, Wand2, Archive, CalendarClock, CalendarDays, CheckCircle2, Inbox, ListTodo, Plus, Search, Sun, Trash2, TriangleAlert, CalendarRange, History } from "lucide-react";
+import type { Priority } from "@/data/types";
 import { PRIORITIES } from "@/data/types";
 import { useNexus, nexus } from "@/store";
 import { useUI } from "@/store/ui";
 import { useNow } from "@/lib/ticker";
 import { parseCommand } from "@/lib/voice/parser";
 import { TaskRow } from "@/components/TaskRow";
+import { ScheduleQueue } from "@/components/ScheduleQueue";
+import { filterTasks, taskCounts, type TaskView as TV } from "@/lib/taskViews";
+import { queueUnits } from "@/lib/smart/reschedule";
 import { Button, Card, EmptyState, Input, Select, cx } from "@/components/ui";
 import { PRIORITY_META } from "@/components/meta";
 import { confirm } from "@/components/Confirm";
 
-type TaskView = "today" | "upcoming" | "week" | "overdue" | "all" | "completed" | "archive" | "trash";
+type TaskView = TV | "queue";
 
 const VIEWS: { id: TaskView; label: string; icon: React.ReactNode }[] = [
   { id: "today", label: "Today", icon: <Sun size={15} /> },
+  { id: "queue", label: "Queue", icon: <ListOrdered size={15} /> },
   { id: "upcoming", label: "Upcoming", icon: <CalendarRange size={15} /> },
   { id: "week", label: "This Week", icon: <CalendarDays size={15} /> },
   { id: "overdue", label: "Overdue", icon: <TriangleAlert size={15} /> },
@@ -28,33 +31,6 @@ const VIEWS: { id: TaskView; label: string; icon: React.ReactNode }[] = [
   { id: "archive", label: "Archive", icon: <Archive size={15} /> },
   { id: "trash", label: "Trash", icon: <Trash2 size={15} /> },
 ];
-
-export function filterTasks(tasks: Task[], view: TaskView, now: number, zone: string): Task[] {
-  const d = DateTime.fromMillis(now, { zone });
-  const sod = d.startOf("day").toMillis();
-  const eod = d.endOf("day").toMillis();
-  const eow = d.endOf("week").toMillis();
-  const live = tasks.filter((t) => !t.deletedAt && !t.archivedAt);
-  const open = live.filter((t) => t.status !== "done");
-  switch (view) {
-    case "today":
-      return open.filter((t) => (t.dueAt != null && t.dueAt <= eod) || t.status === "in_progress" || (t.dueAt == null && t.createdAt >= sod));
-    case "upcoming":
-      return open.filter((t) => t.dueAt != null && t.dueAt > eod).sort((a, b) => a.dueAt! - b.dueAt!);
-    case "week":
-      return open.filter((t) => t.dueAt != null && t.dueAt >= sod && t.dueAt <= eow).sort((a, b) => a.dueAt! - b.dueAt!);
-    case "overdue":
-      return open.filter((t) => t.dueAt != null && t.dueAt < now).sort((a, b) => a.dueAt! - b.dueAt!);
-    case "all":
-      return open;
-    case "completed":
-      return live.filter((t) => t.status === "done").sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0));
-    case "archive":
-      return tasks.filter((t) => t.archivedAt && !t.deletedAt).sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0));
-    case "trash":
-      return tasks.filter((t) => t.deletedAt).sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
-  }
-}
 
 function SortableRow(props: React.ComponentProps<typeof TaskRow>) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.task.id });
@@ -67,7 +43,7 @@ function SortableRow(props: React.ComponentProps<typeof TaskRow>) {
 
 export default function Tasks() {
   const now = useNow();
-  const { tasks, categories, settings } = useNexus((s) => ({ tasks: s.tasks, categories: s.categories, settings: s.settings }));
+  const { tasks, categories, settings, events } = useNexus((s) => ({ tasks: s.tasks, categories: s.categories, settings: s.settings, events: s.events }));
   const [view, setView] = useState<TaskView>("today");
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("all");
@@ -76,15 +52,16 @@ export default function Tasks() {
   const minute = Math.floor(now / 60_000);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
 
-  const counts = useMemo(() => Object.fromEntries(VIEWS.map((v) => [v.id, filterTasks(tasks, v.id, now, settings.homeZone).length])), [tasks, minute, settings.homeZone]); // eslint-disable-line react-hooks/exhaustive-deps
+  const counts = useMemo<Record<TaskView, number>>(() => ({ ...taskCounts(tasks, now, settings.homeZone, events), queue: queueUnits(tasks, events, now).length }), [tasks, events, minute, settings.homeZone]); // eslint-disable-line react-hooks/exhaustive-deps
   const list = useMemo(() => {
-    let l = filterTasks(tasks, view, now, settings.homeZone);
+    if (view === "queue") return [];
+    let l = filterTasks(tasks, view, now, settings.homeZone, events);
     const needle = q.trim().toLowerCase();
     if (needle) l = l.filter((t) => t.title.toLowerCase().includes(needle) || t.notes.toLowerCase().includes(needle) || t.subtasks.some((s) => s.title.toLowerCase().includes(needle)));
     if (cat !== "all") l = l.filter((t) => t.categoryId === cat);
     if (pri !== "all") l = l.filter((t) => t.priority === pri);
     return l;
-  }, [tasks, view, q, cat, pri, minute, settings.homeZone]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tasks, events, view, q, cat, pri, minute, settings.homeZone]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sortable = (view === "all" || view === "today") && !q && cat === "all" && pri === "all";
   const s = nexus();
@@ -163,7 +140,7 @@ export default function Tasks() {
           )}
         </div>
 
-        {view !== "trash" && view !== "archive" && view !== "completed" && (
+        {view !== "trash" && view !== "archive" && view !== "completed" && view !== "queue" && (
           <form onSubmit={(e) => { e.preventDefault(); void quickAdd(); }}>
             <Card className="flex items-center gap-2 px-3 py-1.5 focus-within:border-accent transition">
               <Plus size={16} className="text-accent" />
@@ -179,7 +156,14 @@ export default function Tasks() {
           </form>
         )}
 
-        <div className="flex flex-wrap gap-2">
+        {view === "queue" && (
+          <Card className="p-4 flex flex-col gap-3">
+            <p className="text-[12px] text-muted">Everything scheduled, in order. Drag a task (or use its arrows) to change the order: it takes over the start time of the place it lands in, and the tasks after it follow. Fixed appointments stay where they are.</p>
+            <ScheduleQueue now={now} limit={60} />
+          </Card>
+        )}
+
+        <div className={cx("flex flex-wrap gap-2", view === "queue" && "hidden")}>
           <div className="relative flex-1 min-w-[200px]">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
             <Input id="task-search" placeholder="Search tasks, notes, subtasks  ( / )" value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" />
@@ -194,7 +178,7 @@ export default function Tasks() {
           </Select>
         </div>
 
-        {list.length === 0 ? (
+        {view === "queue" ? null : list.length === 0 ? (
           <Card>
             <EmptyState
               icon={view === "trash" ? <Trash2 size={22} /> : view === "completed" ? <History size={22} /> : <ListTodo size={22} />}

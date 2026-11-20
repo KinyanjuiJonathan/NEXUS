@@ -49,6 +49,8 @@ export interface Move {
 export interface RescheduleSettings extends SlotSettings {
   /** Fixed appointments are never moved automatically. */
   protectFixed: boolean;
+  /** Longest single block (minutes): a split task is only joined back up to this length. */
+  chunkMaxMin?: number;
 }
 
 const isProtected = (e: CalendarEvent, s: RescheduleSettings) => e.fixed && s.protectFixed;
@@ -194,7 +196,7 @@ export type BulkTarget =
   /** Everything moves later by this much. */
   | { mode: "shift"; byMs: number }
   /** Everything starts again from this moment, in the same order. */
-  | { mode: "from"; at: number };
+  | { mode: "from"; at: number; /** Only inside working hours, even if `at` is outside them. */ strict?: boolean };
 
 /**
  * The user asked to move every open task at once. Fixed appointments stay
@@ -217,9 +219,9 @@ export function planBulk(tasks: Task[], events: CalendarEvent[], now: number, s:
     const earliest = Math.max(now, target.mode === "from" ? Math.max(target.at, event.startAt) : event.startAt + target.byMs);
     const wins = [...working];
     // A time the user named outside working hours is still honoured, as is a block that was outside them already.
-    if (target.mode === "from" && !inWorking(target.at)) wins.push({ start: target.at, end: DateTime.fromMillis(target.at, { zone: s.homeZone }).endOf("day").toMillis() });
+    if (target.mode === "from" && !target.strict && !inWorking(target.at)) wins.push({ start: target.at, end: DateTime.fromMillis(target.at, { zone: s.homeZone }).endOf("day").toMillis() });
     // "Later by an hour" means that hour, even past the end of the working day; only a fixed appointment sends it further.
-    if (target.mode === "shift" || !inWorking(event.startAt)) wins.push({ start: earliest, end: DateTime.fromMillis(earliest, { zone: s.homeZone }).endOf("day").toMillis() });
+    if (target.mode === "shift" || (!inWorking(event.startAt) && !(target.mode === "from" && target.strict))) wins.push({ start: earliest, end: DateTime.fromMillis(earliest, { zone: s.homeZone }).endOf("day").toMillis() });
     const to = firstFit(wins, busy, dur, earliest);
     const from = { start: event.startAt, end: event.endAt };
     if (!to) {
@@ -255,36 +257,150 @@ export function queueOf(tasks: Task[], events: CalendarEvent[], now: number): Ca
     .sort((a, b) => a.startAt - b.startAt);
 }
 
+export interface QueueUnit {
+  taskId: string;
+  title: string;
+  /** Its blocks still to come, earliest first (more than one when the task is split). */
+  blocks: CalendarEvent[];
+  start: number;
+  end: number;
+  durationMs: number;
+}
+
+/** The queue by task: a task split into several blocks is one entry. */
+export function queueUnits(tasks: Task[], events: CalendarEvent[], now: number): QueueUnit[] {
+  const byTask = new Map<string, CalendarEvent[]>();
+  for (const e of queueOf(tasks, events, now)) byTask.set(e.taskId!, [...(byTask.get(e.taskId!) ?? []), e]);
+  const title = new Map(tasks.map((t) => [t.id, t.title]));
+  return [...byTask.entries()]
+    .map(([taskId, blocks]) => ({
+      taskId,
+      title: title.get(taskId) ?? blocks[0].title,
+      blocks,
+      start: blocks[0].startAt,
+      end: blocks[blocks.length - 1].endAt,
+      durationMs: blocks.reduce((a, b) => a + b.endAt - b.startAt, 0),
+    }))
+    .sort((a, b) => a.start - b.start);
+}
+
+/** What happens to one task's blocks: new times for the ones that stay, and the ones folded into the first. */
+export interface UnitPlan {
+  taskId: string;
+  title: string;
+  parts: { eventId: string; from: Interval; to: Interval }[];
+  /** Blocks merged into parts[0] (their time is already included in its new length). */
+  merged: string[];
+}
+
+/** A split task becomes one block again when its whole length fits and is no longer than the longest block allowed. */
+const mergeable = (u: QueueUnit, s: RescheduleSettings) => u.blocks.length > 1 && u.durationMs <= (s.chunkMaxMin ?? 120) * MIN;
+
 /**
- * Move a task one place up (-1) or down (+1) the queue: it trades places with
- * its neighbour. Together they keep the same stretch of time, so nothing else
- * moves; if a fixed appointment sits in that stretch, each takes the first
- * free time instead. Empty when it is already first/last or nothing fits.
+ * Put the queue in a new order. Each position keeps its start time: the task
+ * moved to position 1 starts when position 1 started, and so on. Tasks after
+ * it follow by their own lengths, inside working hours and around everything
+ * that is not in the queue, so nothing overlaps. Split tasks are joined into
+ * one block when there is room.
  */
-export function planQueueMove(tasks: Task[], events: CalendarEvent[], now: number, s: RescheduleSettings, eventId: string, dir: -1 | 1): Move[] {
-  const queue = queueOf(tasks, events, now);
-  const i = queue.findIndex((e) => e.id === eventId);
-  const j = i + dir;
-  if (i < 0 || j < 0 || j >= queue.length) return [];
-  const [a, b] = dir < 0 ? [queue[j], queue[i]] : [queue[i], queue[j]]; // a is earlier; b goes first now
-  const durA = a.endAt - a.startAt;
-  const durB = b.endAt - b.startAt;
-  const others = events.filter((e) => e.id !== a.id && e.id !== b.id);
-  let first: Interval | null = { start: a.startAt, end: a.startAt + durB };
-  let second: Interval | null = { start: b.endAt - durA, end: b.endAt };
-  const clash = (x: Interval) => expandEvents(others, x.start - DAY, x.end + DAY).some((o) => overlaps(o, x));
-  if (second.start < first.end || clash(first) || clash(second)) {
-    const bufferMs = Math.max(0, s.bufferMin) * MIN;
-    const busy = busyIntervals(others, now, now + HORIZON + DAY, bufferMs);
-    const win = [{ start: a.startAt, end: a.startAt + HORIZON }];
-    first = firstFit(win, busy, durB, Math.max(now, a.startAt));
-    if (first) {
-      busy.push({ start: first.start - bufferMs, end: first.end + bufferMs });
-      busy.sort((x, y) => x.start - y.start);
+export function planQueueOrder(tasks: Task[], events: CalendarEvent[], now: number, s: RescheduleSettings, order: string[]): UnitPlan[] {
+  const units = queueUnits(tasks, events, now);
+  const byId = new Map(units.map((u) => [u.taskId, u]));
+  const wanted = [...order.filter((id) => byId.has(id)), ...units.map((u) => u.taskId).filter((id) => !order.includes(id))];
+  const slots = units.map((u) => u.start);
+  const bufferMs = Math.max(0, s.bufferMin) * MIN;
+  const mine = new Set(units.flatMap((u) => u.blocks.map((b) => b.id)));
+  const busy = busyIntervals(events, now, now + 2 * HORIZON, bufferMs, mine);
+  const horizon = Math.max(now, ...units.map((u) => u.end)) + HORIZON;
+  // Working time, plus the times the queue already occupies (the user may have put a task outside working hours on purpose).
+  const wins = mergeWins([...workingWindows(now, horizon, s), ...units.flatMap((u) => u.blocks.map((b) => ({ start: b.startAt, end: b.endAt })))]);
+  const take = (to: Interval) => {
+    busy.push({ start: to.start, end: to.end });
+    busy.sort((a, b) => a.start - b.start);
+  };
+  // A place's own start time when it is free; otherwise straight after the task before it, rather than far away.
+  const fit = (dur: number, want: number, after: number) => {
+    const exact = fitExact(wins, busy, dur, want);
+    return exact && exact.start === want ? exact : fitExact(wins, busy, dur, after) ?? exact;
+  };
+  const plans: UnitPlan[] = [];
+  let cursor = now;
+  wanted.forEach((taskId, k) => {
+    const u = byId.get(taskId)!;
+    const earliest = Math.max(cursor, slots[k]);
+    const plan: UnitPlan = { taskId, title: u.title, parts: [], merged: [] };
+    const whole = u.blocks.length === 1 || mergeable(u, s) ? fit(u.durationMs, earliest, cursor) : null;
+    if (whole) {
+      const [first, ...rest] = u.blocks;
+      plan.parts.push({ eventId: first.id, from: { start: first.startAt, end: first.endAt }, to: whole });
+      plan.merged = rest.map((b) => b.id);
+      take(whole);
+      cursor = whole.end;
+    } else {
+      let at = earliest;
+      for (const b of u.blocks) {
+        const to = fit(b.endAt - b.startAt, at, at === earliest ? cursor : at) ?? { start: b.startAt, end: b.endAt };
+        plan.parts.push({ eventId: b.id, from: { start: b.startAt, end: b.endAt }, to });
+        take(to);
+        at = to.end;
+      }
+      cursor = at;
     }
-    second = first ? firstFit(win, busy, durA, first.end) : null;
+    plans.push(plan);
+  });
+  return plans;
+}
+
+/**
+ * Split tasks that can be one block again: the whole length now fits in one
+ * piece, starting where the first part starts or no later than the last part
+ * would have ended.
+ */
+export function planMerges(tasks: Task[], events: CalendarEvent[], now: number, s: RescheduleSettings): UnitPlan[] {
+  const bufferMs = Math.max(0, s.bufferMin) * MIN;
+  const plans: UnitPlan[] = [];
+  let live = events;
+  for (const u of queueUnits(tasks, events, now)) {
+    if (!mergeable(u, s)) continue;
+    const own = new Set(u.blocks.map((b) => b.id));
+    const others = live.filter((e) => !own.has(e.id));
+    const [first, ...rest] = u.blocks;
+    const here = { start: first.startAt, end: first.startAt + u.durationMs };
+    const clash = expandEvents(others, here.start - DAY, here.end + DAY).some((o) => overlaps(o, here));
+    let to: Interval | null = clash ? null : here;
+    if (!to) {
+      const fit = firstFit(workingWindows(first.startAt, u.end + DAY, s), busyIntervals(others, now, u.end + DAY, bufferMs), u.durationMs, first.startAt);
+      if (fit && fit.end <= u.end) to = fit;
+    }
+    if (!to) continue;
+    plans.push({ taskId: u.taskId, title: u.title, parts: [{ eventId: first.id, from: { start: first.startAt, end: first.endAt }, to }], merged: rest.map((b) => b.id) });
+    // later tasks see this one in its merged place
+    const target = to;
+    live = others.concat([{ ...first, startAt: target.start, endAt: target.end }]);
   }
-  if (!first || !second) return [];
-  const move = (e: CalendarEvent, to: Interval): Move => ({ eventId: e.id, taskId: e.taskId, title: e.title, from: { start: e.startAt, end: e.endAt }, to, reason: "queue" });
-  return [move(b, first), move(a, second)];
+  return plans;
+}
+
+function mergeWins(wins: Interval[]): Interval[] {
+  const out: Interval[] = [];
+  for (const w of [...wins].sort((a, b) => a.start - b.start)) {
+    const last = out[out.length - 1];
+    if (last && w.start <= last.end) last.end = Math.max(last.end, w.end);
+    else out.push({ ...w });
+  }
+  return out;
+}
+
+/** First free time of `dur` at or after `notBefore`, to the minute (no rounding to the quarter hour, so a slot's exact start is kept). */
+function fitExact(wins: Interval[], busy: Interval[], dur: number, notBefore: number): Interval | null {
+  for (const win of wins) {
+    let start = Math.max(win.start, notBefore);
+    for (const b of busy) {
+      if (b.end <= start) continue;
+      if (b.start >= start + dur) break;
+      start = b.end;
+    }
+    if (start + dur <= win.end) return { start, end: start + dur };
+  }
+  return null;
 }

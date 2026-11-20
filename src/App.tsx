@@ -12,7 +12,8 @@ import { SmartReschedule } from "@/components/SmartReschedule";
 import { AutoPlanDialog } from "@/components/AutoPlanDialog";
 import { RescheduleAllDialog } from "@/components/RescheduleAll";
 import { WorkPlanDialog } from "@/components/WorkPlan";
-import { dayKey } from "@/lib/workPlan";
+import { TimeHoursDialog } from "@/components/TimeHours";
+import { dayKey, isoWeekday } from "@/lib/workPlan";
 import { AiSchedulerPanel } from "@/components/AiScheduler";
 import { useTheme } from "@/lib/useTheme";
 import { onTick } from "@/lib/ticker";
@@ -102,8 +103,8 @@ export default function App() {
         // First use of the day: ask when the user intends to work (not on top of another dialog).
         const st = nexus();
         const u = useUI.getState();
-        const busy = u.workPlan || u.taskEditor.open || u.eventEditor.open || u.command.open || u.autoPlan || u.rescheduleAll || !!u.reschedule;
-        if (st.ready && st.settings.workPlanAsk && !busy && now > u.workPlanSnooze && !(dayKey(now, st.settings.homeZone) in (st.settings.workPlans ?? {}))) {
+        const busy = u.workPlan || u.timeHours || u.taskEditor.open || u.eventEditor.open || u.command.open || u.autoPlan || u.rescheduleAll || !!u.reschedule;
+        if (st.ready && st.settings.workPlanAsk && !busy && now > u.workPlanSnooze && !(dayKey(now, st.settings.homeZone) in (st.settings.workPlans ?? {})) && !st.settings.workWeek?.[isoWeekday(now, st.settings.homeZone)]) {
           u.snoozeWorkPlan(now + 3600_000);
           u.openWorkPlan(true);
         }
@@ -231,6 +232,7 @@ export default function App() {
         <AutoPlanDialog />
         <RescheduleAllDialog />
         <WorkPlanDialog />
+        <TimeHoursDialog />
         <AiSchedulerPanel />
         <ConfirmHost />
         <Toasts />

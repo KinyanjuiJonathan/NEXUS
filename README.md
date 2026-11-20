@@ -224,6 +224,18 @@ While a task's time is under way the dashboard shows **Current task**: whether t
 
 **The queue.** *Up next* on the dashboard lists what is scheduled, in order (switch to *Priority* for the old view). Each flexible task has up and down arrows: it trades places with its neighbour, and nothing else moves. Fixed appointments carry a lock and cannot be moved from there. The same arrows are on the overlay's schedule.
 
+**One schedule everywhere.** The Dashboard, the Tasks page, the queue, the Calendar and the overlay all read the same stored tasks and calendar entries; none keeps its own copy. Creating, editing, completing, deleting, restoring, rescheduling or reordering in one place shows in the others at once and is saved straight away, so it is still there after a restart.
+
+**Task lists.** *Today*, *Upcoming*, *This Week* and *Overdue* place a task by when it is really happening: its deadline, or the time reserved for it on the calendar (a task scheduled by voice, Smart Schedule or Auto-plan often has no deadline, only its block). *Queue* is the schedule in order. *Completed*, *Archive* and *Trash* list what was finished, archived or deleted, with restore and delete-for-good. Every count is computed from the same list it sits next to.
+
+**Reordering the queue.** Drag a task by its handle (Dashboard *Up next → Queue* and *Tasks → Queue*), or use its arrows. The task takes over the start time of the place it lands in: move B above A and B starts when A was going to, with A after it. Tasks further down follow by their own lengths, inside your working hours and around fixed appointments. *Undo* is in the notice.
+
+**Split tasks.** A task that had to be split into several blocks stays one task (one row in the queue, “2 parts”). Whenever its whole length fits in one piece again, after a reorder, a reschedule or simply because something moved away, the parts are joined into one block. Its total time, clocked time, notes and everything else are kept; a task longer than the longest block allowed in Settings stays in parts on purpose.
+
+**Calendar.** Day, Week, Month and Agenda views; search and filters (tasks, appointments, overdue, completed); click the date to jump anywhere. Working hours are lit. Completed blocks are greyed and struck through, overdue ones red, the one under way glows green. Drag a block to move it, to another day, or hold it at the left or right edge to carry it into the next or previous week; drag its top or bottom edge to change its length. While dragging, the block snaps to the end or start of neighbouring blocks (a dashed guide shows the alignment) and otherwise to the quarter hour; hold **Alt** for exact minutes, **Esc** cancels. Snapping never stacks two blocks; dropping one squarely on another still asks before double-booking.
+
+**Time zone & working hours** (globe button in the top bar, any time). Pick the zone times are shown and typed in: Kenya, Texas, UK, US East/Mountain/West, Australia, or any other. Switching zones moves nothing: every task keeps its actual moment, and daylight-saving changes are handled. Below it, set hours per weekday (*Set hours*, *Day off*, or *Flexible* to follow your daily answer), and *Reschedule tasks into these hours* when you want the plan redone.
+
 **Picking dates.** Date fields (task deadline, appointment start and end, Reschedule all, the day to plan) open a calendar: click a day, set the time underneath, or use *Today*, *Tomorrow* or *In a week*.
 
 Everything is configurable under *Settings → Smart Scheduling*: on/off, auto-rescheduling, protection of fixed appointments, notifications, the default time zone, the buffer, working hours, and what morning / afternoon / evening mean.

@@ -21,6 +21,9 @@ interface UIState {
   /** "When do you intend to work?" dialog, and until when it should not open by itself. */
   workPlan: boolean;
   workPlanSnooze: number;
+  /** Time zone & working hours panel. */
+  timeHours: boolean;
+  openTimeHours(open: boolean): void;
   openWorkPlan(open: boolean): void;
   snoozeWorkPlan(until: number): void;
   openRescheduleAll(open: boolean): void;
@@ -46,6 +49,8 @@ export const useUI = create<UIState>((set) => ({
   rescheduleAll: false,
   workPlan: false,
   workPlanSnooze: 0,
+  timeHours: false,
+  openTimeHours: (timeHours) => set({ timeHours }),
   openWorkPlan: (workPlan) => set({ workPlan }),
   snoozeWorkPlan: (workPlanSnooze) => set({ workPlanSnooze }),
   openRescheduleAll: (rescheduleAll) => set({ rescheduleAll }),
