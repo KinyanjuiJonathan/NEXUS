@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, CalendarCheck, CalendarClock, Check, CheckCircle2, Flag, Lock, RotateCcw, ChevronDown, Expand, LogIn, LogOut, Mic, MousePointerClick, Pause, Pin, PinOff, Play, Plus, Shrink, X } from "lucide-react";
+import { Activity, CalendarCheck, CalendarClock, Check, CheckCircle2, Flag, Lock, RotateCcw, ChevronDown, ChevronUp, Expand, LogIn, LogOut, Mic, MousePointerClick, Pause, Pin, PinOff, Play, Plus, Shrink, X } from "lucide-react";
 import { useWorkClock } from "@/components/WorkClock";
 import type { OverlayMode, PerfMetric, ReminderItem } from "@/data/types";
 import { useNexus, nexus, getBackend } from "@/store";
@@ -10,6 +10,7 @@ import { deadlineInfo, elapsedMs, formatClock, hoursMinutes, humanDuration, prog
 import { findMissed } from "@/lib/schedule";
 import { agenda, untilLabel, type AgendaItem } from "@/lib/smart/agenda";
 import { blockClock, clockState } from "@/lib/taskClock";
+import { queueOf } from "@/lib/smart/reschedule";
 import { dayLabel } from "@/lib/smart/format";
 import { openTasks, scoreTask } from "@/lib/assistant";
 import { parseCommand } from "@/lib/voice/parser";
@@ -188,6 +189,7 @@ export default function OverlayApp() {
   );
   const next = schedule.find((i) => i.status !== "overdue") ?? null;
   const overdueCount = schedule.filter((i) => i.status === "overdue").length;
+  const queueIds = useMemo(() => queueOf(tasks, events, now).map((e) => e.id), [tasks, events, minute]); // eslint-disable-line react-hooks/exhaustive-deps
   /** Task under way: is the work clock counting, and how much of its time is clocked. */
   const taskNow = (i: AgendaItem) => {
     const e = events.find((x) => x.id === i.eventId);
@@ -436,6 +438,12 @@ export default function OverlayApp() {
                         <span className={cx("truncate flex-1", i.status === "overdue" ? "text-danger" : "text-fg")}>{i.title}</span>
                         {i.moved && <RotateCcw size={9} className="shrink-0 text-warning" aria-label="Auto-rescheduled" />}
                         {i.status === "now" && i.kind === "flexible" && taskNow(i)}
+                        {i.status === "upcoming" && i.kind === "flexible" && i.eventId && queueIds.includes(i.eventId) && (
+                          <span className="no-drag shrink-0 flex items-center" role="group" aria-label={`Move ${i.title}`}>
+                            <button type="button" disabled={queueIds[0] === i.eventId} onClick={() => void nexus().moveInQueue(i.eventId!, -1)} aria-label="Move up the queue" title="Move up: do this one earlier" className="h-4 w-4 flex items-center justify-center rounded text-muted hover:text-accent disabled:opacity-25 disabled:pointer-events-none"><ChevronUp size={11} /></button>
+                            <button type="button" disabled={queueIds[queueIds.length - 1] === i.eventId} onClick={() => void nexus().moveInQueue(i.eventId!, 1)} aria-label="Move down the queue" title="Move down: do this one later" className="h-4 w-4 flex items-center justify-center rounded text-muted hover:text-accent disabled:opacity-25 disabled:pointer-events-none"><ChevronDown size={11} /></button>
+                          </span>
+                        )}
                         <span className="shrink-0 tabular font-medium" style={{ color: itemColor(i) }}>{untilLabel(i, now)}</span>
                       </div>
                     ))}

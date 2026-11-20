@@ -1,4 +1,5 @@
 import type { TyperOptions } from "@/lib/typer/engine";
+import type { WorkPlans } from "@/lib/workPlan";
 /**
  * NEXUS domain model.
  *
@@ -110,8 +111,9 @@ export interface SchedMove {
   /**
    * "unfinished": its time passed without the task being completed. "conflict": a fixed appointment took its place.
    * "pushed": an unfinished task took its place. "bulk": the user moved every task at once.
+   * "queue": the user moved it up or down the queue.
    */
-  reason: "unfinished" | "conflict" | "pushed" | "bulk";
+  reason: "unfinished" | "conflict" | "pushed" | "bulk" | "queue";
 }
 
 export interface SchedMeta {
@@ -266,6 +268,12 @@ export interface Settings {
   texasZone: TexasZone;
   /** Zone used when a time is entered without an explicit zone. */
   homeZone: string;
+  /** When the user intends to work, per day (ISO date in the home zone). Days without one follow the latest. */
+  workPlans: WorkPlans;
+  /** Ask "when do you intend to work today?" on the first use of each day. */
+  workPlanAsk: boolean;
+  /** Hours of work in a usual day (the default length offered when asking). */
+  workDayHours: number;
   workStartHour: number;
   workEndHour: number;
   /** ISO weekdays considered working days. */

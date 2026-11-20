@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import { workHours } from "@/lib/workPlan";
 import type { NexusState } from "@/store/store";
 import type { Intent } from "./parser";
 import { matchScore } from "./parser";
@@ -237,7 +238,7 @@ export async function executeIntent(intent: Intent, deps: ExecDeps): Promise<Exe
         zone,
         zones: [KENYA_ZONE, s.settings.texasZone],
         hour12: h12,
-        wh: { zone, startHour: s.settings.workStartHour, endHour: s.settings.workEndHour, days: s.settings.workDays },
+        wh: workHours(s.settings),
       });
       const [first, ...rest] = text.split("\n");
       return { ok: true, message: first, lines: rest };

@@ -1,5 +1,6 @@
 import { KENYA_ZONE, formatWithZone, fromLocalInput, toLocalInput, zoneAbbr } from "@/lib/time";
-import { Input, Select } from "./ui";
+import { Select } from "./ui";
+import { DateTimePicker } from "./DatePicker";
 
 /**
  * Date-time input with an explicit time zone. The value is stored as UTC ms
@@ -31,11 +32,14 @@ export function ZonedDateTime({
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex gap-2">
-        <Input
-          type="datetime-local"
-          value={value != null ? toLocalInput(value, zone) : ""}
-          onChange={(e) => {
-            const ms = fromLocalInput(e.target.value, zone);
+        <DateTimePicker
+          value={value}
+          zone={zone}
+          hour12={hour12}
+          allowEmpty={allowEmpty}
+          placeholder="Pick a date and time"
+          ariaLabel="Date and time"
+          onChange={(ms) => {
             if (ms != null || allowEmpty) onChange(ms, zone);
           }}
           className="flex-1"

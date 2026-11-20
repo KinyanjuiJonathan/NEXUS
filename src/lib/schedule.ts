@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import { workWindows, type WorkHours } from "@/lib/workPlan";
 import type { CalendarEvent, Occurrence, Task } from "@/data/types";
 import { occurrencesBetween } from "./recurrence";
 
@@ -60,13 +61,7 @@ export function conflictPairs(events: CalendarEvent[], from: number, to: number)
   return pairs;
 }
 
-export interface WorkingHours {
-  zone: string;
-  startHour: number;
-  endHour: number;
-  /** ISO weekdays (1 = Monday). */
-  days: number[];
-}
+export type WorkingHours = WorkHours;
 
 /** Merge overlapping busy intervals. */
 export function mergeIntervals(list: Interval[]): Interval[] {
@@ -104,11 +99,10 @@ export function findFreeSlots(
     })),
   );
   const slots: Interval[] = [];
-  let day = DateTime.fromMillis(from, { zone: wh.zone }).startOf("day");
-  for (let d = 0; d <= horizonDays && slots.length < maxSlots; d++, day = day.plus({ days: 1 })) {
-    if (!wh.days.includes(day.weekday)) continue;
-    const winStart = Math.max(day.set({ hour: wh.startHour }).toMillis(), startAligned);
-    const winEnd = day.set({ hour: wh.endHour }).toMillis();
+  for (const win of workWindows(from, horizonEnd + DAY, wh)) {
+    if (slots.length >= maxSlots) break;
+    const winStart = Math.max(win.start, startAligned);
+    const winEnd = win.end;
     let cursor = winStart;
     let today = 0;
     for (const b of [...busy.filter((b) => b.end > winStart && b.start < winEnd), { start: winEnd, end: winEnd }]) {

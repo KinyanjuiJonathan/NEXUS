@@ -87,9 +87,9 @@ export function usageLevel(value: number | null | undefined, t: Thresholds = DEF
   return RANK[Math.min(prev, Math.max(raw, held))];
 }
 
-/** Metrics that are coloured by level, and from which settings. Others keep their own colour for now. */
+/** Usage metrics (CPU, RAM, GPU, VRAM) are coloured by level, all from the same thresholds. FPS and temperature keep their own colour. */
 export function thresholdsFor(metric: PerfMetric, configured: { cpu: Thresholds } | undefined): Thresholds | null {
-  return metric === "cpu" ? configured?.cpu ?? DEFAULT_THRESHOLDS : null;
+  return metric === "cpu" || metric === "ram" || metric === "gpu" || metric === "vram" ? configured?.cpu ?? DEFAULT_THRESHOLDS : null;
 }
 
 /**

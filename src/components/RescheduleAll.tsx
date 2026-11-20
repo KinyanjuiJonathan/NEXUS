@@ -6,6 +6,7 @@ import { useUI } from "@/store/ui";
 import { planBulk, type BulkTarget } from "@/lib/smart/reschedule";
 import { formatWithZone } from "@/lib/time";
 import { Button, Input, Modal, cx } from "./ui";
+import { DateTimePicker } from "./DatePicker";
 
 const HOUR = 3600_000;
 const SHIFTS: { label: string; ms: number }[] = [
@@ -30,22 +31,18 @@ export function RescheduleAllDialog() {
   const [mode, setMode] = useState<"shift" | "from">("shift");
   const [byMs, setByMs] = useState(HOUR);
   const [custom, setCustom] = useState("");
-  const [at, setAt] = useState("");
+  const [atMs, setAtMs] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     // default "from": tomorrow at the start of the working day
-    setAt(DateTime.now().setZone(zone).plus({ days: 1 }).set({ hour: settings.workStartHour, minute: 0, second: 0, millisecond: 0 }).toFormat("yyyy-LL-dd'T'HH:mm"));
+    setAtMs(DateTime.now().setZone(zone).plus({ days: 1 }).set({ hour: settings.workStartHour, minute: 0, second: 0, millisecond: 0 }).toMillis());
     setMode("shift");
     setByMs(HOUR);
     setCustom("");
   }, [open, zone, settings.workStartHour]);
 
-  const atMs = useMemo(() => {
-    const d = DateTime.fromISO(at, { zone });
-    return d.isValid ? d.toMillis() : null;
-  }, [at, zone]);
   const customMs = custom.trim() ? Math.round(Number(custom) * 60_000) : null;
   const shiftMs = customMs != null ? customMs : byMs;
   const target: BulkTarget | null =
@@ -120,11 +117,11 @@ export function RescheduleAllDialog() {
             </label>
           </div>
         ) : (
-          <label className="flex flex-col gap-1.5 text-xs text-muted">
+          <div className="flex flex-col gap-1.5 text-xs text-muted">
             New start ({zone})
-            <Input type="datetime-local" value={at} onChange={(e) => setAt(e.target.value)} className="w-64" aria-label="New start date and time" />
+            <DateTimePicker value={atMs} zone={zone} hour12={settings.hour12} min={Date.now()} onChange={setAtMs} className="w-72" ariaLabel="New start date and time" />
             {atMs != null && atMs <= Date.now() - 60_000 && <span className="text-warning">Pick a time in the future.</span>}
-          </label>
+          </div>
         )}
 
         <div>

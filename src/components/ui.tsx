@@ -250,7 +250,8 @@ export function Modal({ open, onClose, title, children, footer, width = 560, ico
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      // An open popup (date picker) inside the dialog takes Esc first.
+      if (e.key === "Escape" && !document.querySelector("[data-popover]")) {
         e.stopPropagation();
         onClose();
       }

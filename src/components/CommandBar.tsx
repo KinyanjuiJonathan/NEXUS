@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { workHours } from "@/lib/workPlan";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, Command, CornerDownLeft, Loader2, Mic, MicOff, Plus, Sparkles, X } from "lucide-react";
 import { useNexus, nexus } from "@/store";
@@ -102,7 +103,7 @@ export function useCommandRunner() {
       const r = await aiRequest<{ title: string; dueLocal: string | null; zone: string | null; priority: string | null; estimateMin: number | null; category: string | null }>(
         "interpret",
         text,
-        aiContext(s.tasks, s.events, Date.now(), s.settings.homeZone, s.settings.texasZone, { zone: s.settings.homeZone, startHour: s.settings.workStartHour, endHour: s.settings.workEndHour, days: s.settings.workDays }),
+        aiContext(s.tasks, s.events, Date.now(), s.settings.homeZone, s.settings.texasZone, workHours(s.settings)),
       );
       const zone = r.zone || s.settings.homeZone;
       const due = r.dueLocal ? fromLocalInput(r.dueLocal.slice(0, 16), zone) : null;

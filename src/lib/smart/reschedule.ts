@@ -36,7 +36,7 @@ export interface Move {
   from: Interval;
   /** New time, or null when NEXUS will not move it by itself. */
   to: Interval | null;
-  reason: "unfinished" | "conflict" | "pushed" | "bulk";
+  reason: "unfinished" | "conflict" | "pushed" | "bulk" | "queue";
   /** Why it was not moved: it would miss its deadline, it has been moved too often, nothing is free, or its planned time was clocked in full. */
   problem?: "deadline" | "limit" | "nofit" | "worked";
   /** Time clocked on the task so far and the total it was given (unfinished blocks only). */
@@ -245,4 +245,46 @@ export function planDisplaced(fixed: CalendarEvent, tasks: Task[], events: Calen
     (e) => e.id !== fixed.id && !e.deletedAt && !e.fixed && !e.recurrence && e.endAt > now && taken.some((o) => overlaps(o, { start: e.startAt, end: e.endAt })),
   );
   return place(hit.map((event) => ({ event, task: event.taskId ? byId.get(event.taskId) ?? null : null })), events, now, s, "conflict");
+}
+
+/** The queue the user can rearrange: flexible task blocks still to come, earliest first. */
+export function queueOf(tasks: Task[], events: CalendarEvent[], now: number): CalendarEvent[] {
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  return events
+    .filter((e) => !e.deletedAt && !e.fixed && !e.recurrence && !!e.taskId && e.startAt > now && openTask(byId.get(e.taskId)))
+    .sort((a, b) => a.startAt - b.startAt);
+}
+
+/**
+ * Move a task one place up (-1) or down (+1) the queue: it trades places with
+ * its neighbour. Together they keep the same stretch of time, so nothing else
+ * moves; if a fixed appointment sits in that stretch, each takes the first
+ * free time instead. Empty when it is already first/last or nothing fits.
+ */
+export function planQueueMove(tasks: Task[], events: CalendarEvent[], now: number, s: RescheduleSettings, eventId: string, dir: -1 | 1): Move[] {
+  const queue = queueOf(tasks, events, now);
+  const i = queue.findIndex((e) => e.id === eventId);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= queue.length) return [];
+  const [a, b] = dir < 0 ? [queue[j], queue[i]] : [queue[i], queue[j]]; // a is earlier; b goes first now
+  const durA = a.endAt - a.startAt;
+  const durB = b.endAt - b.startAt;
+  const others = events.filter((e) => e.id !== a.id && e.id !== b.id);
+  let first: Interval | null = { start: a.startAt, end: a.startAt + durB };
+  let second: Interval | null = { start: b.endAt - durA, end: b.endAt };
+  const clash = (x: Interval) => expandEvents(others, x.start - DAY, x.end + DAY).some((o) => overlaps(o, x));
+  if (second.start < first.end || clash(first) || clash(second)) {
+    const bufferMs = Math.max(0, s.bufferMin) * MIN;
+    const busy = busyIntervals(others, now, now + HORIZON + DAY, bufferMs);
+    const win = [{ start: a.startAt, end: a.startAt + HORIZON }];
+    first = firstFit(win, busy, durB, Math.max(now, a.startAt));
+    if (first) {
+      busy.push({ start: first.start - bufferMs, end: first.end + bufferMs });
+      busy.sort((x, y) => x.start - y.start);
+    }
+    second = first ? firstFit(win, busy, durA, first.end) : null;
+  }
+  if (!first || !second) return [];
+  const move = (e: CalendarEvent, to: Interval): Move => ({ eventId: e.id, taskId: e.taskId, title: e.title, from: { start: e.startAt, end: e.endAt }, to, reason: "queue" });
+  return [move(b, first), move(a, second)];
 }

@@ -3,7 +3,7 @@ import type { PerfMetric } from "@/data/types";
 import type { PerfSnapshot } from "@/lib/platform";
 import { formatBytes } from "@/lib/overlayGeometry";
 import { cx } from "@/components/ui";
-import { DEFAULT_THRESHOLDS, LEVEL_COLOR, LEVEL_LABEL, useUsageLevel, type Thresholds } from "@/lib/perf";
+import { DEFAULT_THRESHOLDS, LEVEL_COLOR, LEVEL_LABEL, useUsageLevel, type Thresholds, type UsageLevel } from "@/lib/perf";
 
 const short = (s: string) => s.replace(" GB", "G").replace(" MB", "M");
 const pct = (v: number | null | undefined) => (v == null ? "—" : `${Math.round(v)}%`);
@@ -67,6 +67,12 @@ export function PerfStrip({
     (snap && snap.cpuTemp == null ? " — CPU temperature isn't exposed by this PC's firmware without admin rights (see README)" : "");
   const ramPct = snap && snap.ramTotal ? snap.ramPercent ?? (snap.ramUsed / snap.ramTotal) * 100 : null;
   const vramPct = snap && snap.vramUsed != null && snap.vramTotal ? (snap.vramUsed / snap.vramTotal) * 100 : null;
+  // RAM, GPU and VRAM use the same green / yellow / red levels as the CPU.
+  const t = thresholds?.cpu ?? DEFAULT_THRESHOLDS;
+  const gpuLevel = useUsageLevel(snap?.gpu, t);
+  const vramLevel = useUsageLevel(vramPct, t);
+  const ramLevel = useUsageLevel(ramPct, t);
+  const lc = (l: UsageLevel | null) => (l ? LEVEL_COLOR[l] : undefined);
   const cells: { key: PerfMetric; label: string; value: React.ReactNode; sub?: string; title: string; t?: string; color?: string }[] = [
     {
       key: "cpu",
@@ -75,7 +81,7 @@ export function PerfStrip({
       title: `Total CPU usage (same figure as Task Manager)${cpuLevel ? ` — ${LEVEL_LABEL[cpuLevel].toLowerCase()}` : ""}`,
       color: cpuLevel ? LEVEL_COLOR[cpuLevel] : undefined,
     },
-    { key: "gpu", label: "GPU", value: pct(snap?.gpu), title: snap?.gpuName ? `${snap.gpuName} — busiest engine` : "GPU usage", t: tone(snap?.gpu) },
+    { key: "gpu", label: "GPU", value: pct(snap?.gpu), title: snap?.gpuName ? `${snap.gpuName} — busiest engine` : "GPU usage", t: tone(snap?.gpu), color: lc(gpuLevel) },
     {
       key: "vram",
       label: "VRAM",
@@ -83,6 +89,7 @@ export function PerfStrip({
       sub: snap?.vramTotal ? `/ ${short(formatBytes(snap.vramTotal))}` : undefined,
       title: "Dedicated video memory in use",
       t: tone(vramPct),
+      color: lc(vramLevel),
     },
     {
       key: "ram",
@@ -91,6 +98,7 @@ export function PerfStrip({
       sub: snap ? `${short(formatBytes(snap.ramUsed))}/${short(formatBytes(snap.ramTotal))}` : undefined,
       title: snap ? `System memory in use: ${formatBytes(snap.ramUsed)} of ${formatBytes(snap.ramTotal)} (${pct(ramPct)})` : "System memory in use",
       t: tone(ramPct),
+      color: lc(ramLevel),
     },
   ];
   if (showFps) cells.push({ key: "fps", label: "FPS", value: fps.value, title: fps.title });

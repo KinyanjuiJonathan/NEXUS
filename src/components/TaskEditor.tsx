@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { workHours } from "@/lib/workPlan";
 import { CalendarPlus, Check, GripVertical, ListChecks, Loader2, Plus, Sparkles, Trash2, Wand2, X } from "lucide-react";
 import { PRIORITIES, type Priority, type Subtask, type Task } from "@/data/types";
 import { useNexus, nexus } from "@/store";
@@ -100,7 +101,7 @@ export function TaskEditor() {
     if (!existing) return;
     const s = nexus();
     const dur = (d.estimateMin ?? 60) * 60_000;
-    const [slot] = findFreeSlots(s.events, dur, Date.now(), { zone: settings.homeZone, startHour: settings.workStartHour, endHour: settings.workEndHour, days: settings.workDays }, { maxSlots: 1 });
+    const [slot] = findFreeSlots(s.events, dur, Date.now(), workHours(settings), { maxSlots: 1 });
     close();
     useUI.getState().openEvent(null, { startAt: slot?.start ?? Date.now(), endAt: (slot?.start ?? Date.now()) + dur, taskId: existing.id, title: d.title });
   };

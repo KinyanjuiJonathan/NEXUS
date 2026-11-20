@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { workHours } from "@/lib/workPlan";
 import { CalendarClock, Wand2 } from "lucide-react";
 import { useNexus, nexus } from "@/store";
 import { useUI } from "@/store/ui";
@@ -19,7 +20,7 @@ export function SmartReschedule() {
   const options = useMemo(
     () =>
       item
-        ? smartRescheduleOptions(item, events, { zone: settings.homeZone, startHour: settings.workStartHour, endHour: settings.workEndHour, days: settings.workDays }, Date.now(), 6)
+        ? smartRescheduleOptions(item, events, workHours(settings), Date.now(), 6)
         : [],
     [item, events, settings],
   );

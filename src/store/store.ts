@@ -25,8 +25,9 @@ import { nextOccurrence } from "@/lib/recurrence";
 import * as cd from "@/lib/countdown";
 import { reminderForTimer, remindersForEvent, remindersForTask } from "@/lib/reminders";
 import { activeSession, openPause } from "@/lib/work";
-import { planBulk, planDisplaced, planUnfinished, type BulkTarget, type Move, type RescheduleSettings } from "@/lib/smart/reschedule";
+import { planBulk, planDisplaced, planQueueMove, planUnfinished, type BulkTarget, type Move, type RescheduleSettings } from "@/lib/smart/reschedule";
 import { blockClock, currentBlock, unclockedMs } from "@/lib/taskClock";
+import { dayKey, prunePlans, workHours, type DayPlan } from "@/lib/workPlan";
 import type { ScheduleRequest } from "@/lib/smart/parse";
 import type { Interval } from "@/lib/schedule";
 import { planTasks, type PlanBlock, type PlanOptions, type PlanResult } from "@/lib/planner";
@@ -40,7 +41,11 @@ export const DEFAULT_SETTINGS: Settings = {
   homeZone: localZone(),
   workStartHour: 9,
   workEndHour: 17,
-  workDays: [1, 2, 3, 4, 5],
+  // Every day can be a working day; the daily "when do you intend to work?" answer decides the hours.
+  workDays: [1, 2, 3, 4, 5, 6, 7],
+  workPlans: {},
+  workPlanAsk: true,
+  workDayHours: 8,
   defaultReminders: [15, 0],
   notificationSound: true,
   snoozeMinutes: 10,
@@ -211,8 +216,12 @@ export interface NexusState {
   autoReschedule(): Promise<Move[]>;
   /** Move every open task's reserved time at once: later by a set amount, or starting again from a moment. Fixed appointments stay. */
   rescheduleAll(target: BulkTarget): Promise<Move[]>;
+  /** Move a task one place up (-1) or down (+1) the queue of upcoming flexible tasks. False when it cannot move. */
+  moveInQueue(eventId: string, dir: -1 | 1): Promise<boolean>;
   /** "I was working": count the time the clock skipped during this task's block (inactivity, or not being clocked in). Returns the ms counted. */
   countAway(eventId: string): Promise<number>;
+  /** Say when you intend to work on a day (ISO date in the home zone): hours, a day off, or null to forget the answer. */
+  setWorkPlan(day: string, plan: DayPlan | null): Promise<void>;
   /** Empty the history log. Tasks, appointments, work sessions and statistics are kept. */
   clearHistory(): Promise<void>;
 
@@ -572,7 +581,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
 
     const wh = () => {
       const s = get().settings;
-      return { zone: s.homeZone, startHour: s.workStartHour, endHour: s.workEndHour, days: s.workDays };
+      return workHours(s);
     };
 
     return {
@@ -1106,6 +1115,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           workStartHour: s.workStartHour,
           workEndHour: s.workEndHour,
           workDays: s.workDays,
+          plans: s.workPlans,
           bufferMin: s.planBufferMin,
           periods: s.smartPeriods,
           protectFixed: s.smartProtectFixed,
@@ -1193,6 +1203,24 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         return moves;
       },
 
+      async moveInQueue(eventId, dir) {
+        const moves = planQueueMove(get().tasks, get().events, now(), get().slotSettings(), eventId, dir);
+        if (!moves.length) return false;
+        const s = get().settings;
+        for (const m of moves) {
+          const e = get().events.find((x) => x.id === m.eventId);
+          if (!e || !m.to) continue;
+          const ts = now();
+          const sched = e.sched ?? {};
+          const history = [...(sched.history ?? []), { at: ts, from: [e.startAt, e.endAt] as [number, number], to: [m.to.start, m.to.end] as [number, number], reason: "queue" as const }].slice(-20);
+          // The user chose this order: the block is theirs again.
+          await saveEvent({ ...e, startAt: m.to.start, endAt: m.to.end, sched: { ...sched, origin: "user", moves: 0, history, attention: null }, updatedAt: ts });
+        }
+        const me = moves.find((m) => m.eventId === eventId)!;
+        get().log("task_rescheduled", me.title, `Moved ${dir < 0 ? "up" : "down"} the queue → ${formatWithZone(me.to!.start, s.homeZone, s.hour12)}`, me.taskId ?? me.eventId);
+        return true;
+      },
+
       async countAway(eventId) {
         const e = get().events.find((x) => x.id === eventId);
         if (!e || e.deletedAt) return 0;
@@ -1231,6 +1259,16 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         get().log("time_counted", cur.title, `${humanDuration(counted)} away from the computer counted as work`, cur.taskId ?? cur.id);
         get().toast({ kind: "success", title: "Counted as work", body: `${humanDuration(counted)} added to “${cur.title}”.`, ttl: 5000 });
         return counted;
+      },
+
+      async setWorkPlan(day, plan) {
+        const s = get().settings;
+        const next = { ...prunePlans(s.workPlans ?? {}, now(), s.homeZone) };
+        if (plan) next[day] = plan;
+        else delete next[day];
+        await get().setSetting("workPlans", next);
+        // Tasks left behind by the old hours are fitted into the new ones.
+        if (day === dayKey(now(), s.homeZone)) void get().autoReschedule().catch(() => {});
       },
 
       async clearHistory() {

@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 import type { CalendarEvent, DayPeriod, Occurrence } from "@/data/types";
 import { DAY, MIN, expandEvents, findConflicts, mergeIntervals, type Interval } from "@/lib/schedule";
 import type { ScheduleRequest } from "./parse";
+import { workWindows, type WorkPlans } from "@/lib/workPlan";
 
 /**
  * Finds a free time for a scheduling request.
@@ -19,6 +20,8 @@ export interface SlotSettings {
   /** ISO weekdays (1 = Monday). */
   workDays: number[];
   bufferMin: number;
+  /** Per-day work plans ("when I intend to work"), by ISO date in the home zone. */
+  plans?: WorkPlans;
   periods: { morning: [number, number]; afternoon: [number, number]; evening: [number, number] };
 }
 
@@ -100,9 +103,7 @@ export function fitNear(wins: Interval[], busy: Interval[], dur: number, target:
 
 /** Working hours of each working day (home zone) overlapping [from, to). */
 export function workingWindows(from: number, to: number, s: SlotSettings): Interval[] {
-  return daysIn(from, to, s.homeZone)
-    .filter((d) => s.workDays.includes(d.weekday))
-    .map((d) => hoursOf(d, [s.workStartHour, s.workEndHour]));
+  return workWindows(from, to, { zone: s.homeZone, startHour: s.workStartHour, endHour: s.workEndHour, days: s.workDays, plans: s.plans });
 }
 
 export interface Resolution {

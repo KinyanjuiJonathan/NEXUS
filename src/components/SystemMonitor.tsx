@@ -3,7 +3,7 @@ import { Cpu } from "lucide-react";
 import type { PerfMetric } from "@/data/types";
 import { useNexus } from "@/store";
 import { native } from "@/lib/platform";
-import { LEVEL_COLOR, LEVEL_LABEL, availableMetrics, formatMetric, metricValue, usePerf, usePerfHistory, useUsageLevel } from "@/lib/perf";
+import { LEVEL_COLOR, LEVEL_LABEL, availableMetrics, formatMetric, metricValue, usePerf, usePerfHistory, useUsageLevel, type UsageLevel } from "@/lib/perf";
 import { formatBytes } from "@/lib/overlayGeometry";
 import { PerfGraph } from "./PerfGraph";
 import { Card, cx } from "./ui";
@@ -39,6 +39,13 @@ export function SystemMonitor() {
   const history = usePerfHistory();
   const [metric, setMetric] = useState<PerfMetric>("cpu");
   const cpuLevel = useUsageLevel(snap?.cpu, thresholds.cpu);
+  // RAM, GPU and VRAM use the same green / yellow / red levels as the CPU.
+  const levels: Partial<Record<PerfMetric, UsageLevel | null>> = {
+    cpu: cpuLevel,
+    ram: useUsageLevel(metricValue(snap, "ram"), thresholds.cpu),
+    gpu: useUsageLevel(metricValue(snap, "gpu"), thresholds.cpu),
+    vram: useUsageLevel(metricValue(snap, "vram"), thresholds.cpu),
+  };
   if (!on || !available) return null;
   const metrics = availableMetrics(snap, false, true);
   const shown = metrics.includes(metric) ? metric : "cpu";
@@ -62,7 +69,7 @@ export function SystemMonitor() {
       <div className="px-4 pt-2.5 pb-4 grid gap-2.5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] items-stretch">
         <div className="grid gap-2 self-start" style={{ gridTemplateColumns: `repeat(${metrics.length}, minmax(0, 1fr))` }}>
           {metrics.map((m) => (
-            <Tile key={m} label={m === "temp" ? "TEMP" : m.toUpperCase()} value={formatMetric(v(m), m, unit)} sub={subs[m]} hot={m !== "temp" && m !== "cpu" && hot(m)} active={m === shown} onClick={() => setMetric(m)} color={m === "cpu" && cpuLevel ? LEVEL_COLOR[cpuLevel] : undefined} percent={m === "cpu" ? v(m) : undefined} />
+            <Tile key={m} label={m === "temp" ? "TEMP" : m.toUpperCase()} value={formatMetric(v(m), m, unit)} sub={subs[m]} hot={m !== "temp" && !levels[m] && hot(m)} active={m === shown} onClick={() => setMetric(m)} color={levels[m] ? LEVEL_COLOR[levels[m]!] : undefined} percent={levels[m] ? v(m) : undefined} />
           ))}
         </div>
         <PerfGraph history={history} metric={shown} metrics={metrics} onMetric={setMetric} unit={unit} height={84} thresholds={thresholds} />

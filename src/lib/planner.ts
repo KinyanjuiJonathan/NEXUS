@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import { workWindows } from "@/lib/workPlan";
 import type { CalendarEvent, Priority, Task } from "@/data/types";
 import { expandEvents, mergeIntervals, type Interval, type WorkingHours, MIN, DAY } from "./schedule";
 
@@ -52,11 +53,9 @@ export function freeWorkingIntervals(events: CalendarEvent[], from: number, wh: 
   const end = DateTime.fromMillis(from, { zone: wh.zone }).startOf("day").plus({ days: horizonDays + 1 }).toMillis();
   const busy = mergeIntervals(expandEvents(events, from - DAY, end + DAY).map((o) => ({ start: o.start - bufferMs, end: o.end + bufferMs })));
   const out: Interval[] = [];
-  let day = DateTime.fromMillis(from, { zone: wh.zone }).startOf("day");
-  for (let d = 0; d <= horizonDays; d++, day = day.plus({ days: 1 })) {
-    if (!wh.days.includes(day.weekday)) continue;
-    let ws = Math.max(day.set({ hour: wh.startHour }).toMillis(), start);
-    const we = Math.min(wh.endHour >= 24 ? day.plus({ days: 1 }).toMillis() : day.set({ hour: wh.endHour }).toMillis(), end);
+  for (const win of workWindows(from, end, wh)) {
+    let ws = Math.max(win.start, start);
+    const we = Math.min(win.end, end);
     if (we <= ws) continue;
     for (const b of busy) {
       if (b.end <= ws || b.start >= we) continue;

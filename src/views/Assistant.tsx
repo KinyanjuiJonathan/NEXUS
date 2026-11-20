@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { workHours } from "@/lib/workPlan";
 import { Brain, CalendarClock, ListChecks, Loader2, Shuffle, Sparkles, Target, TriangleAlert, Wand2 } from "lucide-react";
 import { useNexus, nexus } from "@/store";
 import { useUI } from "@/store/ui";
@@ -23,7 +24,7 @@ export default function Assistant() {
   const [projectId, setProjectId] = useState("");
   const [ask, setAsk] = useState("");
   const zone = settings.homeZone;
-  const wh = { zone, startHour: settings.workStartHour, endHour: settings.workEndHour, days: settings.workDays };
+  const wh = workHours(settings);
   const aiOn = settings.aiEnabled && settings.aiConsent;
   const open = openTasks(tasks);
   const s = nexus();

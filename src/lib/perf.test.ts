@@ -120,6 +120,8 @@ describe("usage levels", () => {
   it("applies to CPU now and is ready for other metrics", () => {
     expect(thresholdsFor("cpu", { cpu: { elevated: 50, high: 75 } })).toEqual({ elevated: 50, high: 75 });
     expect(thresholdsFor("cpu", undefined)).toEqual(DEFAULT_THRESHOLDS);
-    expect(thresholdsFor("ram", { cpu: DEFAULT_THRESHOLDS })).toBeNull();
+    for (const m of ["ram", "gpu", "vram"] as const) expect(thresholdsFor(m, { cpu: { elevated: 50, high: 75 } })).toEqual({ elevated: 50, high: 75 });
+    expect(thresholdsFor("temp", { cpu: DEFAULT_THRESHOLDS })).toBeNull();
+    expect(thresholdsFor("fps", { cpu: DEFAULT_THRESHOLDS })).toBeNull();
   });
 });

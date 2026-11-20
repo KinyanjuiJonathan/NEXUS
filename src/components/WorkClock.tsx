@@ -7,6 +7,8 @@ import { activeSession, openPause, pausedMs, workedBetween, workedMs } from "@/l
 import { formatClock, hoursMinutes as humanDuration } from "@/lib/countdown";
 import { formatTime } from "@/lib/time";
 import { Button, Card, cx } from "./ui";
+import { useUI } from "@/store/ui";
+import { dayKey, hoursFor, workHours } from "@/lib/workPlan";
 
 /** Work clock state for any component. */
 export function useWorkClock() {
@@ -31,6 +33,7 @@ export function WorkClockCard({ className }: { className?: string }) {
     () => sessions.filter((w) => (w.endedAt ?? now) >= dayStart).reduce((a, w) => a + pausedMs(w, now, "idle"), 0),
     [sessions, dayStart, now],
   );
+  const plan = hoursFor(dayKey(now, settings.homeZone), workHours(settings));
   const held = settings.workAuto && settings.workAutoHoldDay === DateTime.fromMillis(now, { zone: settings.homeZone }).toISODate();
   const working = !!active && !pause;
   const status = !active
@@ -68,6 +71,14 @@ export function WorkClockCard({ className }: { className?: string }) {
             {active && <div>Since {formatTime(active.startedAt, settings.homeZone, settings.hour12)}</div>}
             {active && sessionMs !== todayMs && <div>This session {humanDuration(sessionMs)}</div>}
             {idleToday > 60_000 && <div className="text-muted">Away {humanDuration(idleToday)}, not counted</div>}
+            <button
+              type="button"
+              className="block ml-auto text-accent hover:underline whitespace-nowrap"
+              title="When do you intend to work today? Tasks are planned inside these hours."
+              onClick={() => useUI.getState().openWorkPlan(true)}
+            >
+              {plan ? `Hours ${formatTime(plan.start, settings.homeZone, settings.hour12)} – ${formatTime(plan.end, settings.homeZone, settings.hour12)}` : "Day off · set hours"}
+            </button>
           </div>
         </div>
         <div className="flex gap-2 mt-auto">

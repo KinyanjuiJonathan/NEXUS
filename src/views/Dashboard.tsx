@@ -15,11 +15,12 @@ import { GettingStarted } from "@/components/GettingStarted";
 import { WorkClockCard } from "@/components/WorkClock";
 import { SystemMonitor } from "@/components/SystemMonitor";
 import { CurrentTaskStatus } from "@/components/TaskStatus";
+import { ScheduleQueue } from "@/components/ScheduleQueue";
 import { currentBlock } from "@/lib/taskClock";
 import { AiScheduleButton } from "@/components/AiScheduler";
 import { BarChart } from "@/components/Charts";
 import { TaskRow } from "@/components/TaskRow";
-import { Button, Card, CardHeader, EmptyState, ProgressBar, ProgressRing, Stat } from "@/components/ui";
+import { Button, Card, CardHeader, EmptyState, ProgressBar, ProgressRing, Segmented, Stat } from "@/components/ui";
 
 function greeting(hour: number) {
   return hour < 5 ? "Working late" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
@@ -33,6 +34,21 @@ export default function Dashboard() {
   const zone = settings.homeZone;
   const minute = Math.floor(now / 60_000);
   const [detail, setDetail] = useState<StatKind | null>(null);
+  const [upMode, setUpModeState] = useState<"queue" | "priority">(() => {
+    try {
+      return localStorage.getItem("nexus.upnext") === "priority" ? "priority" : "queue";
+    } catch {
+      return "queue";
+    }
+  });
+  const setUpMode = (m: "queue" | "priority") => {
+    setUpModeState(m);
+    try {
+      localStorage.setItem("nexus.upnext", m);
+    } catch {
+      /* not essential */
+    }
+  };
   const stats = useMemo(() => dayStats(tasks, focusSessions, now, zone, events), [tasks, focusSessions, events, minute, zone]); // eslint-disable-line react-hooks/exhaustive-deps
   const week = useMemo(() => history(tasks, focusSessions, now, zone, 7), [tasks, focusSessions, minute, zone]); // eslint-disable-line react-hooks/exhaustive-deps
   const next = useMemo(() => nextAppointment(events, now), [events, minute]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -143,9 +159,20 @@ export default function Dashboard() {
       {/* Level 5: what is next, and the last seven days. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)] gap-4 items-stretch">
         <Card className="lg:col-span-2 xl:col-span-1">
-          <CardHeader title="Up next" icon={<ListTodo size={16} />} right={<Button size="sm" variant="ghost" onClick={() => ui.setView("tasks")}>All tasks</Button>} />
+          <CardHeader
+            title="Up next"
+            icon={<ListTodo size={16} />}
+            right={
+              <div className="flex items-center gap-1.5">
+                <Segmented size="sm" value={upMode} onChange={setUpMode} options={[{ value: "queue", label: "Queue", title: "In the order it is scheduled; use the arrows to move a task up or down" }, { value: "priority", label: "Priority", title: "Open tasks, most important first" }]} />
+                <Button size="sm" variant="ghost" onClick={() => ui.setView("tasks")}>All tasks</Button>
+              </div>
+            }
+          />
           <div className="px-4 pb-4 flex flex-col gap-2">
-            {upNext.length ? (
+            {upMode === "queue" ? (
+              <ScheduleQueue now={now} />
+            ) : upNext.length ? (
               upNext.map((t) => (
                 <TaskRow key={t.id} task={t} categories={categories} now={now} hour12={settings.hour12} texasZone={settings.texasZone} warnMin={settings.deadlineWarningMin} active={t.id === settings.activeTaskId} />
               ))

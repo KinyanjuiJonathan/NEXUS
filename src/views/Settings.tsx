@@ -14,6 +14,7 @@ import {
 import { voiceSupported, webSpeechAvailable } from "@/lib/voice/engine";
 import { clampOpacity } from "@/lib/overlayGeometry";
 import { Button, Card, CardHeader, Field, Input, Kbd, Segmented, Select, Toggle, cx } from "@/components/ui";
+import { useUI } from "@/store/ui";
 import { ReminderPicker } from "@/components/ReminderPicker";
 import { confirm } from "@/components/Confirm";
 
@@ -172,7 +173,19 @@ export default function SettingsView() {
             </div>
           </Field>
         </div>
-        <p className="text-[11px] text-muted">Smart Reschedule and free-slot suggestions only use these hours (in your home zone). Kenya = {KENYA_ZONE} (EAT, no DST).</p>
+        <p className="text-[11px] text-muted">These fixed hours are only the fallback until you have said when you intend to work. After that, each day uses your answer for it, or your latest answer. Kenya = {KENYA_ZONE} (EAT, no DST).</p>
+        <Toggle
+          checked={settings.workPlanAsk}
+          onChange={(v) => set("workPlanAsk", v)}
+          label="Ask when I intend to work"
+          description="On the first use of each day NEXUS asks when you plan to work: a start in Kenya or Texas time and roughly how many hours. Any day of the week and any hour is fine; tasks are planned inside your answer."
+        />
+        <div className="flex flex-wrap items-center gap-3">
+          <Button size="sm" variant="outline" onClick={() => useUI.getState().openWorkPlan(true)}>Set working hours for a day…</Button>
+          <span className="text-sm">Usual length of a working day</span>
+          <Input className="!w-20" type="number" min={1} max={24} step={0.5} aria-label="Hours in a usual working day" value={settings.workDayHours} onChange={(e) => set("workDayHours", Math.max(1, Math.min(24, Number(e.target.value) || 8)))} />
+          <span className="text-sm">hours</span>
+        </div>
       </Section>
 
       <Section id="reminders" title="Reminders & notifications" icon={<Bell size={16} />}>
@@ -312,12 +325,12 @@ export default function SettingsView() {
           </Select>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm">CPU colour: yellow from</span>
+          <span className="text-sm">Usage colour: yellow from</span>
           <Input className="!w-20" type="number" min={1} max={98} aria-label="Elevated CPU threshold" value={settings.perfThresholds.cpu.elevated} onChange={(e) => set("perfThresholds", { cpu: { elevated: Math.max(1, Math.min(settings.perfThresholds.cpu.high - 1, Number(e.target.value) || 60)), high: settings.perfThresholds.cpu.high } })} />
           <span className="text-sm">%, red from</span>
           <Input className="!w-20" type="number" min={2} max={100} aria-label="High CPU threshold" value={settings.perfThresholds.cpu.high} onChange={(e) => set("perfThresholds", { cpu: { elevated: settings.perfThresholds.cpu.elevated, high: Math.max(settings.perfThresholds.cpu.elevated + 1, Math.min(100, Number(e.target.value) || 80)) } })} />
           <span className="text-sm">%</span>
-          <span className="text-xs text-muted">Green below that. Used for the CPU figure and its graph, in the overlay and on the dashboard.</span>
+          <span className="text-xs text-muted">Green below that. Used for the CPU, RAM, GPU and VRAM figures and their graphs, in the overlay and on the dashboard.</span>
         </div>
         <Toggle checked={settings.dashboardPerf} onChange={(v) => set("dashboardPerf", v)} label="Show the system monitor on the dashboard" description="The same live readings in the main window, sampled only while the dashboard is open." />
         <Toggle

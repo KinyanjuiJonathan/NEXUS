@@ -18,6 +18,11 @@ interface UIState {
   reschedule: MissedItem | null;
   autoPlan: boolean;
   rescheduleAll: boolean;
+  /** "When do you intend to work?" dialog, and until when it should not open by itself. */
+  workPlan: boolean;
+  workPlanSnooze: number;
+  openWorkPlan(open: boolean): void;
+  snoozeWorkPlan(until: number): void;
   openRescheduleAll(open: boolean): void;
   openAutoPlan(open: boolean): void;
   setView(v: View): void;
@@ -39,6 +44,10 @@ export const useUI = create<UIState>((set) => ({
   autoPlan: false,
   openAutoPlan: (autoPlan) => set({ autoPlan }),
   rescheduleAll: false,
+  workPlan: false,
+  workPlanSnooze: 0,
+  openWorkPlan: (workPlan) => set({ workPlan }),
+  snoozeWorkPlan: (workPlanSnooze) => set({ workPlanSnooze }),
   openRescheduleAll: (rescheduleAll) => set({ rescheduleAll }),
   setView: (view) => set({ view }),
   openTask: (taskId, defaults) => set({ taskEditor: { open: true, taskId, defaults } }),
