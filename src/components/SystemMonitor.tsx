@@ -60,12 +60,12 @@ export function SystemMonitor() {
       </div>
       {/* Every reading and the graph share one line; on a narrow window the graph drops below. */}
       <div className="px-4 pt-2.5 pb-4 grid gap-2.5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] items-stretch">
-        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${metrics.length}, minmax(0, 1fr))` }}>
+        <div className="grid gap-2 self-start" style={{ gridTemplateColumns: `repeat(${metrics.length}, minmax(0, 1fr))` }}>
           {metrics.map((m) => (
             <Tile key={m} label={m === "temp" ? "TEMP" : m.toUpperCase()} value={formatMetric(v(m), m, unit)} sub={subs[m]} hot={m !== "temp" && m !== "cpu" && hot(m)} active={m === shown} onClick={() => setMetric(m)} color={m === "cpu" && cpuLevel ? LEVEL_COLOR[cpuLevel] : undefined} percent={m === "cpu" ? v(m) : undefined} />
           ))}
         </div>
-        <PerfGraph history={history} metric={shown} metrics={metrics} onMetric={setMetric} unit={unit} height={40} thresholds={thresholds} />
+        <PerfGraph history={history} metric={shown} metrics={metrics} onMetric={setMetric} unit={unit} height={84} thresholds={thresholds} />
       </div>
     </Card>
   );
