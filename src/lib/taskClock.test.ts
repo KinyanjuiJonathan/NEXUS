@@ -137,6 +137,7 @@ describe("in the app", () => {
     const store = make();
     await store.getState().init();
     await store.getState().setSetting("homeZone", NBO);
+    await store.getState().setSetting("routine", { ...store.getState().settings.routine, enabled: false }); // these tests cover scheduling without a daily routine
     const s = () => store.getState();
     const add = async (title: string, start: string, end: string) => {
       const t = await s().addTask({ title, estimateMin: 60, reminders: [] }, { autoPlace: false });

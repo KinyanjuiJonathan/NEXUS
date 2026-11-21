@@ -1,6 +1,8 @@
 import { DateTime } from "luxon";
 import type { CalendarEvent, Priority, Task, WorkSession } from "@/data/types";
 import { blockClock } from "@/lib/taskClock";
+import { personalTime } from "@/lib/routine";
+import type { SchedOrder } from "@/data/types";
 import { DAY, MIN, expandEvents, overlaps, type Interval } from "@/lib/schedule";
 import { busyIntervals, firstFit, periodHours, workingWindows, type SlotSettings } from "./slots";
 
@@ -51,6 +53,18 @@ export interface RescheduleSettings extends SlotSettings {
   protectFixed: boolean;
   /** Longest single block (minutes): a split task is only joined back up to this length. */
   chunkMaxMin?: number;
+  /** Which task goes first when several are placed at once. Without it: most important first. */
+  order?: SchedOrder;
+}
+
+/** Sort key for a scheduling order. FIFO is "first in, first out": the order tasks were added in. */
+export function compareBy(order: SchedOrder): (a: { task: Task | null; at: number; dur: number }, b: { task: Task | null; at: number; dur: number }) => number {
+  const created = (x: { task: Task | null; at: number }) => x.task?.createdAt ?? x.at;
+  const fifo = (a: { task: Task | null; at: number }, b: { task: Task | null; at: number }) => created(a) - created(b) || a.at - b.at;
+  if (order === "priority") return (a, b) => (b.task ? WEIGHT[b.task.priority] : 0) - (a.task ? WEIGHT[a.task.priority] : 0) || fifo(a, b);
+  if (order === "shortest") return (a, b) => a.dur - b.dur || fifo(a, b);
+  if (order === "deadline") return (a, b) => (a.task?.dueAt ?? Infinity) - (b.task?.dueAt ?? Infinity) || fifo(a, b);
+  return fifo;
 }
 
 const isProtected = (e: CalendarEvent, s: RescheduleSettings) => e.fixed && s.protectFixed;
@@ -108,7 +122,7 @@ function place(items: { event: CalendarEvent; task: Task | null }[], events: Cal
   const push = opts.push ?? [];
   // The blocks being moved give up their old time; everything else stays where it is.
   const moving = new Set([...items.map((i) => i.event.id), ...push.map((e) => e.id)]);
-  const busy = busyIntervals(events, now, now + HORIZON + DAY, bufferMs, moving);
+  const busy = busyIntervals(events, now, now + HORIZON + DAY, bufferMs, moving, s.routine);
   const taken: Interval[] = [];
   const take = (to: Interval) => {
     const padded = { start: to.start - bufferMs, end: to.end + bufferMs };
@@ -116,11 +130,14 @@ function place(items: { event: CalendarEvent; task: Task | null }[], events: Cal
     busy.push(padded);
     busy.sort((a, b) => a.start - b.start);
   };
+  const key = (i: { event: CalendarEvent; task: Task | null }) => ({ task: i.task, at: i.event.startAt, dur: i.event.endAt - i.event.startAt });
   const ordered = [...items].sort(
-    (a, b) =>
-      (b.task ? WEIGHT[b.task.priority] : 0) - (a.task ? WEIGHT[a.task.priority] : 0) ||
-      (a.task?.dueAt ?? Infinity) - (b.task?.dueAt ?? Infinity) ||
-      a.event.startAt - b.event.startAt,
+    s.order
+      ? (a, b) => compareBy(s.order!)(key(a), key(b))
+      : (a, b) =>
+          (b.task ? WEIGHT[b.task.priority] : 0) - (a.task ? WEIGHT[a.task.priority] : 0) ||
+          (a.task?.dueAt ?? Infinity) - (b.task?.dueAt ?? Infinity) ||
+          a.event.startAt - b.event.startAt,
   );
   const moves: Move[] = [];
   for (const { event, task } of ordered) {
@@ -209,7 +226,7 @@ export function planBulk(tasks: Task[], events: CalendarEvent[], now: number, s:
     .sort((a, b) => a.startAt - b.startAt);
   if (!blocks.length) return [];
   const bufferMs = Math.max(0, s.bufferMin) * MIN;
-  const busy = busyIntervals(events, now, now + 2 * HORIZON + DAY, bufferMs, new Set(blocks.map((e) => e.id)));
+  const busy = busyIntervals(events, now, now + 2 * HORIZON + DAY, bufferMs, new Set(blocks.map((e) => e.id)), s.routine);
   const horizon = Math.max(now, target.mode === "from" ? target.at : now + target.byMs) + HORIZON;
   const working = workingWindows(now, horizon, s);
   const inWorking = (ms: number) => working.some((w) => ms >= w.start && ms < w.end);
@@ -310,7 +327,7 @@ export function planQueueOrder(tasks: Task[], events: CalendarEvent[], now: numb
   const slots = units.map((u) => u.start);
   const bufferMs = Math.max(0, s.bufferMin) * MIN;
   const mine = new Set(units.flatMap((u) => u.blocks.map((b) => b.id)));
-  const busy = busyIntervals(events, now, now + 2 * HORIZON, bufferMs, mine);
+  const busy = busyIntervals(events, now, now + 2 * HORIZON, bufferMs, mine, s.routine);
   const horizon = Math.max(now, ...units.map((u) => u.end)) + HORIZON;
   // Working time, plus the times the queue already occupies (the user may have put a task outside working hours on purpose).
   const wins = mergeWins([...workingWindows(now, horizon, s), ...units.flatMap((u) => u.blocks.map((b) => ({ start: b.startAt, end: b.endAt })))]);
@@ -366,10 +383,10 @@ export function planMerges(tasks: Task[], events: CalendarEvent[], now: number, 
     const others = live.filter((e) => !own.has(e.id));
     const [first, ...rest] = u.blocks;
     const here = { start: first.startAt, end: first.startAt + u.durationMs };
-    const clash = expandEvents(others, here.start - DAY, here.end + DAY).some((o) => overlaps(o, here));
+    const clash = expandEvents(others, here.start - DAY, here.end + DAY).some((o) => overlaps(o, here)) || personalTime(here.start, here.end, s.routine).some((p) => overlaps(p, here));
     let to: Interval | null = clash ? null : here;
     if (!to) {
-      const fit = firstFit(workingWindows(first.startAt, u.end + DAY, s), busyIntervals(others, now, u.end + DAY, bufferMs), u.durationMs, first.startAt);
+      const fit = firstFit(workingWindows(first.startAt, u.end + DAY, s), busyIntervals(others, now, u.end + DAY, bufferMs, undefined, s.routine), u.durationMs, first.startAt);
       if (fit && fit.end <= u.end) to = fit;
     }
     if (!to) continue;
@@ -403,4 +420,63 @@ function fitExact(wins: Interval[], busy: Interval[], dur: number, notBefore: nu
     if (start + dur <= win.end) return { start, end: start + dur };
   }
   return null;
+}
+
+/** The queue's task ids in a scheduling order (FIFO, priority, shortest first, nearest deadline). */
+export function sortedQueue(tasks: Task[], events: CalendarEvent[], now: number, order: SchedOrder): string[] {
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  return queueUnits(tasks, events, now)
+    .map((u) => ({ id: u.taskId, task: byId.get(u.taskId) ?? null, at: u.start, dur: u.durationMs }))
+    .sort(compareBy(order))
+    .map((u) => u.id);
+}
+
+/**
+ * A flexible block was given a new time (`to`): the flexible blocks after it
+ * that it now runs into are pushed later, in the same order, each only as far
+ * as it has to go. Fixed appointments and personal time are stepped over.
+ * Blocks that are not touched are not in the result.
+ */
+export function planRipple(tasks: Task[], events: CalendarEvent[], now: number, s: RescheduleSettings, changedId: string, to: Interval, fromStart: number): Move[] {
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  const after = events
+    .filter((e) => e.id !== changedId && !e.deletedAt && !e.fixed && !e.recurrence && !!e.taskId && openTask(byId.get(e.taskId)) && e.endAt > now && e.startAt >= Math.min(fromStart, to.start))
+    .sort((a, b) => a.startAt - b.startAt);
+  if (!after.length) return [];
+  // The user set this time by hand: what follows goes straight after it, with no gap added.
+  const bufferMs = 0;
+  const moving = new Set([changedId, ...after.map((e) => e.id)]);
+  const busy = busyIntervals(events, now, now + 2 * HORIZON, bufferMs, moving, s.routine);
+  const horizon = Math.max(to.end, ...after.map((e) => e.endAt)) + HORIZON;
+  const wins = mergeWins([...workingWindows(now, horizon, s), ...after.map((e) => ({ start: e.startAt, end: e.endAt }))]);
+  const take = (x: Interval) => {
+    busy.push({ ...x });
+    busy.sort((a, b) => a.start - b.start);
+  };
+  take(to);
+  const moves: Move[] = [];
+  let cursor = to.end;
+  for (const e of after) {
+    const from = { start: e.startAt, end: e.endAt };
+    if (e.startAt >= cursor && !busy.some((b) => overlaps(b, from))) {
+      take(from);
+      cursor = from.end;
+      continue;
+    }
+    const fit = fitExact(wins, busy, e.endAt - e.startAt, Math.max(cursor, e.startAt));
+    if (!fit) {
+      take(from);
+      continue;
+    }
+    moves.push({ eventId: e.id, taskId: e.taskId, title: e.title, from, to: fit, reason: "pushed" });
+    take(fit);
+    cursor = fit.end;
+  }
+  return moves;
+}
+
+/** The first free time of `dur` at or after `at`, whatever the working hours: for a time the user asked for exactly. */
+export function freeFrom(events: CalendarEvent[], now: number, s: RescheduleSettings, at: number, dur: number, ignore: ReadonlySet<string>): Interval {
+  const busy = busyIntervals(events, now, at + HORIZON, 0, ignore, s.routine);
+  return fitExact([{ start: at, end: at + HORIZON }], busy, dur, at) ?? { start: at, end: at + dur };
 }

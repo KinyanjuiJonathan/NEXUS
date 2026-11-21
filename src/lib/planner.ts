@@ -16,6 +16,8 @@ import { expandEvents, mergeIntervals, type Interval, type WorkingHours, MIN, DA
  */
 
 export interface PlanOptions {
+  /** Which task is placed first. Without it: nearest deadline, then priority. */
+  order?: "fifo" | "priority" | "shortest" | "deadline";
   horizonDays?: number;
   bufferMin?: number;
   chunkMaxMin?: number;
@@ -82,7 +84,15 @@ export function planTasks(tasks: Task[], events: CalendarEvent[], wh: WorkingHou
     .filter((t) => !t.deletedAt && !t.archivedAt && t.status !== "done")
     .filter((t) => !onlyTaskIds || onlyTaskIds.includes(t.id))
     .filter((t) => !hasUpcomingBlock(t.id, events, now))
-    .sort((a, b) => (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity) || PW[b.priority] - PW[a.priority] || a.sortOrder - b.sortOrder);
+    .sort(
+      opts.order === "fifo"
+        ? (a, b) => a.createdAt - b.createdAt || a.sortOrder - b.sortOrder
+        : opts.order === "priority"
+          ? (a, b) => PW[b.priority] - PW[a.priority] || a.createdAt - b.createdAt
+          : opts.order === "shortest"
+            ? (a, b) => (a.estimateMin ?? defaultEstimateMin) - (b.estimateMin ?? defaultEstimateMin) || a.createdAt - b.createdAt
+            : (a, b) => (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity) || PW[b.priority] - PW[a.priority] || a.sortOrder - b.sortOrder,
+    );
 
   const blocks: PlanBlock[] = [];
   const unplaced: PlanResult["unplaced"] = [];

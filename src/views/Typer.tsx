@@ -1,114 +1,131 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Bold, Eraser, Italic, Keyboard, Lock, Play, Square } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Bold, Eraser, Heading, Italic, Keyboard, Lock, Play, Redo2, RemoveFormatting, Square, Undo2 } from "lucide-react";
 import { useNexus, nexus } from "@/store";
 import { idleSeconds, native, typerShortcut } from "@/lib/platform";
 import { shouldLeaveTyper } from "@/lib/typer/idle";
 import { useUI } from "@/store/ui";
-import { BOLD, DEFAULT_TYPER, ITALIC, MAX_REPEAT, buildPlan, htmlToMarkup, parseMarkup, prepareText, type TyperOptions } from "@/lib/typer/engine";
+import { DEFAULT_TYPER, MAX_REPEAT, buildPlan, htmlToMarkup, markupToHtml, prepareText, type TyperOptions } from "@/lib/typer/engine";
 import { isBusy, useTyper } from "@/lib/typer/controller";
 import { Button, Card, CardHeader, Field, Input, Kbd, ProgressBar, Select, Toggle, cx } from "@/components/ui";
 
 const accel = (s: string) => s.replace("CommandOrControl", "Ctrl");
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, "0")}`;
 
-/** The text as it will be typed: markers greyed out, marked text shown bold / italic. */
-function Highlight({ text, literal }: { text: string; literal: boolean }) {
-  const nodes = useMemo(() => {
-    if (literal) return [text];
-    const cls: (string | null)[] = new Array(text.length).fill("tm");
-    for (const c of parseMarkup(text)) {
-      const k = c.style === (BOLD | ITALIC) ? "tb ti" : c.style === BOLD ? "tb" : c.style === ITALIC ? "ti" : null;
-      for (let i = 0; i < c.ch.length; i++) cls[c.index + i] = k;
-    }
-    const out: ReactNode[] = [];
-    let start = 0;
-    for (let i = 1; i <= text.length; i++) {
-      if (i === text.length || cls[i] !== cls[start]) {
-        const piece = text.slice(start, i);
-        out.push(cls[start] ? <span key={start} className={cls[start]!}>{piece}</span> : piece);
-        start = i;
-      }
-    }
-    return out;
-  }, [text, literal]);
-  // The trailing space keeps a final empty line as tall as it is in the textarea.
-  return <>{nodes} </>;
-}
-
+/**
+ * The editing pad. It works like a word processor: select with the mouse or
+ * Shift+arrows, type over a selection, Backspace and Delete, Ctrl+B / Ctrl+I,
+ * Ctrl+Z / Ctrl+Y, and formatting shown as formatting (no ** markers). What is
+ * stored and typed is still the marked-up text, converted both ways here.
+ * "Type exactly as written" uses a plain text box instead.
+ */
 function Editor({ value, onChange, literal, disabled }: { value: string; onChange: (v: string) => void; literal: boolean; disabled: boolean }) {
-  const area = useRef<HTMLTextAreaElement>(null);
-  const backdrop = useRef<HTMLPreElement>(null);
-  const sync = () => {
-    if (backdrop.current && area.current) backdrop.current.scrollTop = area.current.scrollTop;
-  };
-  useEffect(sync, [value]);
+  const pad = useRef<HTMLDivElement>(null);
+  /** The markup this pad last produced: an outside change (Clear, loading) is anything else. */
+  const emitted = useRef<string | null>(null);
+  const [fmt, setFmt] = useState({ bold: false, italic: false, heading: false });
 
-  /** Replace the selection, keeping the browser's undo history where possible. */
-  const insert = (text: string, select?: [number, number]) => {
-    const el = area.current;
+  useEffect(() => {
+    const el = pad.current;
+    if (!el || literal || value === emitted.current) return;
+    el.innerHTML = value ? markupToHtml(value) : "";
+    emitted.current = value;
+  }, [value, literal]);
+
+  const emit = () => {
+    const el = pad.current;
     if (!el) return;
-    el.focus();
-    const start = el.selectionStart;
-    if (!document.execCommand?.("insertText", false, text)) {
-      el.setRangeText(text, el.selectionStart, el.selectionEnd, "end");
-      onChange(el.value);
+    // an emptied pad can keep a stray <br> or empty block
+    const text = el.textContent ? htmlToMarkup(el.innerHTML, { exact: true }) : "";
+    if (!el.textContent && el.innerHTML) el.innerHTML = "";
+    emitted.current = text;
+    onChange(text);
+  };
+  const refresh = () => {
+    const el = pad.current;
+    const sel = document.getSelection();
+    if (!el || !sel?.anchorNode || !el.contains(sel.anchorNode)) return;
+    let block = "";
+    try {
+      block = String(document.queryCommandValue("formatBlock")).toLowerCase();
+    } catch {
+      /* not supported: the button just does not light up */
     }
-    if (select) el.setSelectionRange(start + select[0], start + select[1]);
+    setFmt({ bold: document.queryCommandState("bold"), italic: document.queryCommandState("italic"), heading: /^h[1-6]$/.test(block) });
+  };
+  useEffect(() => {
+    document.addEventListener("selectionchange", refresh);
+    return () => document.removeEventListener("selectionchange", refresh);
+  }, []);
+
+  const cmd = (name: string, arg?: string) => {
+    pad.current?.focus();
+    document.execCommand(name, false, arg);
+    emit();
+    refresh();
   };
 
-  const wrap = (mark: string) => {
-    const el = area.current;
-    if (!el) return;
-    const picked = el.value.slice(el.selectionStart, el.selectionEnd);
-    const core = picked.trim() || "text";
-    const lead = picked.slice(0, picked.length - picked.trimStart().length);
-    insert(`${lead}${mark}${core}${mark}${picked.trim() ? picked.slice(picked.trimEnd().length) : ""}`, [lead.length + mark.length, lead.length + mark.length + core.length]);
-  };
-
-  return (
-    <div className="flex flex-col gap-2 min-h-0 flex-1">
-      <div className="flex items-center gap-1">
-        <Button size="sm" variant="ghost" icon={<Bold size={14} />} disabled={disabled || literal} onClick={() => wrap("**")} title="Bold (Ctrl+B)">Bold</Button>
-        <Button size="sm" variant="ghost" icon={<Italic size={14} />} disabled={disabled || literal} onClick={() => wrap("*")} title="Italic (Ctrl+I)">Italic</Button>
-        <span className="text-[11px] text-muted ml-1 hidden sm:inline">
-          <code className="font-mono">**bold**</code> · <code className="font-mono">*italic*</code> · <code className="font-mono"># heading</code> — or paste formatted text
-        </span>
-        <Button size="sm" variant="ghost" className="ml-auto" icon={<Eraser size={14} />} disabled={disabled || !value} onClick={() => onChange("")}>Clear</Button>
-      </div>
-      <div className={cx("typer-editor flex-1 min-h-[240px] rounded-xl bg-hover border border-line focus-within:border-accent focus-within:ring-2 focus-within:ring-[var(--glow)] transition overflow-hidden", disabled && "opacity-70")}>
-        <pre ref={backdrop} aria-hidden>
-          <Highlight text={value} literal={literal} />
-        </pre>
+  if (literal) {
+    return (
+      <div className="flex flex-col gap-2 min-h-0 flex-1">
+        <div className="flex items-center gap-1">
+          <span className="text-[11px] text-muted">Typed exactly as written, symbols included.</span>
+          <Button size="sm" variant="ghost" className="ml-auto" icon={<Eraser size={14} />} disabled={disabled || !value} onClick={() => onChange("")}>Clear</Button>
+        </div>
         <textarea
-          ref={area}
           value={value}
           disabled={disabled}
           spellCheck={false}
           aria-label="Text to type"
-          placeholder={"Type or paste the text to be typed for you.\n\nFormatting carries over: **bold**, *italic* and # headings are typed as real formatting, never as symbols."}
+          placeholder="Type or paste the text to be typed for you."
           onChange={(e) => onChange(e.target.value)}
-          onScroll={sync}
-          onKeyDown={(e) => {
-            if (literal || !(e.ctrlKey || e.metaKey) || e.altKey) return;
-            const k = e.key.toLowerCase();
-            if (k === "b" || k === "i") {
-              e.preventDefault();
-              wrap(k === "b" ? "**" : "*");
-            }
-          }}
-          onPaste={(e) => {
-            if (literal) return;
-            const html = e.clipboardData.getData("text/html");
-            if (!html) return;
-            // Keep bold / italic / headings from Word, Google Docs or a web page as markers.
-            const marked = htmlToMarkup(html);
-            if (marked && marked !== prepareText(marked, "strip").text) {
-              e.preventDefault();
-              insert(marked);
-            }
-          }}
+          className={cx("typer-pad flex-1 min-h-[240px] rounded-xl bg-hover border border-line focus:border-accent focus:ring-2 focus:ring-[var(--glow)] transition resize-none font-mono text-[13px]", disabled && "opacity-70")}
         />
       </div>
+    );
+  }
+
+  const tool = (on: boolean) => cx(on && "!text-accent !bg-[color-mix(in_oklab,var(--accent)_14%,transparent)]");
+  return (
+    <div className="flex flex-col gap-2 min-h-0 flex-1">
+      <div className="flex flex-wrap items-center gap-1" role="toolbar" aria-label="Formatting">
+        <Button size="sm" variant="ghost" icon={<Bold size={14} />} disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={() => cmd("bold")} title="Bold (Ctrl+B)" aria-pressed={fmt.bold} className={tool(fmt.bold)}>Bold</Button>
+        <Button size="sm" variant="ghost" icon={<Italic size={14} />} disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={() => cmd("italic")} title="Italic (Ctrl+I)" aria-pressed={fmt.italic} className={tool(fmt.italic)}>Italic</Button>
+        <Button size="sm" variant="ghost" icon={<Heading size={14} />} disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={() => cmd("formatBlock", fmt.heading ? "div" : "h3")} title="Heading (typed bold)" aria-pressed={fmt.heading} className={tool(fmt.heading)}>Heading</Button>
+        <Button size="sm" variant="ghost" icon={<RemoveFormatting size={14} />} disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={() => { cmd("removeFormat"); if (fmt.heading) cmd("formatBlock", "div"); }} title="Remove formatting from the selection">Plain</Button>
+        <span className="w-px h-5 bg-line mx-1" />
+        <Button size="sm" variant="ghost" icon={<Undo2 size={14} />} disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={() => cmd("undo")} title="Undo (Ctrl+Z)" aria-label="Undo" />
+        <Button size="sm" variant="ghost" icon={<Redo2 size={14} />} disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={() => cmd("redo")} title="Redo (Ctrl+Y)" aria-label="Redo" />
+        <Button size="sm" variant="ghost" disabled={disabled || !value} onMouseDown={(e) => e.preventDefault()} onClick={() => cmd("selectAll")} title="Select everything (Ctrl+A)">Select all</Button>
+        <Button size="sm" variant="ghost" className="ml-auto" icon={<Eraser size={14} />} disabled={disabled || !value} onClick={() => onChange("")}>Clear</Button>
+      </div>
+      <div
+        ref={pad}
+        role="textbox"
+        aria-multiline="true"
+        aria-label="Text to type"
+        contentEditable={!disabled}
+        suppressContentEditableWarning
+        spellCheck={false}
+        data-placeholder={"Type or paste the text to be typed for you.\n\nSelect text and press Ctrl+B or Ctrl+I, or use the buttons above. Formatting pasted from Word, Google Docs or a web page is kept. It is typed as real formatting, never as symbols."}
+        className={cx("typer-pad typer-rich flex-1 min-h-[240px] rounded-xl bg-hover border border-line focus:border-accent focus:ring-2 focus:ring-[var(--glow)] transition", disabled && "opacity-70")}
+        onInput={emit}
+        onKeyDown={(e) => {
+          if (e.key === "Tab" && !e.ctrlKey && !e.altKey) {
+            e.preventDefault();
+            document.execCommand("insertText", false, "\t");
+          }
+        }}
+        onPaste={(e) => {
+          // Keep only bold, italic and headings from what is pasted; fonts, colours and sizes are dropped.
+          e.preventDefault();
+          const html = e.clipboardData.getData("text/html");
+          const plain = e.clipboardData.getData("text/plain");
+          const marked = html ? htmlToMarkup(html) : "";
+          if (marked && marked !== prepareText(marked, "strip").text) document.execCommand("insertHTML", false, markupToHtml(marked));
+          else document.execCommand("insertText", false, plain || prepareText(marked, "strip").text);
+        }}
+        onDrop={(e) => e.preventDefault()}
+      />
     </div>
   );
 }
@@ -287,7 +304,7 @@ export default function TyperView() {
             <CardHeader title="Behaviour" right={<Button size="sm" variant="ghost" disabled={busy} onClick={() => void nexus().setSetting("typer", DEFAULT_TYPER)}>Reset</Button>} />
             <div className="px-5 pb-4 flex flex-col">
               <Toggle checked={options.lock} disabled={busy} onChange={(v) => set("lock", v)} label="Lock onto the text box" description="Ignores mouse clicks while typing, so a click can't move the cursor to another box, and pauses if the window changes." />
-              <Toggle checked={options.revise} disabled={busy} onChange={(v) => set("revise", v)} label="Revise with arrow keys and Delete" description="Off: corrections use Backspace only (safer in apps with autocomplete)." />
+              <Toggle checked={options.revise} disabled={busy} onChange={(v) => set("revise", v)} label="Revise with arrow keys" description="Off: corrections use Backspace only (safer in apps with autocomplete)." />
               <Toggle checked={options.usShift} disabled={busy} onChange={(v) => set("usShift", v)} label="US keyboard layout" description="Holds Shift for symbols like a person would. Turn off for other layouts." />
               <Toggle checked={options.enterAfter} disabled={busy} onChange={(v) => set("enterAfter", v)} label="Press Enter after each repeat" />
             </div>

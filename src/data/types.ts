@@ -1,5 +1,9 @@
 import type { TyperOptions } from "@/lib/typer/engine";
 import type { WorkPlans, WorkWeek } from "@/lib/workPlan";
+import type { Routine } from "@/lib/routine";
+
+/** fifo: in the order tasks were added. priority: critical first. shortest: quickest first. deadline: nearest deadline first. */
+export type SchedOrder = "fifo" | "priority" | "shortest" | "deadline";
 /**
  * NEXUS domain model.
  *
@@ -272,6 +276,16 @@ export interface Settings {
   workPlans: WorkPlans;
   /** Usual hours per weekday (ISO 1 = Monday): [start, end] in minutes after midnight in the home zone, or "off". */
   workWeek: WorkWeek;
+  /** Look for a newer version once a day and say when there is one. */
+  updateAuto: boolean;
+  /** The version that ran last time, to notice an update. */
+  lastVersion: string | null;
+  /** The version in use before the current one. */
+  previousVersion: string | null;
+  /** The daily routine (sleep, morning, work sessions, breaks, lunch, gym). */
+  routine: Routine;
+  /** How tasks are ordered when NEXUS schedules or reorganises them. FIFO = first in, first out. */
+  schedOrder: SchedOrder;
   /** Ask "when do you intend to work today?" on the first use of each day. */
   workPlanAsk: boolean;
   /** Hours of work in a usual day (the default length offered when asking). */

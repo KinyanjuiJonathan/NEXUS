@@ -11,7 +11,7 @@ import { useUI } from "@/store/ui";
 import { useNow } from "@/lib/ticker";
 import { parseCommand } from "@/lib/voice/parser";
 import { TaskRow } from "@/components/TaskRow";
-import { ScheduleQueue } from "@/components/ScheduleQueue";
+import { QueueOrder, ScheduleQueue } from "@/components/ScheduleQueue";
 import { filterTasks, taskCounts, type TaskView as TV } from "@/lib/taskViews";
 import { queueUnits } from "@/lib/smart/reschedule";
 import { Button, Card, EmptyState, Input, Select, cx } from "@/components/ui";
@@ -159,6 +159,7 @@ export default function Tasks() {
         {view === "queue" && (
           <Card className="p-4 flex flex-col gap-3">
             <p className="text-[12px] text-muted">Everything scheduled, in order. Drag a task (or use its arrows) to change the order: it takes over the start time of the place it lands in, and the tasks after it follow. Fixed appointments stay where they are.</p>
+            <QueueOrder />
             <ScheduleQueue now={now} limit={60} />
           </Card>
         )}

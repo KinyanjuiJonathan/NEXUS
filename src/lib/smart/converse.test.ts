@@ -17,6 +17,7 @@ async function chat() {
   const store = createNexusStore({ backend: createLocalBackend(memoryKV()), now: () => clock.now, id: () => `id${++seq}` });
   await store.getState().init();
   await store.getState().setSetting("homeZone", NBO);
+  await store.getState().setSetting("routine", { ...store.getState().settings.routine, enabled: false }); // these tests cover scheduling without a daily routine
   let ctx: ConvContext = EMPTY_CONTEXT;
   let pending: { text: string; answers: Record<string, string> } | null = null;
   const run = async (text: string, answers: Record<string, string> = {}): Promise<Turn> => {

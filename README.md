@@ -236,6 +236,31 @@ While a task's time is under way the dashboard shows **Current task**: whether t
 
 **Time zone & working hours** (globe button in the top bar, any time). Pick the zone times are shown and typed in: Kenya, Texas, UK, US East/Mountain/West, Australia, or any other. Switching zones moves nothing: every task keeps its actual moment, and daylight-saving changes are handled. Below it, set hours per weekday (*Set hours*, *Day off*, or *Flexible* to follow your daily answer), and *Reschedule tasks into these hours* when you want the plan redone.
 
+**Scheduling order.** Tasks are scheduled **first in, first out** by default: in the order you added them. *Settings → Smart Scheduling → Scheduling order* (also on the Queue list) switches to *Priority* (critical first), *Shortest estimated time first* or *Nearest deadline first*; the choice is used by Auto-plan, by automatic rescheduling of unfinished work, and by **Reorganise**, which puts the whole queue in that order on request.
+
+**Predictable changes.** Open a task's row in the queue (the chevron) for its checklist and actions:
+
+- **+15 min / +30 min / +1 hour / +2 hours / −30 min** moves the task by exactly that much. The tasks after it are pushed along in the same order, each only as far as it has to go; a task that was not in the way does not move. Only a fixed appointment or personal time in the way sends something further.
+- Making a task longer (dragging its edge in the calendar, or editing its end time) pushes the following tasks to the next free times in the same way.
+- **Start now** (or **Switch** on the *Current task* card) replaces the task under way with another from the queue. The first task keeps the time already clocked and continues straight afterwards with what it still needs.
+- Every change ends with a notice listing each task that moved with its original and new time (“Report: 9:00 AM–10:00 AM → 10:00 AM–11:00 AM”), and **Undo**.
+
+Clicking a task in *Up next* opens the task itself, with its notes, subtasks and checklist; subtasks can also be ticked straight from the queue row.
+
+**Daily routine** (Calendar → *Routine*, or the globe button → *Daily routine*). On by default, every day of the week, in Kenya time:
+
+| | |
+|---|---|
+| 11:30 PM – 6:30 AM | Sleep (7 hours; never less than 6) |
+| 6:30 – 8:00 AM | Wake up, exercise, get ready, breakfast |
+| 8:00 – 8:30 AM | Admin & planning |
+| 8:30 AM – 1:30 PM | Work sessions 1–3 (90 minutes each, 15-minute breaks) |
+| 1:30 – 2:30 PM | Lunch |
+| 2:30 – 5:45 PM | Work sessions 4–5 |
+| 9:00 – 10:30 PM | Gym, Monday to Thursday |
+
+Every time, length, the number of sessions and the gym days can be changed; the editor refuses less than 6 hours of sleep or more than 12 hours of work in a day. Tasks are planned inside the work sessions, and nothing is scheduled over sleep, the morning routine, admin time, lunch or the gym, whichever screen the change is made on. Breaks are a guide: a task longer than one session runs through the break instead of being cut in two. The calendar shows the routine behind your tasks. If the computer is still in use when sleep time starts, NEXUS says so once; it cannot switch the computer off for you. A day you give hours for by hand follows those hours instead, and with the routine on the daily “when do you intend to work?” question is not asked.
+
 **Picking dates.** Date fields (task deadline, appointment start and end, Reschedule all, the day to plan) open a calendar: click a day, set the time underneath, or use *Today*, *Tomorrow* or *In a week*.
 
 Everything is configurable under *Settings → Smart Scheduling*: on/off, auto-rescheduling, protection of fixed appointments, notifications, the default time zone, the buffer, working hours, and what morning / afternoon / evening mean.
@@ -267,11 +292,15 @@ Every To-Do task with a due date appears on the calendar on that day, in Day, We
 - Pending tasks carry their priority colour, **high-priority** ones a flag, **overdue** ones are red with a warning mark, and **completed** ones are greyed and struck through.
 - Tasks without a date are not on the calendar; they stay in the To-Do list, and the calendar says how many there are.
 
+## Updates and feedback
+
+*Settings → About* shows the version, **Check for updates**, and a feedback form. Once a day (switch it off there) NEXUS asks whether a newer version has been published and tells you when there is one; **Open download page** takes you to the installer, and installing over the old version keeps tasks, history and settings. After an update NEXUS says which version you came from. **Send feedback** opens a prefilled report in your browser with your version, and the one before it, attached; nothing is sent until you submit it there. Updates are not downloaded or installed silently: that needs signed releases, which this project does not publish yet.
+
 ## Auto Typer
 
 Open **Auto Typer** in the sidebar (or press `9`).
 
-1. Type or paste your text. `**bold**`, `*italic*` (also `__bold__`, `_italic_`) and `# headings` are shown styled with the markers greyed out. Formatted text pasted from Word, Google Docs or a web page keeps its bold, italic and headings. **Ctrl+B / Ctrl+I** wrap the selection.
+1. Type or paste your text. The pad works like a word processor: select with the mouse or Shift+arrows, type over a selection, Backspace and Delete, **Ctrl+B / Ctrl+I**, Ctrl+Z / Ctrl+Y, and Bold, Italic, Heading and Plain buttons. Formatting is shown as formatting, with no `**` markers. Text pasted from Word, Google Docs or a web page keeps its bold, italic and headings; fonts and colours are dropped.
 2. Press **Start** (or `F6` from any app while the Auto Typer screen is open), then click into the text box you want during the countdown. NEXUS never types into its own windows: if it is still in front, it waits for you.
 3. Press `F6` or `Esc` to stop. Every key is released, and Caps Lock (switched off for the run) is restored.
 
@@ -281,8 +310,12 @@ Open **Auto Typer** in the sidebar (or press `9`).
 | Technique | Touch typing (keys overlap when fast), two-finger or one-handed |
 | Formatting | *Apply bold / italic* presses Ctrl+B / Ctrl+I around marked text (Word, Google Docs); *Drop markers* types plain text; *Type exactly as written* types the symbols |
 | Lock onto the text box | Ignores mouse clicks while typing so a click can't move the cursor, and pauses if the window changes, carrying on when you return. Stop with `F6` or `Esc` |
-| Revise with arrow keys and Delete | Off limits corrections to Backspace, for apps with autocomplete |
+| Revise with arrow keys | Off limits corrections to Backspace, for apps with autocomplete |
 | US keyboard layout | Holds Shift for symbols; turn off on other layouts |
+
+**Corrections take the shortest route.** A typo is fixed with the fewest keys: backspace over it and retype, or step back with the arrow keys when that is no longer. The Delete key is never needed, so apps where Delete misbehaves are not a problem.
+
+**Every character is sent as its real key.** Punctuation such as `,` and `-` used to be sent as “Unicode input”, which programs that read raw key codes (remote desktops, virtual machines, some editors) misread: a comma arrived as `z`, a hyphen as `x`. Now every character your keyboard layout has a key for is pressed as that key, with Shift when the layout needs it; only characters with no key (accents on a US keyboard, emoji) are still sent as exact characters.
 
 **Return to Dashboard After Inactivity** (*Settings → Auto Typer*, on by default): if the Auto Typer screen is left open with no keyboard or mouse activity anywhere for 5 minutes (configurable), NEXUS goes back to the Dashboard. It never happens while the Auto Typer is typing, and your text and settings are kept.
 

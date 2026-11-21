@@ -440,15 +440,6 @@ export class Humanizer {
     this.caretStyle();
   }
 
-  private del(n = 1) {
-    for (let i = 0; i < n; i++) {
-      this.special("<delete>", this.navGap());
-      this.buf.splice(this.cur, 1);
-      this.bufStyles.splice(this.cur, 1);
-    }
-    this.caretStyle();
-  }
-
   /** Move the cursor n characters (negative = left). */
   private move(n: number) {
     const fast = Math.abs(n) > 6;
@@ -535,15 +526,10 @@ export class Humanizer {
         this.ch(wrong, st);
         this.typeStr(w.slice(i + 1, i + 1 + k), st);
         this.notice();
-        const r = rng.random();
-        if (arrows && k >= 1 && r < 0.2) {
+        // Both ways cost the same number of keys (2k + 2); going one further left to use Delete would cost one more, so it is never done.
+        if (arrows && k >= 1 && rng.random() < 0.3) {
           this.move(-k);
           this.backspace();
-          this.ch(c, st);
-          this.move(k);
-        } else if (arrows && k >= 1 && r < 0.35) {
-          this.move(-k - 1);
-          this.del();
           this.ch(c, st);
           this.move(k);
         } else {
@@ -582,15 +568,10 @@ export class Humanizer {
     this.pause(r.uniform(0.6, 2.5) * this.ps + 0.2);
     for (const d of [...this.defects].reverse()) {
       // last slip first, so earlier positions stay valid
-      if (d.wrong > 0 && d.wrong <= 2 && r.random() < 0.35) {
-        this.move(d.pos - this.cur);
-        this.pause(r.uniform(0.15, 0.5));
-        this.del(d.wrong);
-      } else {
-        this.move(d.pos + d.wrong - this.cur);
-        this.pause(r.uniform(0.15, 0.5));
-        this.backspace(d.wrong);
-      }
+      // The shortest way: stop right after the slip and backspace over it. (Stopping before it and using Delete needs as many extra arrow presses as the slip is long.)
+      this.move(d.pos + d.wrong - this.cur);
+      this.pause(r.uniform(0.15, 0.5));
+      this.backspace(d.wrong);
       this.typeStr(d.correct, d.style);
       this.pause(r.uniform(0.2, 0.7) * this.ps + 0.1);
     }
@@ -809,7 +790,8 @@ export function buildPlan(source: string, o: TyperOptions, random?: () => number
  * Convert copied rich text (HTML from Word, Google Docs, a web page…) into
  * plain text with `**bold**` / `*italic*` markers and `# ` headings.
  */
-export function htmlToMarkup(html: string): string {
+export function htmlToMarkup(html: string, opts: { exact?: boolean } = {}): string {
+  const exact = !!opts.exact;
   const doc = new DOMParser().parseFromString(html, "text/html");
   const BLOCK = new Set(["P", "DIV", "LI", "H1", "H2", "H3", "H4", "H5", "H6", "TR", "BLOCKQUOTE", "PRE", "UL", "OL", "TABLE", "SECTION", "ARTICLE"]);
   const runs: { text: string; style: number }[] = [];
@@ -819,8 +801,15 @@ export function htmlToMarkup(html: string): string {
 
   const walk = (node: Node, style: number) => {
     if (node.nodeType === Node.TEXT_NODE) {
-      const text = (node.nodeValue ?? "").replace(/\s+/g, " ");
-      if (text) runs.push({ text, style });
+      // exact (the editing pad): every space and tab is kept, and typed * and _ stay literal
+      const text = exact ? (node.nodeValue ?? "").replace(/\u00a0/g, " ").replace(/[*_]/g, "\\$&") : (node.nodeValue ?? "").replace(/\s+/g, " ");
+      if (!text) return;
+      if (exact && text.includes("\n")) {
+        text.split("\n").forEach((part, i) => {
+          if (i) runs.push({ text: "\n", style: 0 });
+          if (part) runs.push({ text: part, style });
+        });
+      } else runs.push({ text, style });
       return;
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return;
@@ -871,10 +860,48 @@ export function htmlToMarkup(html: string): string {
     const trail = r.text.slice(r.text.trimEnd().length);
     out += lead + m + core + m + trail;
   }
+  if (exact) return out.endsWith("\n") ? out.slice(0, -1) : out;
   return out
     .split("\n")
     .map((l) => l.replace(/[ \t]+$/g, "").replace(/^[ \t]+/, ""))
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/**
+ * The marked-up text as HTML for the editing pad: bold and italic as real
+ * formatting, headings as headings, one block per line. The reverse of
+ * `htmlToMarkup(html, { exact: true })`.
+ */
+export function markupToHtml(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => {
+      const h = HEADING.exec(line);
+      let html = "";
+      let run = "";
+      let style = 0;
+      const flush = () => {
+        if (!run) return;
+        let piece = esc(run);
+        if (style & ITALIC) piece = `<i>${piece}</i>`;
+        if (style & BOLD) piece = `<b>${piece}</b>`;
+        html += piece;
+        run = "";
+      };
+      for (const c of parseMarkup(line)) {
+        const st = h ? c.style & ~BOLD : c.style;
+        if (st !== style) {
+          flush();
+          style = st;
+        }
+        run += c.ch;
+      }
+      flush();
+      return h ? `<h3>${html}</h3>` : `<div>${html || "<br>"}</div>`;
+    })
+    .join("");
 }

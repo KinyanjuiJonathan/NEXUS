@@ -304,3 +304,29 @@ export async function aiRequest<T>(kind: "breakdown" | "plan" | "interpret", pro
   if (!native) throw new Error("The AI assistant runs in the desktop app (it keeps your API key out of the web UI).");
   return invokeSafe<T>("ai_request", { req: { kind, prompt, context } });
 }
+
+
+// ------------------------------------------------------------------ updates and feedback
+
+export interface ReleaseInfo {
+  version: string;
+  name: string;
+  notes: string;
+  url: string;
+  publishedAt: string;
+}
+
+/** The latest published release, or null when none exists. Throws when the server cannot be reached. */
+export async function latestRelease(): Promise<ReleaseInfo | null> {
+  if (!native) return null;
+  return invokeSafe<ReleaseInfo | null>("update_check");
+}
+
+/** Open a project page or a mailto link in the default browser / mail program. */
+export async function openExternal(url: string): Promise<void> {
+  if (!native) {
+    window.open(url, "_blank", "noopener");
+    return;
+  }
+  await invokeSafe("open_external", { url });
+}

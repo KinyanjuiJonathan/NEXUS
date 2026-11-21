@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { DateTime } from "luxon";
-import { CalendarClock, Clock3, Globe2 } from "lucide-react";
+import { CalendarClock, Clock3, Globe2, Sunrise } from "lucide-react";
 import { useNexus, nexus } from "@/store";
 import { useUI } from "@/store/ui";
 import { KENYA_ZONE, formatTime, isValidZone } from "@/lib/time";
@@ -134,7 +134,7 @@ export function TimeHoursDialog() {
                     </span>
                   ) : (
                     <span className="text-[11px] text-muted tabular">
-                      {mode === "off" ? "Nothing is scheduled automatically" : eff ? `${Object.values(settings.workPlans ?? {}).some((p) => !("off" in p)) ? "Follows your latest answer" : "Default hours"}: ${formatTime(eff.start, zone, settings.hour12)} – ${formatTime(eff.end, zone, settings.hour12)}` : "No hours yet"}
+                      {mode === "off" ? "Nothing is scheduled automatically" : eff ? `${settings.routine?.enabled ? "Daily routine" : Object.values(settings.workPlans ?? {}).some((p) => !("off" in p)) ? "Follows your latest answer" : "Default hours"}: ${formatTime(eff.start, zone, settings.hour12)} – ${formatTime(eff.end, zone, settings.hour12)}` : "No hours yet"}
                     </span>
                   )}
                 </div>
@@ -146,6 +146,7 @@ export function TimeHoursDialog() {
             <Button size="sm" variant="outline" icon={<Clock3 size={14} />} onClick={() => { close(); useUI.getState().openWorkPlan(true); }}>
               Set hours for {settings.workPlans?.[dayKey(now, zone)] ? "a day" : "today"}…
             </Button>
+            <Button size="sm" variant="outline" icon={<Sunrise size={14} />} onClick={() => { close(); useUI.getState().openRoutine(true); }}>Daily routine{settings.routine?.enabled ? " (on)" : ""}…</Button>
             <Button size="sm" variant="soft" icon={<CalendarClock size={14} />} onClick={() => void refit()}>Reschedule tasks into these hours</Button>
           </div>
         </section>

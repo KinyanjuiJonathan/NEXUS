@@ -12,6 +12,8 @@ import { DateTimePicker } from "@/components/DatePicker";
 import { occStatus, snapEdge, snapMove, type OccStatus } from "@/lib/calendarSnap";
 import { taskTimes } from "@/lib/taskViews";
 import { workHours, workWindows, type WorkHours } from "@/lib/workPlan";
+import { routineBlocks, type Routine } from "@/lib/routine";
+import { ROUTINE_STYLE } from "@/components/Routine";
 import { choose, confirm } from "@/components/Confirm";
 import { PRIORITY_META } from "@/components/meta";
 import { confirmComplete } from "@/components/complete";
@@ -162,7 +164,9 @@ async function commitMove(occ: Occurrence, newStart: number, newEnd: number, zon
     if (!c) return;
     scope = c as "single" | "series";
   }
-  const conflicts = findConflicts(s.events, { start: newStart, end: newEnd }, occ.event.id);
+  // Flexible tasks that start in the new time are pushed along automatically, so only what cannot move is a real clash.
+  const flexible = !occ.event.fixed && !!occ.event.taskId && !occ.recurring;
+  const conflicts = findConflicts(s.events, { start: newStart, end: newEnd }, occ.event.id).filter((c) => !flexible || c.event.fixed || !c.event.taskId || c.start < newStart);
   if (conflicts.length) {
     const ok = await confirm({
       title: "Double-booking warning",
@@ -196,8 +200,9 @@ interface DragState {
 const STATUS_LABEL: Record<OccStatus, string> = { done: "Completed", overdue: "Overdue", worked: "Time clocked, not marked complete", now: "Under way", past: "Past", upcoming: "Upcoming" };
 
 function TimeGrid({
-  days, zone, occ, tasks, allTasks, now, hour12, texasZone, match, onStep, wh,
+  days, zone, occ, tasks, allTasks, now, hour12, texasZone, match, onStep, wh, routine,
 }: {
+  routine: Routine;
   days: number[]; zone: string; occ: Occurrence[]; tasks: Task[]; allTasks: Task[]; now: number; hour12: boolean; texasZone: string;
   match: (o: Occurrence) => boolean; onStep: (dir: number) => void; wh: WorkHours;
 }) {
@@ -346,6 +351,7 @@ function TimeGrid({
   const live = drag?.moved ? preview(drag) : null;
   const y = (ms: number, dayStart: number) => ((ms - dayStart) / 3600_000) * HOUR_PX;
   const range = (a: number, b: number) => `${formatTime(a, zone, hour12)} – ${formatTime(b, zone, hour12)}`;
+  const personal = useMemo(() => routineBlocks(days[0], DateTime.fromMillis(days[days.length - 1], { zone }).plus({ days: 1 }).toMillis(), routine).filter((b) => b.kind !== "work"), [days, zone, routine]); // eslint-disable-line react-hooks/exhaustive-deps
   const working = useMemo(() => workWindows(days[0], DateTime.fromMillis(days[days.length - 1], { zone }).plus({ days: 1 }).toMillis(), wh), [days, zone, wh]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -417,6 +423,35 @@ function TimeGrid({
                   {work.map((w) => (
                     <div key={w.start} className="absolute left-0 right-0 pointer-events-none bg-[color-mix(in_oklab,var(--accent)_5%,transparent)] border-y border-[color-mix(in_oklab,var(--accent)_16%,transparent)]" style={{ top: y(Math.max(w.start, d), d), height: y(Math.min(w.end, dayEnd), d) - y(Math.max(w.start, d), d) }} />
                   ))}
+                  {/* the daily routine: sleep, morning, lunch, breaks and the gym, behind everything else */}
+                  {personal.filter((b) => b.end > d && b.start < dayEnd).map((b) => {
+                    const st = ROUTINE_STYLE[b.kind];
+                    const top = y(Math.max(b.start, d), d);
+                    const h = y(Math.min(b.end, dayEnd), d) - top;
+                    const soft = b.kind === "break";
+                    return (
+                      <div
+                        key={b.kind + b.start}
+                        className="absolute left-0 right-0 pointer-events-none overflow-hidden"
+                        style={{
+                          top,
+                          height: h,
+                          background: soft
+                            ? `color-mix(in oklab, ${st.color} 10%, transparent)`
+                            : `repeating-linear-gradient(135deg, color-mix(in oklab, ${st.color} 13%, transparent) 0 6px, color-mix(in oklab, ${st.color} 5%, transparent) 6px 12px)`,
+                          borderTop: `1px solid color-mix(in oklab, ${st.color} 30%, transparent)`,
+                        }}
+                        title={`${b.label} · ${range(b.start, b.end)}`}
+                      >
+                        {h >= 13 && (
+                          <span className="absolute left-1.5 top-0 flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: `color-mix(in oklab, ${st.color} 80%, var(--text))`, lineHeight: `${Math.min(h, 16)}px` }}>
+                            {st.icon}
+                            {days.length === 1 || h >= 22 ? b.label : ""}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
                   {Array.from({ length: 24 }, (_, h) => (
                     <div key={h} className="pointer-events-none">
                       <div className="absolute left-0 right-0 border-t border-line" style={{ top: h * HOUR_PX, opacity: 0.6 }} />
@@ -802,6 +837,7 @@ export default function Calendar() {
             ]}
           />
           <Button size="sm" variant="ghost" icon={<Globe2 size={14} />} onClick={() => useUI.getState().openTimeHours(true)} title="Time zone & working hours">Hours</Button>
+          <Button size="sm" variant="ghost" onClick={() => useUI.getState().openRoutine(true)} title="Sleep, morning, work sessions, breaks, lunch and gym">Routine</Button>
         </div>
       </div>
       {mode === "month" ? (
@@ -809,7 +845,7 @@ export default function Calendar() {
       ) : mode === "agenda" ? (
         <AgendaList from={anchor} zone={zone} events={events} tasks={shownTasks} allTasks={tasks} now={now} hour12={settings.hour12} match={match} matchTask={matchTask} />
       ) : (
-        <TimeGrid days={days} zone={zone} occ={occ} tasks={shownTasks} allTasks={tasks} now={now} hour12={settings.hour12} texasZone={settings.texasZone} match={match} onStep={step} wh={wh} />
+        <TimeGrid days={days} zone={zone} occ={occ} tasks={shownTasks} allTasks={tasks} now={now} hour12={settings.hour12} texasZone={settings.texasZone} match={match} onStep={step} wh={wh} routine={settings.routine} />
       )}
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1">
         <Legend />

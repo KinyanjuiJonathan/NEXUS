@@ -21,6 +21,7 @@ async function setup(shared?: KV) {
   const store = createNexusStore({ backend: createLocalBackend(kv), now: () => clock.now, id: () => `id${++seq}-${Math.random().toString(36).slice(2, 6)}` });
   await store.getState().init();
   if (!shared) await store.getState().setSetting("homeZone", NBO);
+  if (!shared) await store.getState().setSetting("routine", { ...store.getState().settings.routine, enabled: false }); // these tests cover scheduling without a daily routine
   /** What the Smart Schedule box does when the request is clear and a time is free. */
   const say = async (text: string) => {
     const s = store.getState();

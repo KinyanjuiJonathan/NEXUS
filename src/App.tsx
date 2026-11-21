@@ -1,4 +1,6 @@
 import { lazy, Suspense, useEffect } from "react";
+import { useUpdates } from "@/components/Updates";
+import { formatTime } from "@/lib/time";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { useNexus, nexus, getBackend } from "@/store";
 import { useUI, type View } from "@/store/ui";
@@ -13,6 +15,9 @@ import { AutoPlanDialog } from "@/components/AutoPlanDialog";
 import { RescheduleAllDialog } from "@/components/RescheduleAll";
 import { WorkPlanDialog } from "@/components/WorkPlan";
 import { TimeHoursDialog } from "@/components/TimeHours";
+import { RoutineDialog } from "@/components/Routine";
+import { routineNow } from "@/lib/routine";
+import { activeSession, openPause } from "@/lib/work";
 import { dayKey, isoWeekday } from "@/lib/workPlan";
 import { AiSchedulerPanel } from "@/components/AiScheduler";
 import { useTheme } from "@/lib/useTheme";
@@ -56,6 +61,7 @@ function anyModalOpen() {
 }
 
 export default function App() {
+  useUpdates();
   const { theme, reducedMotion, error, idleMinutes } = useNexus((s) => ({ theme: s.settings.theme, reducedMotion: s.settings.reducedMotion, error: s.error, idleMinutes: s.settings.idleMinutes }));
   const view = useUI((s) => s.view);
   useTheme(theme, reducedMotion);
@@ -93,6 +99,7 @@ export default function App() {
   useEffect(() => {
     let last = 0;
     let lastSweep = 0;
+    let lastSleepNudge = 0;
     const off = onTick(() => {
       void nexus().processTimers();
       const now = Date.now();
@@ -103,8 +110,16 @@ export default function App() {
         // First use of the day: ask when the user intends to work (not on top of another dialog).
         const st = nexus();
         const u = useUI.getState();
-        const busy = u.workPlan || u.timeHours || u.taskEditor.open || u.eventEditor.open || u.command.open || u.autoPlan || u.rescheduleAll || !!u.reschedule;
-        if (st.ready && st.settings.workPlanAsk && !busy && now > u.workPlanSnooze && !(dayKey(now, st.settings.homeZone) in (st.settings.workPlans ?? {})) && !st.settings.workWeek?.[isoWeekday(now, st.settings.homeZone)]) {
+        const busy = u.workPlan || u.timeHours || u.routine || u.taskEditor.open || u.eventEditor.open || u.command.open || u.autoPlan || u.rescheduleAll || !!u.reschedule;
+        // Sleep time with the computer still in use: one reminder a night.
+        const sleep = st.ready ? routineNow(now, st.settings.routine, "sleep") : null;
+        const w = activeSession(st.workSessions);
+        if (sleep && w && !openPause(w) && lastSleepNudge !== sleep.start) {
+          lastSleepNudge = sleep.start;
+          st.toast({ kind: "warning", title: "It is your sleep time", body: `Your routine keeps ${formatTime(sleep.start, st.settings.homeZone, st.settings.hour12)} – ${formatTime(sleep.end, st.settings.homeZone, st.settings.hour12)} for at least 6 hours of unbroken sleep. Nothing is scheduled now; put the computer to sleep.`, ttl: 0 });
+        }
+        // The routine already says when work happens, so the daily question is only asked without it.
+        if (st.ready && st.settings.workPlanAsk && !st.settings.routine?.enabled && !busy && now > u.workPlanSnooze && !(dayKey(now, st.settings.homeZone) in (st.settings.workPlans ?? {})) && !st.settings.workWeek?.[isoWeekday(now, st.settings.homeZone)]) {
           u.snoozeWorkPlan(now + 3600_000);
           u.openWorkPlan(true);
         }
@@ -233,6 +248,7 @@ export default function App() {
         <RescheduleAllDialog />
         <WorkPlanDialog />
         <TimeHoursDialog />
+        <RoutineDialog />
         <AiSchedulerPanel />
         <ConfirmHost />
         <Toasts />

@@ -25,6 +25,7 @@ async function setup(shared?: KV) {
   const main = make();
   await main.getState().init();
   if (!shared) await main.getState().setSetting("homeZone", NBO);
+  if (!shared) await main.getState().setSetting("routine", { ...main.getState().settings.routine, enabled: false }); // these tests cover scheduling without a daily routine
   const popup = make();
   await popup.getState().init();
   /** What the pop-up's Schedule section shows after it has been told about a change. */

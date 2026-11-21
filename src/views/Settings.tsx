@@ -15,6 +15,7 @@ import { voiceSupported, webSpeechAvailable } from "@/lib/voice/engine";
 import { clampOpacity } from "@/lib/overlayGeometry";
 import { Button, Card, CardHeader, Field, Input, Kbd, Segmented, Select, Toggle, cx } from "@/components/ui";
 import { useUI } from "@/store/ui";
+import { UpdatesAndFeedback } from "@/components/Updates";
 import { ReminderPicker } from "@/components/ReminderPicker";
 import { confirm } from "@/components/Confirm";
 
@@ -181,6 +182,7 @@ export default function SettingsView() {
           description="On the first use of each day NEXUS asks when you plan to work: a start in Kenya or Texas time and roughly how many hours. Any day of the week and any hour is fine; tasks are planned inside your answer."
         />
         <div className="flex flex-wrap items-center gap-3">
+          <Button size="sm" variant="outline" onClick={() => useUI.getState().openRoutine(true)}>Daily routine{settings.routine?.enabled ? " (on)" : ""}…</Button>
           <Button size="sm" variant="outline" onClick={() => useUI.getState().openWorkPlan(true)}>Set working hours for a day…</Button>
           <span className="text-sm">Usual length of a working day</span>
           <Input className="!w-20" type="number" min={1} max={24} step={0.5} aria-label="Hours in a usual working day" value={settings.workDayHours} onChange={(e) => set("workDayHours", Math.max(1, Math.min(24, Number(e.target.value) || 8)))} />
@@ -239,6 +241,17 @@ export default function SettingsView() {
           label="Auto-Reschedule Incomplete Tasks"
           description="A flexible task only uses up its time while the work clock is running. When its time passes and it is not marked complete, whatever was not clocked is pushed forward to the next free time, and later flexible tasks move along behind it. Fixed appointments never move, and NEXUS never marks a task complete for you."
         />
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm">Scheduling order</span>
+          <Select className="!w-56" value={settings.schedOrder} aria-label="Scheduling order" onChange={(e) => set("schedOrder", e.target.value as typeof settings.schedOrder)}>
+            <option value="fifo">First in, first out (default)</option>
+            <option value="priority">Priority: critical first</option>
+            <option value="shortest">Shortest estimated time first</option>
+            <option value="deadline">Nearest deadline first</option>
+          </Select>
+          <Button size="sm" variant="outline" onClick={() => void s.sortQueue()}>Reorganise the queue now</Button>
+          <span className="text-xs text-muted basis-full">Used when NEXUS plans tasks (Auto-plan), pushes unfinished ones forward, and when you reorganise the queue. First in, first out keeps tasks in the order you added them.</span>
+        </div>
         <Toggle
           checked={settings.smartProtectFixed}
           onChange={(v) => set("smartProtectFixed", v)}
@@ -473,6 +486,7 @@ export default function SettingsView() {
       <Section id="about" title="About" icon={<Info size={16} />}>
         <BrandBlock />
         <p className="text-[11px] text-muted text-center">NEXUS {__APP_VERSION__} · An AI Maverix product</p>
+        <UpdatesAndFeedback />
       </Section>
     </div>
   );

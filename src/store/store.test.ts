@@ -32,6 +32,7 @@ describe("tasks: create / edit / delete / restore / archive", () => {
     const store = makeStore();
     await store.getState().init();
     await store.getState().setSetting("homeZone", NBO);
+    await store.getState().setSetting("routine", { ...store.getState().settings.routine, enabled: false }); // these tests cover scheduling without a daily routine
     const t = await store.getState().addTask({ title: "  Write report ", dueAt: at("2026-11-18T09:00"), priority: "high", estimateMin: 90 });
     expect(t.title).toBe("Write report");
     expect(t.reminders).toEqual([15, 0]); // default reminders applied when a deadline exists
@@ -192,6 +193,7 @@ describe("voice commands end-to-end", () => {
     const store = makeStore();
     await store.getState().init();
     await store.getState().setSetting("homeZone", NBO);
+    await store.getState().setSetting("routine", { ...store.getState().settings.routine, enabled: false }); // these tests cover scheduling without a daily routine
     const deps = { state: store.getState, now: () => clock };
 
     let r = await executeIntent(parseCommand("Add a task to finish my report tomorrow at 9 AM", ctx()).intent, deps);
@@ -223,6 +225,7 @@ describe("voice commands end-to-end", () => {
     const store = makeStore();
     await store.getState().init();
     await store.getState().setSetting("homeZone", NBO);
+    await store.getState().setSetting("routine", { ...store.getState().settings.routine, enabled: false }); // these tests cover scheduling without a daily routine
     await store.getState().addEvent({
       title: "Team meeting", startAt: at("2026-11-16T15:00"), endAt: at("2026-11-16T15:30"), tz: NBO,
       recurrence: { freq: "daily", interval: 1 },
@@ -589,6 +592,7 @@ describe("auto-placement in the store", () => {
     const store = makeStore();
     await store.getState().init();
     await store.getState().setSetting("homeZone", NBO);
+    await store.getState().setSetting("routine", { ...store.getState().settings.routine, enabled: false }); // these tests cover scheduling without a daily routine
     // Tuesday 10:00 Nairobi; working hours 9–17
     const t = await store.getState().addTask({ title: "Write proposal", estimateMin: 90, dueAt: at("2026-11-18T17:00") });
     const blocks = store.getState().events.filter((e) => e.taskId === t.id);
@@ -605,6 +609,7 @@ describe("auto-placement in the store", () => {
     const store = makeStore();
     await store.getState().init();
     await store.getState().setSetting("homeZone", NBO);
+    await store.getState().setSetting("routine", { ...store.getState().settings.routine, enabled: false }); // these tests cover scheduling without a daily routine
     await store.getState().setSetting("autoPlaceNewTasks", false);
     await store.getState().addTask({ title: "A", estimateMin: 60 });
     await store.getState().addTask({ title: "B", estimateMin: 60, priority: "critical" });

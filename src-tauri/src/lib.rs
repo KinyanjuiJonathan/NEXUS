@@ -10,6 +10,7 @@ mod shortcuts;
 mod speech;
 mod state;
 mod typer;
+mod updates;
 #[cfg(windows)]
 mod win_cpu;
 #[cfg(windows)]
@@ -220,6 +221,8 @@ pub fn run() {
             ai::ai_clear_key,
             ai::ai_has_key,
             ai::ai_request,
+            updates::update_check,
+            updates::open_external,
             speech::speech_available,
             speech::speech_listen,
             perf::perf_snapshot,

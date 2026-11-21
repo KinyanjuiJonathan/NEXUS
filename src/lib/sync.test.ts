@@ -24,6 +24,7 @@ async function setup() {
   const store = make();
   await store.getState().init();
   await store.getState().setSetting("homeZone", NBO);
+  await store.getState().setSetting("routine", { ...store.getState().settings.routine, enabled: false }); // these tests cover scheduling without a daily routine
   const s = () => store.getState();
   const block = async (title: string, start: string, end: string, taskId?: string) => {
     const t = taskId ? s().tasks.find((x) => x.id === taskId)! : await s().addTask({ title, estimateMin: 60, reminders: [] }, { autoPlace: false });
@@ -211,6 +212,7 @@ describe("time zone and weekly hours", () => {
     const { s, block, event } = await setup();
     const a = await block("A", "2026-11-18T15:00", "2026-11-18T16:00");
     await s().setSetting("homeZone", "America/Chicago");
+    await s().setSetting("routine", { ...s().settings.routine, enabled: false }); // these tests cover scheduling without a daily routine
     expect(event(a.e.id)).toMatchObject({ startAt: a.e.startAt, endAt: a.e.endAt, tz: NBO }); // the same instant
     expect(fmt(event(a.e.id).startAt, "America/Chicago")).toBe("Wed 18 06:00");
 

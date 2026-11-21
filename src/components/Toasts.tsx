@@ -36,7 +36,7 @@ function ToastCard({ t }: { t: Toast }) {
         <span className="mt-0.5 shrink-0" style={{ color: TONE[t.kind] }}>{ICON[t.kind]}</span>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-fg leading-snug">{t.title}</p>
-          {t.body && <p className="text-xs text-fg-2 mt-0.5 break-words">{t.body}</p>}
+          {t.body && <p className="text-xs text-fg-2 mt-0.5 break-words whitespace-pre-line">{t.body}</p>}
           {t.reminder && (
             <div className="flex flex-wrap gap-1.5 mt-2.5">
               {[5, 10, 30].map((m) => (

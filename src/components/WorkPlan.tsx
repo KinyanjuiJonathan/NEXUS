@@ -10,6 +10,8 @@ import { Button, Modal, cx } from "./ui";
 import { DateTimePicker } from "./DatePicker";
 
 const HOURS = [4, 6, 8, 10, 12];
+/** No more than 12 hours of work in a day. */
+const MAX_HOURS = 12;
 const HOUR = 3600_000;
 
 /** One zone's calendar day as a 24-hour track with the working time lit up (wrapping past midnight when it has to). */
@@ -199,14 +201,14 @@ export function WorkPlanDialog() {
             <input
               type="number"
               min={0.5}
-              max={24}
+              max={MAX_HOURS}
               step={0.5}
               aria-label="Hours of work"
               value={hours}
-              onChange={(e) => setHours(Math.max(0.5, Math.min(24, Number(e.target.value) || 8)))}
+              onChange={(e) => setHours(Math.max(0.5, Math.min(MAX_HOURS, Number(e.target.value) || 8)))}
               className="h-8 w-16 px-2 rounded-lg border border-line bg-hover text-xs tabular text-fg outline-none focus:border-accent"
             />
-            <span className="text-xs text-muted">hours</span>
+            <span className="text-xs text-muted">hours (12 at most)</span>
           </div>
         </div>
 

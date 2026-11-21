@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import { routineWork, type Routine } from "@/lib/routine";
 
 /**
  * When the user intends to work.
@@ -30,6 +31,8 @@ export interface WorkHours {
   plans?: WorkPlans;
   /** Usual hours per weekday. */
   week?: WorkWeek;
+  /** The daily routine: its work sessions are the working time of any day without hours of its own. */
+  routine?: Routine;
 }
 
 interface Interval {
@@ -66,6 +69,10 @@ export function hoursFor(key: string, wh: WorkHours): (Interval & { planned: boo
     const end = day.plus({ minutes: weekly[1] > weekly[0] ? weekly[1] : weekly[1] + 24 * 60 }).toMillis();
     return { start, end, planned: false };
   }
+  if (wh.routine?.enabled) {
+    const spans = routineSpans(key, wh);
+    return spans.length ? { start: spans[0].start, end: spans[spans.length - 1].end, planned: false } : null;
+  }
   const usual = usualPattern(wh.plans, wh.zone);
   if (usual) {
     const start = day.plus({ minutes: usual.offsetMin }).toMillis();
@@ -83,15 +90,32 @@ export function workWindows(from: number, to: number, wh: WorkHours): Interval[]
   // a plan can run past midnight, so the day before `from` may still be under way
   let d = DateTime.fromMillis(from, { zone: wh.zone }).startOf("day").minus({ days: 1 });
   for (let i = 0; i < 64 && d.toMillis() < to; i++, d = d.plus({ days: 1 })) {
-    const h = hoursFor(d.toISODate()!, wh);
-    if (h && h.end > from && h.start < to && h.end > h.start) out.push({ start: h.start, end: h.end });
+    const key = d.toISODate()!;
+    // The routine's day has a lunch in the middle, so it is two stretches of work, not one.
+    const own = wh.plans?.[key] ?? wh.week?.[d.weekday];
+    const parts = !own && wh.routine?.enabled ? routineSpans(key, wh) : [hoursFor(key, wh)];
+    for (const h of parts) if (h && h.end > from && h.start < to && h.end > h.start) out.push({ start: h.start, end: h.end });
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
+/** The routine's working stretches that begin on the home-zone day `key`. */
+function routineSpans(key: string, wh: WorkHours): Interval[] {
+  const r = wh.routine!;
+  const day = DateTime.fromISO(key, { zone: wh.zone }).startOf("day");
+  const from = day.toMillis();
+  const to = day.plus({ days: 1 }).toMillis();
+  const out: Interval[] = [];
+  // the routine's own calendar day can straddle two home-zone days
+  for (const k of new Set([day.setZone(r.zone).toISODate()!, day.plus({ days: 1 }).minus({ milliseconds: 1 }).setZone(r.zone).toISODate()!])) {
+    for (const s of routineWork(k, r)) if (s.start >= from && s.start < to) out.push(s);
   }
   return out.sort((a, b) => a.start - b.start);
 }
 
 /** Working hours as the schedulers need them, from the settings. */
-export function workHours(s: { homeZone: string; workStartHour: number; workEndHour: number; workDays: number[]; workPlans?: WorkPlans; workWeek?: WorkWeek }): WorkHours {
-  return { zone: s.homeZone, startHour: s.workStartHour, endHour: s.workEndHour, days: s.workDays, plans: s.workPlans, week: s.workWeek };
+export function workHours(s: { homeZone: string; workStartHour: number; workEndHour: number; workDays: number[]; workPlans?: WorkPlans; workWeek?: WorkWeek; routine?: Routine }): WorkHours {
+  return { zone: s.homeZone, startHour: s.workStartHour, endHour: s.workEndHour, days: s.workDays, plans: s.workPlans, week: s.workWeek, routine: s.routine };
 }
 
 /** Plans worth keeping: the last two weeks and everything ahead. */

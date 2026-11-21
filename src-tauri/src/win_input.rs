@@ -22,6 +22,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 #[derive(Clone)]
 enum Sent {
     Vk(VIRTUAL_KEY, bool),
+    /// A key that this keyboard layout only produces with Shift: Shift is pressed around it.
+    Shifted(VIRTUAL_KEY),
     Unicode(Vec<u16>),
 }
 
@@ -50,6 +52,16 @@ fn send(sent: &Sent, down: bool) {
             let scan = unsafe { MapVirtualKeyW(vk.0 as u32, MAPVK_VK_TO_VSC) } as u16;
             let ext = if *extended { KEYEVENTF_EXTENDEDKEY } else { KEYBD_EVENT_FLAGS(0) };
             vec![input(*vk, scan, up | ext)]
+        }
+        Sent::Shifted(vk) => {
+            let key = input(*vk, unsafe { MapVirtualKeyW(vk.0 as u32, MAPVK_VK_TO_VSC) } as u16, up);
+            let shift = |flags| input(VK_SHIFT, unsafe { MapVirtualKeyW(VK_SHIFT.0 as u32, MAPVK_VK_TO_VSC) } as u16, flags);
+            // Shift goes down before the key and comes up after it.
+            if down {
+                vec![shift(KEYBD_EVENT_FLAGS(0)), key]
+            } else {
+                vec![key, shift(KEYEVENTF_KEYUP)]
+            }
         }
         Sent::Unicode(units) => units.iter().map(|u| input(VIRTUAL_KEY(0), *u, KEYEVENTF_UNICODE | up)).collect(),
     };
@@ -89,20 +101,28 @@ impl Keyboard {
         self.held.contains_key("<shift>") || self.held.contains_key("<mod>")
     }
 
-    /// Letters, digits and space are sent as real keys, and so is anything typed
-    /// with Shift or Ctrl held (the combination needs a real key). Everything else
-    /// is sent as the exact character, which works on every keyboard layout.
+    /// Every character this keyboard layout can produce is sent as its real key
+    /// (with Shift around it when the layout needs Shift). Characters sent as
+    /// "Unicode input" are misread by programs that look at raw key codes
+    /// (remote desktops, virtual machines, some editors): a comma arrives as "z"
+    /// and a hyphen as "x". Only characters the layout has no key for (accents
+    /// on a US keyboard, emoji) still go as exact characters.
     fn resolve(&self, key: &str) -> Sent {
         if let Some(s) = named(key) {
             return s;
         }
         let units: Vec<u16> = key.encode_utf16().collect();
-        let simple = key.len() == 1 && key.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ');
-        if units.len() == 1 && (simple || self.modifier_held()) {
+        if units.len() == 1 {
             let scan = unsafe { VkKeyScanW(units[0]) };
-            // low byte = virtual key, high byte = modifiers the layout needs for this character
-            if scan != -1 && (scan as u16 >> 8) == 0 {
-                return Sent::Vk(VIRTUAL_KEY(scan as u16 & 0xff), false);
+            if scan != -1 {
+                // low byte = virtual key, high byte = modifiers the layout needs for this character
+                let vk = VIRTUAL_KEY(scan as u16 & 0xff);
+                match scan as u16 >> 8 {
+                    0 => return Sent::Vk(vk, false),
+                    // Shift only. With Shift or Ctrl already held the planned combination is sent as it is.
+                    1 if !self.modifier_held() => return Sent::Shifted(vk),
+                    _ => {}
+                }
             }
         }
         Sent::Unicode(units)

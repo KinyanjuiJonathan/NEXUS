@@ -25,14 +25,16 @@ import { nextOccurrence } from "@/lib/recurrence";
 import * as cd from "@/lib/countdown";
 import { reminderForTimer, remindersForEvent, remindersForTask } from "@/lib/reminders";
 import { activeSession, openPause } from "@/lib/work";
-import { planBulk, planDisplaced, planMerges, planQueueOrder, planUnfinished, queueUnits, type BulkTarget, type Move, type RescheduleSettings, type UnitPlan } from "@/lib/smart/reschedule";
+import { freeFrom, planBulk, planDisplaced, planMerges, planQueueOrder, planRipple, planUnfinished, queueUnits, sortedQueue, type BulkTarget, type Move, type RescheduleSettings, type UnitPlan } from "@/lib/smart/reschedule";
 import { blockClock, currentBlock, unclockedMs } from "@/lib/taskClock";
 import { dayKey, prunePlans, workHours, type DayPlan } from "@/lib/workPlan";
+import { DEFAULT_ROUTINE, normalizeRoutine } from "@/lib/routine";
 import type { ScheduleRequest } from "@/lib/smart/parse";
 import type { Interval } from "@/lib/schedule";
 import { planTasks, type PlanBlock, type PlanOptions, type PlanResult } from "@/lib/planner";
 import { humanDuration } from "@/lib/countdown";
-import { formatWithZone } from "@/lib/time";
+import { formatTime, formatWithZone } from "@/lib/time";
+import type { SchedOrder } from "@/data/types";
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: "dark",
@@ -45,6 +47,11 @@ export const DEFAULT_SETTINGS: Settings = {
   workDays: [1, 2, 3, 4, 5, 6, 7],
   workPlans: {},
   workWeek: {},
+  updateAuto: true,
+  lastVersion: null,
+  previousVersion: null,
+  routine: DEFAULT_ROUTINE,
+  schedOrder: "fifo",
   workPlanAsk: true,
   workDayHours: 8,
   defaultReminders: [15, 0],
@@ -225,6 +232,12 @@ export interface NexusState {
   mergeSplitTasks(): Promise<number>;
   /** "I was working": count the time the clock skipped during this task's block (inactivity, or not being clocked in). Returns the ms counted. */
   countAway(eventId: string): Promise<number>;
+  /** Move a task's block later (or earlier) by exactly this much; the tasks after it are pushed along in order. */
+  shiftTask(eventId: string, byMs: number): Promise<boolean>;
+  /** Start this queued task now. The task under way gives up its place: what is left of it follows straight after. */
+  startTaskNow(taskId: string): Promise<boolean>;
+  /** Reorganise the queue by a scheduling order (the one in Settings when none is given). */
+  sortQueue(order?: SchedOrder): Promise<boolean>;
   /** Say when you intend to work on a day (ISO date in the home zone): hours, a day off, or null to forget the answer. */
   setWorkPlan(day: string, plan: DayPlan | null): Promise<void>;
   /** Empty the history log. Tasks, appointments, work sessions and statistics are kept. */
@@ -255,6 +268,7 @@ function mergeSettings(raw: Partial<Settings>): Settings {
   s.texasZone = normalizeZone(s.texasZone, TEXAS_CENTRAL) as Settings["texasZone"];
   if (s.texasZone !== "America/Chicago" && s.texasZone !== "America/Denver") s.texasZone = TEXAS_CENTRAL;
   s.homeZone = normalizeZone(s.homeZone, localZone());
+  s.routine = normalizeRoutine(raw.routine);
   return s;
 }
 
@@ -579,6 +593,48 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
 
     let merging = false;
 
+    const flexibleBlock = (e: CalendarEvent) => !e.fixed && !e.recurrence && !!e.taskId && !e.deletedAt;
+
+    /** "A: 10:00 → 11:00" for every block whose time differs from `before`, for the notice after a change. */
+    const describeChanges = (before: CalendarEvent[]) => {
+      const s = get().settings;
+      const was = new Map(before.map((e) => [e.id, e]));
+      const t = (ms: number) => formatTime(ms, s.homeZone, s.hour12);
+      const day = (ms: number) => DateTime.fromMillis(ms, { zone: s.homeZone }).toFormat("ccc d");
+      const lines: string[] = [];
+      for (const e of [...get().events].sort((a, b) => a.startAt - b.startAt)) {
+        const old = was.get(e.id);
+        if (!old || e.deletedAt || (old.startAt === e.startAt && old.endAt === e.endAt)) continue;
+        const sameDay = day(old.startAt) === day(e.startAt);
+        lines.push(`${e.title}: ${sameDay ? "" : `${day(old.startAt)} `}${t(old.startAt)}–${t(old.endAt)} → ${sameDay ? "" : `${day(e.startAt)} `}${t(e.startAt)}–${t(e.endAt)}`);
+      }
+      return lines;
+    };
+
+    /** Tell the user exactly what moved (original → new time), with Undo. */
+    const announce = (title: string, before: CalendarEvent[], note = "") => {
+      const lines = describeChanges(before);
+      if (!lines.length) return;
+      const shown = lines.slice(0, 4).join("\n") + (lines.length > 4 ? `\n+ ${lines.length - 4} more` : "");
+      get().toast({ kind: "success", title, body: `${note ? `${note}\n` : ""}${shown}`, action: { label: "Undo", run: () => void restoreEvents(before) }, ttl: 12_000 });
+    };
+
+    /** After a flexible task block was retimed by hand: push the tasks behind it out of its way and say what moved. */
+    const ripple = async (was: CalendarEvent, is: CalendarEvent, before: CalendarEvent[], quiet = false) => {
+      if (!flexibleBlock(is) || !get().settings.smartEnabled) return 0;
+      const moves = planRipple(get().tasks, get().events, now(), get().slotSettings(), is.id, { start: is.startAt, end: is.endAt }, was.startAt);
+      for (const m of moves) {
+        const e = get().events.find((x) => x.id === m.eventId);
+        if (!e || !m.to) continue;
+        const ts = now();
+        const sched = e.sched ?? {};
+        const history = [...(sched.history ?? []), { at: ts, from: [e.startAt, e.endAt] as [number, number], to: [m.to.start, m.to.end] as [number, number], reason: "pushed" as const }].slice(-20);
+        await saveEvent({ ...e, startAt: m.to.start, endAt: m.to.end, sched: { ...sched, history, attention: null }, updatedAt: ts });
+      }
+      if (moves.length && !quiet) announce(`${moves.length} later task${moves.length === 1 ? "" : "s"} moved along`, before, `“${is.title}” changed, so what follows was pushed in the same order.`);
+      return moves.length;
+    };
+
     /** Put the stored events back exactly as they were in `before` (undo of a bulk change). */
     const restoreEvents = async (before: CalendarEvent[]) => {
       const was = new Map(before.map((e) => [e.id, e]));
@@ -890,6 +946,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
       async updateEvent(evId, patch) {
         const cur = get().events.find((e) => e.id === evId);
         if (!cur) return null;
+        const before = get().events;
         const next = { ...cur, ...patch, id: cur.id, updatedAt: now() };
         const retimed = next.startAt !== cur.startAt || next.endAt !== cur.endAt;
         // The user chose this time: it is theirs again, and the automatic-move count starts over.
@@ -912,6 +969,8 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           if (task && task.title === cur.title) await saveTask({ ...task, title: next.title, updatedAt: now() });
         }
         if (retimed || (next.fixed && !cur.fixed)) await makeRoomFor(next);
+        // A task that now takes longer, or starts later, pushes the tasks after it along.
+        if (retimed) await ripple(cur, next, before);
         return next;
       },
 
@@ -940,7 +999,10 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         if (!ev.recurrence || scope === "series") {
           const shift = newStart - occ.start;
           const dur = newEnd - newStart;
-          await saveEvent({ ...ev, startAt: ev.startAt + shift, endAt: ev.startAt + shift + dur, updatedAt: now() });
+          const before = get().events;
+          const moved = { ...ev, startAt: ev.startAt + shift, endAt: ev.startAt + shift + dur, updatedAt: now() };
+          await saveEvent(moved);
+          await ripple(ev, moved, before);
           if (shift) get().log("event_moved", ev.title, `→ ${formatWithZone(newStart, ev.tz, get().settings.hour12)}`, ev.id);
           return;
         }
@@ -1166,7 +1228,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
       // ------------------------------------------------------------ planning
       autoPlan(opts) {
         const s = get().settings;
-        return planTasks(get().tasks, get().events, wh(), now(), { bufferMin: s.planBufferMin, chunkMaxMin: s.planChunkMaxMin, ...opts });
+        return planTasks(get().tasks, get().events, wh(), now(), { bufferMin: s.planBufferMin, chunkMaxMin: s.planChunkMaxMin, order: s.schedOrder, ...opts });
       },
 
       slotSettings() {
@@ -1178,6 +1240,8 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           workDays: s.workDays,
           plans: s.workPlans,
           week: s.workWeek,
+          routine: s.routine,
+          order: s.schedOrder,
           chunkMaxMin: s.planChunkMaxMin,
           bufferMin: s.planBufferMin,
           periods: s.smartPeriods,
@@ -1285,13 +1349,69 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         const s = get().settings;
         const merged = plans.filter((p) => p.merged.length).length;
         get().log("task_rescheduled", "Queue reordered", plans.map((p) => p.title).join(" → ").slice(0, 300));
-        get().toast({
-          kind: "success",
-          title: "Queue updated",
-          body: `${plans[0].title} is now first, at ${formatWithZone(plans[0].parts[0].to.start, s.homeZone, s.hour12)}.${merged ? ` ${merged} split task${merged === 1 ? " was" : "s were"} joined into one block.` : ""}`,
-          action: { label: "Undo", run: () => void restoreEvents(before) },
-          ttl: 8000,
-        });
+        announce("Queue updated", before, `${plans[0].title} is now first, at ${formatWithZone(plans[0].parts[0].to.start, s.homeZone, s.hour12)}.${merged ? ` ${merged} split task${merged === 1 ? " was" : "s were"} joined into one block.` : ""}`);
+        return true;
+      },
+
+      async shiftTask(eventId, byMs) {
+        const e = get().events.find((x) => x.id === eventId);
+        if (!e || !flexibleBlock(e) || !byMs) return false;
+        const before = get().events;
+        const ts = now();
+        const s = get().settings;
+        const dur = e.endAt - e.startAt;
+        const want = Math.max(ts, e.startAt + byMs);
+        // exactly that much later; only a fixed appointment or personal time in the way sends it further
+        const queue = new Set(get().events.filter(flexibleBlock).map((x) => x.id));
+        const to = freeFrom(get().events, ts, get().slotSettings(), want, dur, queue);
+        const sched = e.sched ?? {};
+        const history = [...(sched.history ?? []), { at: ts, from: [e.startAt, e.endAt] as [number, number], to: [to.start, to.end] as [number, number], reason: "queue" as const }].slice(-20);
+        const moved = { ...e, startAt: to.start, endAt: to.end, sched: { ...sched, origin: "user" as const, moves: 0, history, attention: null }, updatedAt: ts };
+        await saveEvent(moved);
+        await ripple(e, moved, before, true);
+        get().log("task_rescheduled", e.title, `${byMs > 0 ? "Pushed" : "Pulled"} ${humanDuration(Math.abs(byMs))}: ${formatWithZone(e.startAt, s.homeZone, s.hour12)} → ${formatWithZone(to.start, s.homeZone, s.hour12)}`, e.taskId);
+        announce(`Moved ${humanDuration(Math.abs(byMs))} ${byMs > 0 ? "later" : "earlier"}`, before, to.start !== want ? "Something fixed was in the way, so it starts right after it." : "");
+        return true;
+      },
+
+      async startTaskNow(taskId) {
+        const ts = now();
+        const unit = queueUnits(get().tasks, get().events, ts).find((u) => u.taskId === taskId);
+        if (!unit) return false;
+        const before = get().events;
+        const cur = currentBlock(get().tasks, before, ts);
+        const queue = new Set(before.filter(flexibleBlock).map((x) => x.id));
+        const start = Math.ceil(ts / 60_000) * 60_000;
+        // the chosen task takes over from now, as one block
+        const to = freeFrom(before, ts, get().slotSettings(), start, unit.durationMs, queue);
+        await applyUnits([{ taskId, title: unit.title, parts: [{ eventId: unit.blocks[0].id, from: { start: unit.blocks[0].startAt, end: unit.blocks[0].endAt }, to }], merged: unit.blocks.slice(1).map((b) => b.id) }], "queue");
+        let last = get().events.find((x) => x.id === unit.blocks[0].id)!;
+        if (cur && cur.task.id !== taskId) {
+          // what is left of the task that was under way follows straight after, with its clocked time kept
+          const c = blockClock(cur.event, get().workSessions, ts);
+          const rest = Math.max(15 * 60_000, Math.ceil(c.remainingMs / 300_000) * 300_000);
+          const at = freeFrom(get().events, ts, get().slotSettings(), to.end, rest, queue);
+          const sched = cur.event.sched ?? {};
+          const history = [...(sched.history ?? []), { at: ts, from: [cur.event.startAt, cur.event.endAt] as [number, number], to: [at.start, at.end] as [number, number], reason: "queue" as const }].slice(-20);
+          const parked = { ...cur.event, startAt: at.start, endAt: at.end, sched: { ...sched, workedMs: c.workedMs, targetMs: c.targetMs, creditedTo: null, history, attention: null }, updatedAt: ts };
+          await saveEvent(parked);
+          last = parked;
+        }
+        await ripple(unit.blocks[0], last, before, true);
+        await get().setActiveTask(taskId);
+        get().log("task_rescheduled", unit.title, cur && cur.task.id !== taskId ? `Started now in place of “${cur.task.title}”` : "Started now", taskId);
+        announce(cur && cur.task.id !== taskId ? `Now working on “${unit.title}”` : `“${unit.title}” starts now`, before, cur && cur.task.id !== taskId ? `“${cur.task.title}” continues afterwards with the time it still needs.` : "");
+        return true;
+      },
+
+      async sortQueue(order) {
+        const o = order ?? get().settings.schedOrder;
+        const before = get().events;
+        const plans = planQueueOrder(get().tasks, before, now(), get().slotSettings(), sortedQueue(get().tasks, before, now(), o));
+        if (!(await applyUnits(plans, "queue"))) return false;
+        const label = { fifo: "first in, first out", priority: "priority (critical first)", shortest: "shortest first", deadline: "nearest deadline first" }[o];
+        get().log("task_rescheduled", "Queue reorganised", `Order: ${label}`);
+        announce("Queue reorganised", before, `Order: ${label}.`);
         return true;
       },
 

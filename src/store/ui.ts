@@ -23,6 +23,9 @@ interface UIState {
   workPlanSnooze: number;
   /** Time zone & working hours panel. */
   timeHours: boolean;
+  /** Daily routine editor. */
+  routine: boolean;
+  openRoutine(open: boolean): void;
   openTimeHours(open: boolean): void;
   openWorkPlan(open: boolean): void;
   snoozeWorkPlan(until: number): void;
@@ -50,6 +53,8 @@ export const useUI = create<UIState>((set) => ({
   workPlan: false,
   workPlanSnooze: 0,
   timeHours: false,
+  routine: false,
+  openRoutine: (routine) => set({ routine }),
   openTimeHours: (timeHours) => set({ timeHours }),
   openWorkPlan: (workPlan) => set({ workPlan }),
   snoozeWorkPlan: (workPlanSnooze) => set({ workPlanSnooze }),

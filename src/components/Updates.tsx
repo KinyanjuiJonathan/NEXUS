@@ -1,0 +1,118 @@
+import { useEffect, useState } from "react";
+import { Download, MessageSquarePlus, RefreshCw } from "lucide-react";
+import { useNexus, nexus } from "@/store";
+import { latestRelease, native, openExternal, type ReleaseInfo } from "@/lib/platform";
+import { REPO_URL, feedbackBody, feedbackTitle, feedbackUrl, isNewer, type FeedbackKind } from "@/lib/updates";
+import { Button, Select, Toggle, cx } from "./ui";
+
+const AREAS = ["", "Dashboard", "Tasks & queue", "Calendar", "Scheduling", "Work clock", "Auto Typer", "Overlay", "Settings", "Installer / update"];
+
+/** Look for a newer release. Returns it when there is one. Quiet unless asked to report. */
+export async function checkForUpdate(report: boolean): Promise<ReleaseInfo | null> {
+  const s = nexus();
+  try {
+    const rel = await latestRelease();
+    if (rel && isNewer(rel.version, __APP_VERSION__)) {
+      s.toast({
+        kind: "info",
+        title: `NEXUS ${rel.version.replace(/^v/i, "")} is available`,
+        body: `You have ${__APP_VERSION__}. Installing the new version over this one keeps your tasks, history and settings.`,
+        action: { label: "Open download page", run: () => void openExternal(rel.url || `${REPO_URL}/releases/latest`).catch(() => {}) },
+        ttl: 0,
+      });
+      return rel;
+    }
+    if (report) s.toast({ kind: "success", title: rel ? "NEXUS is up to date" : "No newer version has been published", body: `You have ${__APP_VERSION__}.`, ttl: 5000 });
+  } catch (e) {
+    if (report) s.toast({ kind: "warning", title: "Could not check for updates", body: e instanceof Error ? e.message : String(e), ttl: 7000 });
+  }
+  return null;
+}
+
+/** Once at start-up and then daily: notice that the app was updated, and look for a newer version. */
+export function useUpdates() {
+  const ready = useNexus((s) => s.ready);
+  useEffect(() => {
+    if (!ready) return;
+    const s = nexus();
+    const last = s.settings.lastVersion;
+    if (last !== __APP_VERSION__) {
+      void (async () => {
+        if (last) {
+          await s.setSetting("previousVersion", last);
+          s.toast({ kind: "success", title: `Updated to NEXUS ${__APP_VERSION__}`, body: `Your data from ${last} was kept. Tell us how the new version behaves from Settings → About → Send feedback.`, ttl: 12_000 });
+        }
+        await s.setSetting("lastVersion", __APP_VERSION__);
+      })();
+    }
+    if (!native) return;
+    const run = () => {
+      if (nexus().settings.updateAuto) void checkForUpdate(false);
+    };
+    const first = setTimeout(run, 20_000);
+    const daily = setInterval(run, 24 * 3600_000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(daily);
+    };
+  }, [ready]);
+}
+
+/** Settings → About: version, update check and the feedback form. */
+export function UpdatesAndFeedback() {
+  const { auto, previous } = useNexus((s) => ({ auto: s.settings.updateAuto, previous: s.settings.previousVersion }));
+  const [checking, setChecking] = useState(false);
+  const [kind, setKind] = useState<FeedbackKind>("problem");
+  const [area, setArea] = useState("");
+  const [text, setText] = useState("");
+  const s = nexus();
+  const input = { kind, area, text, version: __APP_VERSION__, previousVersion: previous, platform: typeof navigator !== "undefined" ? navigator.userAgent.replace(/\s+/g, " ").slice(0, 120) : "" };
+
+  const send = async () => {
+    try {
+      await openExternal(feedbackUrl(input));
+      s.toast({ kind: "success", title: "Feedback opened in your browser", body: "Review it and press Submit there. Nothing was sent by NEXUS itself.", ttl: 7000 });
+      setText("");
+    } catch (e) {
+      s.toast({ kind: "warning", title: "Could not open the browser", body: `${e instanceof Error ? e.message : String(e)} Use Copy instead and paste it wherever you send feedback.`, ttl: 8000 });
+    }
+  };
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(`${feedbackTitle(input)}\n\n${feedbackBody(input)}`);
+      s.toast({ kind: "success", title: "Feedback copied", ttl: 3000 });
+    } catch {
+      s.toast({ kind: "warning", title: "Could not copy", ttl: 4000 });
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-sm">Version <b className="font-mono">{__APP_VERSION__}</b>{previous && previous !== __APP_VERSION__ ? <span className="text-muted"> · updated from {previous}</span> : null}</span>
+        <Button size="sm" variant="outline" icon={<RefreshCw size={14} className={cx(checking && "animate-spin")} />} disabled={checking || !native} onClick={async () => { setChecking(true); await checkForUpdate(true); setChecking(false); }}>Check for updates</Button>
+        <Button size="sm" variant="ghost" icon={<Download size={14} />} onClick={() => void openExternal(`${REPO_URL}/releases`).catch(() => {})}>All versions</Button>
+      </div>
+      <Toggle checked={auto} onChange={(v) => void s.setSetting("updateAuto", v)} label="Check for updates automatically" description="Once a day NEXUS asks whether a newer version has been published and tells you when there is one. You install it by running the new installer; your tasks, history and settings are kept." />
+      <div className="rounded-xl border border-line p-3 flex flex-col gap-2.5">
+        <div className="flex items-center gap-2 text-sm font-medium"><MessageSquarePlus size={15} className="text-accent" /> Send feedback</div>
+        <div className="flex flex-wrap gap-2">
+          <Select className="!w-44" value={kind} onChange={(e) => setKind(e.target.value as FeedbackKind)} aria-label="Kind of feedback">
+            <option value="problem">Something is wrong</option>
+            <option value="idea">An idea</option>
+            <option value="praise">Something works well</option>
+          </Select>
+          <Select className="!w-48" value={area} onChange={(e) => setArea(e.target.value)} aria-label="Part of NEXUS">
+            {AREAS.map((a) => <option key={a} value={a}>{a || "Any part of NEXUS"}</option>)}
+          </Select>
+        </div>
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} placeholder={previous && previous !== __APP_VERSION__ ? `What changed for you since ${previous}? What should be different?` : "What happened, and what did you expect?"} aria-label="Your feedback" className="rounded-xl bg-hover border border-line px-3 py-2 text-sm text-fg placeholder:text-muted outline-none focus:border-accent resize-y" />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="primary" disabled={!text.trim()} onClick={() => void send()}>Open as a report</Button>
+          <Button size="sm" variant="ghost" disabled={!text.trim()} onClick={() => void copy()}>Copy</Button>
+          <span className="text-[11px] text-muted">Your version{previous && previous !== __APP_VERSION__ ? ` and the one before (${previous})` : ""} are added. It opens in your browser for you to review and submit.</span>
+        </div>
+      </div>
+    </div>
+  );
+}

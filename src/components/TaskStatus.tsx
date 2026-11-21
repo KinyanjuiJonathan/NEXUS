@@ -1,4 +1,6 @@
-import { CheckCircle2, LogIn, Play } from "lucide-react";
+import { CheckCircle2, LogIn, Play, Repeat2 } from "lucide-react";
+import { queueUnits } from "@/lib/smart/reschedule";
+import { choose } from "./Confirm";
 import type { CalendarEvent, Task } from "@/data/types";
 import { useNexus, nexus } from "@/store";
 import { useUI } from "@/store/ui";
@@ -36,9 +38,23 @@ export function CurrentTaskStatus({ event, task, now, compact }: { event: Calend
   const countable = countableMs(event, sessions, now);
   const tone = TONE[state];
   const s = nexus();
+  const { tasks, events } = useNexus((st) => ({ tasks: st.tasks, events: st.events }));
+  const next = queueUnits(tasks, events, now).filter((u) => u.taskId !== task.id).slice(0, 4);
+  const switchTask = async () => {
+    const pick = await choose({
+      title: "Switch to another task",
+      body: (
+        <>
+          Pick the task to work on now. <b className="text-fg">“{task.title}”</b> keeps the time already clocked and continues straight after it; later tasks move along in the same order.
+        </>
+      ),
+      choices: next.map((u) => ({ value: u.taskId, label: u.title.length > 26 ? `${u.title.slice(0, 25)}…` : u.title, variant: "soft" as const })),
+    });
+    if (pick) await s.startTaskNow(pick);
+  };
   return (
     <div className="flex flex-col min-w-0">
-      <button className={cx("text-left font-semibold truncate hover:text-accent", compact ? "text-[13px]" : "text-base")} onClick={() => useUI.getState().openEvent(event.id)} title={task.title}>
+      <button className={cx("text-left font-semibold truncate hover:text-accent", compact ? "text-[13px]" : "text-base")} onClick={() => useUI.getState().openTask(task.id)} title={`${task.title}\nOpen the task (notes, subtasks, checklist)`}>
         {task.title}
       </button>
       <p role="status" className={cx("font-medium flex items-center gap-1.5 min-w-0", compact ? "text-[11px] mt-0.5" : "text-sm mt-1")} style={{ color: tone.color }}>
@@ -59,6 +75,9 @@ export function CurrentTaskStatus({ event, task, now, compact }: { event: Calend
           </Button>
         )}
         <Button size="sm" variant="outline" icon={<CheckCircle2 size={13} />} onClick={() => void confirmComplete(task.id)}>Complete</Button>
+        {next.length > 0 && (
+          <Button size="sm" variant="ghost" icon={<Repeat2 size={13} />} onClick={() => void switchTask()} title="Switch: work on another task from the queue now; this one continues afterwards" aria-label="Switch to another task" className="!px-2" />
+        )}
       </div>
     </div>
   );

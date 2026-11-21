@@ -3,6 +3,7 @@ import type { CalendarEvent, DayPeriod, Occurrence } from "@/data/types";
 import { DAY, MIN, expandEvents, findConflicts, mergeIntervals, type Interval } from "@/lib/schedule";
 import type { ScheduleRequest } from "./parse";
 import { workWindows, type WorkPlans, type WorkWeek } from "@/lib/workPlan";
+import { personalTime, type Routine } from "@/lib/routine";
 
 /**
  * Finds a free time for a scheduling request.
@@ -24,6 +25,8 @@ export interface SlotSettings {
   plans?: WorkPlans;
   /** Usual hours per weekday. */
   week?: WorkWeek;
+  /** Daily routine: its work sessions are the working time, its personal time is never scheduled over. */
+  routine?: Routine;
   periods: { morning: [number, number]; afternoon: [number, number]; evening: [number, number] };
 }
 
@@ -56,9 +59,10 @@ function daysIn(start: number, end: number, zone: string): DateTime[] {
 }
 
 /** Everything on the calendar, widened by the buffer and merged. */
-export function busyIntervals(events: CalendarEvent[], from: number, to: number, bufferMs: number, ignore?: ReadonlySet<string>): Interval[] {
+export function busyIntervals(events: CalendarEvent[], from: number, to: number, bufferMs: number, ignore?: ReadonlySet<string>, routine?: Routine): Interval[] {
   const live = ignore ? events.filter((e) => !ignore.has(e.id)) : events;
-  return mergeIntervals(expandEvents(live, from - DAY, to + DAY).map((o) => ({ start: o.start - bufferMs, end: o.end + bufferMs })));
+  // Sleep, the morning routine, lunch and the gym are as unavailable as an appointment (no buffer around them).
+  return mergeIntervals([...expandEvents(live, from - DAY, to + DAY).map((o) => ({ start: o.start - bufferMs, end: o.end + bufferMs })), ...personalTime(from - DAY, to + DAY, routine)]);
 }
 
 function gapsIn(win: Interval, busy: Interval[]): Interval[] {
@@ -105,7 +109,7 @@ export function fitNear(wins: Interval[], busy: Interval[], dur: number, target:
 
 /** Working hours of each working day (home zone) overlapping [from, to). */
 export function workingWindows(from: number, to: number, s: SlotSettings): Interval[] {
-  return workWindows(from, to, { zone: s.homeZone, startHour: s.workStartHour, endHour: s.workEndHour, days: s.workDays, plans: s.plans, week: s.week });
+  return workWindows(from, to, { zone: s.homeZone, startHour: s.workStartHour, endHour: s.workEndHour, days: s.workDays, plans: s.plans, week: s.week, routine: s.routine });
 }
 
 export interface Resolution {
@@ -136,7 +140,7 @@ export function resolveRequest(req: ScheduleRequest, events: CalendarEvent[], s:
   const dur = durationMin * MIN;
   const bufferMs = Math.max(0, s.bufferMin) * MIN;
   const horizonEnd = now + (HORIZON_DAYS + 1) * DAY;
-  const busy = busyIntervals(events, now, Math.max(horizonEnd, (req.window?.end ?? 0) + 8 * DAY), bufferMs);
+  const busy = busyIntervals(events, now, Math.max(horizonEnd, (req.window?.end ?? 0) + 8 * DAY), bufferMs, undefined, s.routine);
   const notBefore = Math.max(now, req.earliest ?? 0);
 
   let deadline = req.deadline;

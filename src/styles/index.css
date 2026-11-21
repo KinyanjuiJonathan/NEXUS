@@ -243,46 +243,21 @@ html.overlay body {
 /* A transparent textarea sits exactly on top of a styled copy of its text. Both use the
    same monospace metrics (bold and italic keep the same character width), so the caret
    and selection line up with the formatted text underneath. */
-.typer-editor {
-  position: relative;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.6;
-}
-.typer-editor > pre,
-.typer-editor > textarea {
-  margin: 0;
+.typer-pad {
   padding: 12px 14px;
-  font: inherit;
-  letter-spacing: 0;
+  line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: break-word;
-  word-break: normal;
+  overflow-y: auto;
   tab-size: 4;
-  border: 0;
-  box-sizing: border-box;
-}
-.typer-editor > pre {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
+  outline: none;
+  caret-color: var(--accent);
   color: var(--text);
 }
-.typer-editor > textarea {
-  position: relative;
-  display: block;
-  width: 100%;
-  height: 100%;
-  resize: none;
-  background: transparent;
-  color: transparent;
-  caret-color: var(--accent);
-  outline: none;
-  overflow-y: auto;
-}
-.typer-editor > textarea::placeholder { color: var(--muted); }
-.typer-editor > textarea::selection { background: color-mix(in oklab, var(--accent) 30%, transparent); color: transparent; }
-.typer-editor .tm { color: color-mix(in oklab, var(--muted) 55%, transparent); }
-.typer-editor .tb { font-weight: 700; color: var(--accent); }
-.typer-editor .ti { font-style: italic; }
+.typer-pad::selection, .typer-pad *::selection { background: color-mix(in oklab, var(--accent) 35%, transparent); }
+.typer-rich { font-size: 14px; cursor: text; }
+.typer-rich:empty::before { content: attr(data-placeholder); color: var(--muted); white-space: pre-wrap; pointer-events: none; }
+.typer-rich b, .typer-rich strong { font-weight: 700; color: var(--accent); }
+.typer-rich i, .typer-rich em { font-style: italic; }
+.typer-rich h1, .typer-rich h2, .typer-rich h3, .typer-rich h4, .typer-rich h5, .typer-rich h6 { font-size: 16px; font-weight: 700; margin: 0; color: var(--accent); }
+.typer-rich div { min-height: 1.6em; }

@@ -169,7 +169,9 @@ describe("Humanizer", () => {
     for (let seed = 0; seed < 40; seed++) {
       for (const e of new Humanizer({ errorRate: 0.05, random: seeded(seed + 5) }).run(PROSE)) if (e.down) count[e.key] = (count[e.key] ?? 0) + 1;
     }
-    for (const key of ["<backspace>", "<delete>", "<left>", "<right>", "<shift>", "<enter>"]) expect(count[key] ?? 0, key).toBeGreaterThan(0);
+    for (const key of ["<backspace>", "<left>", "<right>", "<shift>", "<enter>"]) expect(count[key] ?? 0, key).toBeGreaterThan(0);
+    // corrections take the shortest route, which never needs the Delete key
+    expect(count["<delete>"] ?? 0).toBe(0);
   });
 
   it("only uses Backspace when arrow-key revisions are off", () => {
@@ -214,5 +216,16 @@ describe("buildPlan", () => {
     expect(buildPlan("", DEFAULT_TYPER).events).toEqual([]);
     const plan = buildPlan("ok", { ...DEFAULT_TYPER, wpm: NaN, mistakes: 999, pauses: -5, repeat: 1e9 }, seeded(1));
     expect(replay(plan.events).text).toBe("ok".repeat(50));
+  });
+});
+
+describe("editing pad round trip", () => {
+  // markupToHtml builds strings; the reverse direction needs a DOM and is exercised in the app
+  it("shows formatting as formatting and keeps every character", async () => {
+    const { markupToHtml } = await import("./engine");
+    expect(markupToHtml("# Title **x**\nplain *it* and **bo**\n\n  two  spaces <b>")).toBe(
+      "<h3>Title x</h3><div>plain <i>it</i> and <b>bo</b></div><div><br></div><div>  two  spaces &lt;b&gt;</div>",
+    );
+    expect(markupToHtml("***both*** 2 \\* 3")).toBe("<div><b><i>both</i></b> 2 * 3</div>");
   });
 });
