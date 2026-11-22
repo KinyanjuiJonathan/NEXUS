@@ -13,11 +13,9 @@ pub const STARTING: &str = "NEXUS_STARTING: the database is still being opened";
 /// Prefix of the answer when the database could not be opened; the UI shows the recovery screen.
 pub const UNAVAILABLE: &str = "NEXUS_DATA_UNAVAILABLE";
 
-/// The open database and where it lives.
+/// The open database.
 pub struct Db {
     pub store: Mutex<Store>,
-    pub data_dir: PathBuf,
-    pub db_path: PathBuf,
 }
 
 /// Why start-up could not open the database.
@@ -61,10 +59,10 @@ impl AppState {
 
     /// The database is open: everything can use it from now on. Returns false if one was already set.
     pub fn set_ready(&self, store: Store) -> bool {
-        let Some((data_dir, db_path)) = self.paths.get().cloned() else {
+        if self.paths.get().is_none() {
             return false;
-        };
-        let ok = self.db.set(Db { store: Mutex::new(store), data_dir, db_path }).is_ok();
+        }
+        let ok = self.db.set(Db { store: Mutex::new(store) }).is_ok();
         if let Ok(mut f) = self.failure.lock() {
             *f = None;
         }
