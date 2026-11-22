@@ -437,18 +437,20 @@ export function sortedQueue(tasks: Task[], events: CalendarEvent[], now: number,
  * as it has to go. Fixed appointments and personal time are stepped over.
  * Blocks that are not touched are not in the result.
  */
-export function planRipple(tasks: Task[], events: CalendarEvent[], now: number, s: RescheduleSettings, changedId: string, to: Interval, fromStart: number): Move[] {
+export function planRipple(tasks: Task[], events: CalendarEvent[], now: number, s: RescheduleSettings, changedId: string, to: Interval, fromStart: number, opts: { anyTime?: boolean; keep?: string[] } = {}): Move[] {
   const byId = new Map(tasks.map((t) => [t.id, t]));
   const after = events
-    .filter((e) => e.id !== changedId && !e.deletedAt && !e.fixed && !e.recurrence && !!e.taskId && openTask(byId.get(e.taskId)) && e.endAt > now && e.startAt >= Math.min(fromStart, to.start))
+    // `keep`: blocks that were just placed on purpose and must stay exactly where they are
+    .filter((e) => e.id !== changedId && !opts.keep?.includes(e.id) && !e.deletedAt && !e.fixed && !e.recurrence && !!e.taskId && openTask(byId.get(e.taskId)) && e.endAt > now && e.startAt >= Math.min(fromStart, to.start))
     .sort((a, b) => a.startAt - b.startAt);
   if (!after.length) return [];
   // The user set this time by hand: what follows goes straight after it, with no gap added.
   const bufferMs = 0;
   const moving = new Set([changedId, ...after.map((e) => e.id)]);
-  const busy = busyIntervals(events, now, now + 2 * HORIZON, bufferMs, moving, s.routine);
+  // anyTime: the user started something now on purpose, so what follows comes straight after it, whatever the hour; only fixed appointments are stepped over.
+  const busy = busyIntervals(events, now, now + 2 * HORIZON, bufferMs, moving, opts.anyTime ? undefined : s.routine);
   const horizon = Math.max(to.end, ...after.map((e) => e.endAt)) + HORIZON;
-  const wins = mergeWins([...workingWindows(now, horizon, s), ...after.map((e) => ({ start: e.startAt, end: e.endAt }))]);
+  const wins = opts.anyTime ? [{ start: now, end: horizon }] : mergeWins([...workingWindows(now, horizon, s), ...after.map((e) => ({ start: e.startAt, end: e.endAt }))]);
   const take = (x: Interval) => {
     busy.push({ ...x });
     busy.sort((a, b) => a.start - b.start);

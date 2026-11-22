@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Download, MessageSquarePlus, RefreshCw } from "lucide-react";
 import { useNexus, nexus } from "@/store";
 import { latestRelease, native, openExternal, type ReleaseInfo } from "@/lib/platform";
+import { CHANGELOG, versionLabel } from "@/lib/changelog";
 import { REPO_URL, feedbackBody, feedbackTitle, feedbackUrl, isNewer, type FeedbackKind } from "@/lib/updates";
 import { Button, Select, Toggle, cx } from "./ui";
 
@@ -89,11 +90,27 @@ export function UpdatesAndFeedback() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-sm">Version <b className="font-mono">{__APP_VERSION__}</b>{previous && previous !== __APP_VERSION__ ? <span className="text-muted"> · updated from {previous}</span> : null}</span>
+        <span className="text-sm">Version <b className="font-mono">{versionLabel(__APP_VERSION__, __APP_BUILD__, __APP_BUILT_ON__)}</b>{previous && previous !== __APP_VERSION__ ? <span className="text-muted"> · updated from v{previous}</span> : null}</span>
         <Button size="sm" variant="outline" icon={<RefreshCw size={14} className={cx(checking && "animate-spin")} />} disabled={checking || !native} onClick={async () => { setChecking(true); await checkForUpdate(true); setChecking(false); }}>Check for updates</Button>
         <Button size="sm" variant="ghost" icon={<Download size={14} />} onClick={() => void openExternal(`${REPO_URL}/releases`).catch(() => {})}>All versions</Button>
       </div>
       <Toggle checked={auto} onChange={(v) => void s.setSetting("updateAuto", v)} label="Check for updates automatically" description="Once a day NEXUS asks whether a newer version has been published and tells you when there is one. You install it by running the new installer; your tasks, history and settings are kept." />
+      <div className="rounded-xl border border-line p-3 flex flex-col gap-3">
+        <div className="text-sm font-medium">What changed in each version</div>
+        {CHANGELOG.map((r) => (
+          <div key={r.version}>
+            <div className="flex items-baseline gap-2 text-sm">
+              <b className={cx("font-mono", r.version === __APP_VERSION__ ? "text-accent" : "text-fg-2")}>v{r.version}</b>
+              <span className="text-fg-2">{r.title}</span>
+              {r.version === __APP_VERSION__ && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-success bg-[color-mix(in_oklab,var(--success)_14%,transparent)]">installed</span>}
+              <span className="ml-auto text-[11px] text-muted tabular">{r.date}</span>
+            </div>
+            <ul className="mt-1 text-[12px] text-muted list-disc pl-5 space-y-0.5">
+              {r.changes.map((c) => <li key={c}>{c}</li>)}
+            </ul>
+          </div>
+        ))}
+      </div>
       <div className="rounded-xl border border-line p-3 flex flex-col gap-2.5">
         <div className="flex items-center gap-2 text-sm font-medium"><MessageSquarePlus size={15} className="text-accent" /> Send feedback</div>
         <div className="flex flex-wrap gap-2">

@@ -20,7 +20,7 @@ import { currentBlock } from "@/lib/taskClock";
 import { AiScheduleButton } from "@/components/AiScheduler";
 import { BarChart } from "@/components/Charts";
 import { TaskRow } from "@/components/TaskRow";
-import { Button, Card, CardHeader, EmptyState, ProgressBar, ProgressRing, Segmented, Stat } from "@/components/ui";
+import { Button, Card, CardHeader, EmptyState, ProgressBar, ProgressRing, Segmented, Stat, cx } from "@/components/ui";
 
 function greeting(hour: number) {
   return hour < 5 ? "Working late" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
@@ -53,6 +53,7 @@ export default function Dashboard() {
   const week = useMemo(() => history(tasks, focusSessions, now, zone, 7), [tasks, focusSessions, minute, zone]); // eslint-disable-line react-hooks/exhaustive-deps
   const next = useMemo(() => nextAppointment(events, now), [events, minute]); // eslint-disable-line react-hooks/exhaustive-deps
   const current = useMemo(() => currentBlock(tasks, events, now), [tasks, events, minute]); // eslint-disable-line react-hooks/exhaustive-deps
+  const nextTask = next && !next.event.fixed && next.event.taskId ? tasks.find((t) => t.id === next.event.taskId && t.status !== "done" && !t.deletedAt) : undefined;
   const missed = useMemo(() => findMissed(tasks, events, now).slice(0, 4), [tasks, events, minute]); // eslint-disable-line react-hooks/exhaustive-deps
   const upNext = useMemo(() => openTasks(tasks).sort((a, b) => scoreTask(b, now) - scoreTask(a, now)).slice(0, 5), [tasks, minute]); // eslint-disable-line react-hooks/exhaustive-deps
   const suggestion = useMemo(() => suggestNext(tasks, now), [tasks, minute]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -93,16 +94,27 @@ export default function Dashboard() {
                 (() => {
                   const st = eventStatus(next.start, next.end, now);
                   return (
-                    <button className="w-full text-left" onClick={() => ui.openEvent(next.event.id, undefined, next.seriesStart)}>
+                    <div role="button" tabIndex={0} className="w-full text-left cursor-pointer" onKeyDown={(e) => e.key === "Enter" && ui.openEvent(next.event.id, undefined, next.seriesStart)} onClick={() => ui.openEvent(next.event.id, undefined, next.seriesStart)}>
                       <p className="text-lg font-semibold truncate">{next.event.important && <span className="text-warning">★ </span>}{next.event.title}</p>
                       <p className="text-sm font-medium mt-1" style={{ color: st.live ? "var(--success)" : "var(--accent)" }}>{st.label}</p>
                       {st.live && <ProgressBar value={st.progress} className="mt-2" tone="success" />}
-                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs" title={`${formatWithZone(next.start, next.event.tz, settings.hour12)} (original zone)`}>
+                      {!st.live && nextTask && next.start - now > 90_000 && (
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          className="mt-2"
+                          icon={<Play size={13} fill="currentColor" />}
+                          onClick={(e) => { e.stopPropagation(); void s.startTaskNow(nextTask.id); }}
+                          title="Do not wait for its time: start it in the next minute. The work clock counts, and tasks in the way follow in order."
+                        >
+                          Start now
+                        </Button>
+                      )}
+                      <div className={cx("grid grid-cols-2 gap-2 text-xs", !st.live && nextTask && next.start - now > 90_000 ? "mt-2" : "mt-3")} title={`${formatWithZone(next.start, next.event.tz, settings.hour12)} (original zone)`}>
                         <div className="rounded-lg bg-hover px-2.5 py-1.5"><span className="text-cyan-400 font-semibold">KE</span> {formatTime(next.start, KENYA_ZONE, settings.hour12)} {zoneAbbr(KENYA_ZONE, next.start)}</div>
                         <div className="rounded-lg bg-hover px-2.5 py-1.5"><span className="text-violet-400 font-semibold">TX</span> {formatTime(next.start, settings.texasZone, settings.hour12)} {zoneAbbr(settings.texasZone, next.start)}</div>
                       </div>
-  
-                    </button>
+                    </div>
                   );
                 })()
               ) : (
@@ -131,7 +143,7 @@ export default function Dashboard() {
                   <>
                     <button className="text-sm font-semibold mt-1 text-left hover:text-accent" onClick={() => ui.openTask(suggestion.task.id)}>{suggestion.task.title}</button>
                     <p className="text-xs text-muted mt-0.5">{suggestion.reason}</p>
-                    <Button size="sm" variant="soft" className="mt-2" icon={<Play size={13} />} onClick={() => void s.setActiveTask(suggestion.task.id)}>Start</Button>
+                    <Button size="sm" variant="soft" className="mt-2" icon={<Play size={13} />} onClick={() => void s.startTaskNow(suggestion.task.id)} title="Start it now, without waiting for a scheduled time">Start now</Button>
                   </>
                 ) : (
                   <p className="text-sm text-muted mt-1">Inbox zero. Enjoy it.</p>

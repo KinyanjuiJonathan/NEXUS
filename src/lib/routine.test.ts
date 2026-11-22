@@ -199,3 +199,91 @@ describe("updates and feedback", () => {
     expect(url.searchParams.get("body")).toContain("in the remote desktop");
   });
 });
+
+describe("start now", () => {
+  async function setup(at0: string) {
+    let seq = 0;
+    const clock = { now: at(at0) };
+    const store = createNexusStore({ backend: createLocalBackend(memoryKV()), now: () => clock.now, id: () => `id${++seq}` });
+    await store.getState().init();
+    await store.getState().setSetting("homeZone", NBO);
+    const s = () => store.getState();
+    const add = async (title: string, start: string, end: string) => {
+      clock.now += 1000;
+      const t = await s().addTask({ title, estimateMin: 60, reminders: [] }, { autoPlace: false });
+      const e = await s().addEvent({ title, startAt: at(start), endAt: at(end), taskId: t.id, tz: NBO, reminders: [] });
+      return { t, e };
+    };
+    const where = (taskId: string) => s().events.filter((e) => e.taskId === taskId && !e.deletedAt).map(span);
+    return { s, clock, add, where };
+  }
+
+  it("a queued task starts in the next minute, not at the next free slot, and the clock counts", async () => {
+    // 10:40 PM on a Wednesday: outside the routine's work sessions, in the middle of gym time
+    const { s, clock, add, where } = await setup("2026-11-18T22:40:00");
+    const a = await add("A", "2026-11-19T08:30", "2026-11-19T09:30");
+    const b = await add("B", "2026-11-19T09:30", "2026-11-19T10:30");
+    clock.now = at("2026-11-18T22:40:20");
+    expect(await s().startTaskNow(b.t.id)).toBe(true);
+    expect(where(b.t.id)).toEqual(["Wed 22:41–23:41"]); // the next minute, exactly
+    expect(where(a.t.id)).toEqual(["Thu 08:30–09:30"]); // not in the way: untouched
+    expect(s().settings.activeTaskId).toBe(b.t.id);
+    expect(s().workSessions.some((w) => w.endedAt == null)).toBe(true); // counting
+    expect(s().toasts.some((t) => t.title === "“B” starts now")).toBe(true);
+  });
+
+  it("tasks in the way follow straight after it in the same order, around a fixed appointment", async () => {
+    const { s, clock, add, where } = await setup("2026-11-18T09:00:00");
+    const a = await add("A", "2026-11-18T09:05", "2026-11-18T10:05");
+    const b = await add("B", "2026-11-18T10:05", "2026-11-18T11:05");
+    const c = await add("C", "2026-11-18T15:00", "2026-11-18T16:00");
+    await s().addEvent({ title: "Zoom", startAt: at("2026-11-18T11:30"), endAt: at("2026-11-18T12:00"), tz: NBO });
+    clock.now = at("2026-11-18T09:01:30");
+    await s().startTaskNow(c.t.id);
+    expect(where(c.t.id)).toEqual(["Wed 09:02–10:02"]);
+    expect(where(a.t.id)).toEqual(["Wed 10:02–11:02"]); // first in, first out: A, then B
+    expect(where(b.t.id)).toEqual(["Wed 12:00–13:00"]); // would run into Zoom, so right after it
+    const note = s().toasts.find((t) => t.title === "“C” starts now")!;
+    expect(note.body).toContain("A: 9:05 AM–10:05 AM → 10:02 AM–11:02 AM");
+  });
+
+  it("a task with no time reserved can be started too", async () => {
+    const { s, clock, where } = await setup("2026-11-18T09:00:00");
+    const t = await s().addTask({ title: "Loose task", estimateMin: 45, reminders: [] }, { autoPlace: false });
+    clock.now = at("2026-11-18T09:10:10");
+    expect(await s().startTaskNow(t.id)).toBe(true);
+    expect(where(t.id)).toEqual(["Wed 09:11–09:56"]);
+    expect(await s().startTaskNow(t.id)).toBe(true); // already under way: nothing moves
+    expect(where(t.id)).toEqual(["Wed 09:11–09:56"]);
+  });
+
+  it("“now” and “in a minute” in AI Schedule mean exactly then, and what was there follows", async () => {
+    const { s, clock, add, where } = await setup("2026-11-18T22:10:00");
+    const a = await add("A", "2026-11-18T22:15", "2026-11-18T23:15");
+    clock.now = at("2026-11-18T22:10:20");
+    const ctx = { now: clock.now, defaultZone: NBO, texasZone: CHI };
+    const say = async (text: string) => {
+      const req = parseScheduleRequest(text, { ...ctx, now: clock.now });
+      const res = resolveRequest(req, s().events, s().slotSettings(), clock.now);
+      return { req, res, made: res.slot ? await s().smartCreate(req, res.slot, res.durationMin) : null };
+    };
+    const now1 = await say("Fix the login bug now, 30 minutes");
+    expect(now1.req).toMatchObject({ title: "Fix Login Bug", immediate: true, durationMin: 30 });
+    expect(span(now1.made!.event)).toBe("Wed 22:11–22:41");
+    expect(where(a.t.id)).toEqual(["Wed 22:41–23:41"]); // pushed behind it, not to tomorrow morning
+    const soon = await say("Call the client in 1 minute, 15 minutes");
+    expect(soon.req.immediate).toBe(true);
+    expect(span(soon.made!.event)).toBe("Wed 22:12–22:27");
+    // "in two hours" is still a rough time, as before
+    expect(parseScheduleRequest("Submit tax form in two hours", ctx)).toMatchObject({ immediate: false, startApprox: true });
+    expect(parseScheduleRequest("Review budget immediately, 30 minutes", ctx)).toMatchObject({ title: "Review Budget", immediate: true });
+  });
+});
+
+describe("version labels", () => {
+  it("names the version, the build and the day it was built", async () => {
+    const { versionLabel, CHANGELOG } = await import("./changelog");
+    expect(versionLabel("1.1.0", "845442c", "2026-11-22")).toBe("v1.1.0 · build 845442c · 22 Nov 2026");
+    expect(CHANGELOG[0].version).toBe(__APP_VERSION__);
+  });
+});

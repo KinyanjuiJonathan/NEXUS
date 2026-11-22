@@ -6,7 +6,7 @@ import { useNexus } from "@/store";
 import { closeWindow, minimizeWindow, native, setOverlayVisible, toggleMaximize, toggleOverlay } from "@/lib/platform";
 import { useOverlayState } from "@/lib/useOverlay";
 import { isBusy, useTyper } from "@/lib/typer/controller";
-import { AiMaverix, Flags, PoweredBy } from "./Brand";
+import { AiMaverix, Flags, PoweredBy, VersionBadge } from "./Brand";
 import { DualClock } from "./DualClock";
 import { IconButton, Kbd, cx } from "./ui";
 import { useNow } from "@/lib/ticker";
@@ -51,6 +51,7 @@ export function TitleBar() {
         <span data-tauri-drag-region className="font-display font-semibold tracking-[0.25em] text-[13px] text-gradient">NEXUS</span>
         <span data-tauri-drag-region className="hidden lg:flex items-center gap-2 pl-2 border-l border-line pointer-events-none">
           <AiMaverix className="text-[9px]" />
+          <VersionBadge className="text-[9px] text-muted" />
         </span>
       </div>
       <div data-tauri-drag-region className="flex-1 flex items-center justify-center gap-4">
@@ -163,6 +164,9 @@ export function Sidebar() {
       <div className="mt-2 pt-3 border-t border-line flex flex-col items-center lg:items-start gap-1 lg:px-3" aria-label="AI Maverix. Powered by Digital Nomads, Kenya and United States">
         <AiMaverix className="hidden lg:inline text-[10px]" />
         <div className="hidden lg:block"><PoweredBy className="text-[10px]" flagHeight={9} /></div>
+        <button type="button" onClick={() => { useUI.getState().setView("settings"); setTimeout(() => document.getElementById("about")?.scrollIntoView({ behavior: "smooth" }), 250); }} className="hidden lg:block text-left hover:text-accent" title="See what changed in this version">
+          <VersionBadge full className="text-[9px] text-muted" />
+        </button>
         <Flags height={9} className="lg:hidden flex-col !gap-1" />
       </div>
     </nav>

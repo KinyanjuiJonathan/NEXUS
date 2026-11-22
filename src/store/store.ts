@@ -593,6 +593,13 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
 
     let merging = false;
 
+    /** Make sure the work clock is counting: clock in, or end a pause. */
+    const startClock = async () => {
+      const w = activeSession(get().workSessions);
+      if (!w) await get().clockIn();
+      else if (openPause(w)) await get().resumeWork();
+    };
+
     const flexibleBlock = (e: CalendarEvent) => !e.fixed && !e.recurrence && !!e.taskId && !e.deletedAt;
 
     /** "A: 10:00 → 11:00" for every block whose time differs from `before`, for the notice after a change. */
@@ -620,9 +627,9 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
     };
 
     /** After a flexible task block was retimed by hand: push the tasks behind it out of its way and say what moved. */
-    const ripple = async (was: CalendarEvent, is: CalendarEvent, before: CalendarEvent[], quiet = false) => {
+    const ripple = async (was: CalendarEvent, is: CalendarEvent, before: CalendarEvent[], quiet = false, anyTime = false, keep: string[] = []) => {
       if (!flexibleBlock(is) || !get().settings.smartEnabled) return 0;
-      const moves = planRipple(get().tasks, get().events, now(), get().slotSettings(), is.id, { start: is.startAt, end: is.endAt }, was.startAt);
+      const moves = planRipple(get().tasks, get().events, now(), get().slotSettings(), is.id, { start: is.startAt, end: is.endAt }, was.startAt, { anyTime, keep });
       for (const m of moves) {
         const e = get().events.find((x) => x.id === m.eventId);
         if (!e || !m.to) continue;
@@ -1274,7 +1281,17 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         );
         const event = await get().addEvent({ title: existing?.title ?? title, startAt: slot.start, endAt: slot.end, tz: req.zone, taskId: task.id, fixed: false, reminders: [5], color: "#22d3ee", sched });
         get().log("smart_scheduled", title, formatWithZone(slot.start, req.zone, get().settings.hour12), task.id);
-        return { task, event };
+        if (req.immediate) {
+          // "now" / "in a minute": it keeps exactly that time, and what was there follows it in order
+          const before = get().events.map((e) => (e.id === event.id ? { ...e } : e));
+          await ripple(event, event, before, true, true);
+          announce(`“${title}” starts ${slot.start - now() < 90_000 ? "now" : `at ${formatTime(slot.start, get().settings.homeZone, get().settings.hour12)}`}`, before, "Tasks that were in the way follow it in the same order.");
+          if (slot.start - now() < 90_000) {
+            await get().setActiveTask(task.id);
+            await startClock();
+          }
+        }
+        return { task, event: get().events.find((e) => e.id === event.id) ?? event };
       },
 
       async autoReschedule() {
@@ -1381,31 +1398,49 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
 
       async startTaskNow(taskId) {
         const ts = now();
-        const unit = queueUnits(get().tasks, get().events, ts).find((u) => u.taskId === taskId);
-        if (!unit) return false;
+        const task = get().tasks.find((t) => t.id === taskId && !t.deletedAt && t.status !== "done");
+        if (!task) return false;
         const before = get().events;
         const cur = currentBlock(get().tasks, before, ts);
-        const queue = new Set(before.filter(flexibleBlock).map((x) => x.id));
+        if (cur && cur.task.id === taskId) {
+          await startClock();
+          return true; // already the task under way
+        }
+        const unit = queueUnits(get().tasks, before, ts).find((u) => u.taskId === taskId);
+        // It starts in the next minute, exactly: no working hours, no "next free slot".
         const start = Math.ceil(ts / 60_000) * 60_000;
-        // the chosen task takes over from now, as one block
-        const to = freeFrom(before, ts, get().slotSettings(), start, unit.durationMs, queue);
-        await applyUnits([{ taskId, title: unit.title, parts: [{ eventId: unit.blocks[0].id, from: { start: unit.blocks[0].startAt, end: unit.blocks[0].endAt }, to }], merged: unit.blocks.slice(1).map((b) => b.id) }], "queue");
-        let last = get().events.find((x) => x.id === unit.blocks[0].id)!;
-        if (cur && cur.task.id !== taskId) {
+        const dur = unit?.durationMs ?? Math.max(15, task.estimateMin ?? 30) * 60_000;
+        const to = { start, end: start + dur };
+        let first: CalendarEvent;
+        if (unit) {
+          await applyUnits([{ taskId, title: unit.title, parts: [{ eventId: unit.blocks[0].id, from: { start: unit.blocks[0].startAt, end: unit.blocks[0].endAt }, to }], merged: unit.blocks.slice(1).map((b) => b.id) }], "queue");
+          first = unit.blocks[0];
+        } else {
+          // a task with no time reserved yet gets its time now
+          first = await get().addEvent({ title: task.title, startAt: to.start, endAt: to.end, taskId, tz: get().settings.homeZone, fixed: false, reminders: [], color: "#22d3ee", sched: { origin: "user" } });
+        }
+        let last = get().events.find((x) => x.id === first.id)!;
+        // only fixed appointments are stepped over by what follows; the hour of the day does not matter
+        const anyTime = { ...get().slotSettings(), routine: undefined };
+        const queue = new Set(get().events.filter(flexibleBlock).map((x) => x.id));
+        if (cur) {
           // what is left of the task that was under way follows straight after, with its clocked time kept
           const c = blockClock(cur.event, get().workSessions, ts);
           const rest = Math.max(15 * 60_000, Math.ceil(c.remainingMs / 300_000) * 300_000);
-          const at = freeFrom(get().events, ts, get().slotSettings(), to.end, rest, queue);
+          const at = freeFrom(get().events, ts, anyTime, to.end, rest, queue);
           const sched = cur.event.sched ?? {};
           const history = [...(sched.history ?? []), { at: ts, from: [cur.event.startAt, cur.event.endAt] as [number, number], to: [at.start, at.end] as [number, number], reason: "queue" as const }].slice(-20);
           const parked = { ...cur.event, startAt: at.start, endAt: at.end, sched: { ...sched, workedMs: c.workedMs, targetMs: c.targetMs, creditedTo: null, history, attention: null }, updatedAt: ts };
           await saveEvent(parked);
           last = parked;
         }
-        await ripple(unit.blocks[0], last, before, true);
+        // everything that was in the way follows in the same order (first in, first out)
+        await ripple({ ...last, startAt: to.start }, last, before, true, true, [first.id]);
         await get().setActiveTask(taskId);
-        get().log("task_rescheduled", unit.title, cur && cur.task.id !== taskId ? `Started now in place of “${cur.task.title}”` : "Started now", taskId);
-        announce(cur && cur.task.id !== taskId ? `Now working on “${unit.title}”` : `“${unit.title}” starts now`, before, cur && cur.task.id !== taskId ? `“${cur.task.title}” continues afterwards with the time it still needs.` : "");
+        await startClock();
+        get().log("task_rescheduled", task.title, cur ? `Started now in place of “${cur.task.title}”` : "Started now", taskId);
+        announce(cur ? `Now working on “${task.title}”` : `“${task.title}” starts now`, before, cur ? `“${cur.task.title}” continues afterwards with the time it still needs.` : "The work clock is counting.");
+        if (!describeChanges(before).length) get().toast({ kind: "success", title: `“${task.title}” starts now`, body: "The work clock is counting.", ttl: 5000 });
         return true;
       },
 

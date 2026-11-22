@@ -166,6 +166,18 @@ export function resolveRequest(req: ScheduleRequest, events: CalendarEvent[], s:
   const zoneDay = (ms: number) => DateTime.fromMillis(ms, { zone: req.zone });
   const waking = (from: number, to: number) => daysIn(from, to, req.zone).map((d) => hoursOf(d, WAKING));
 
+  // ---- "now" / "in a minute": exactly then. Flexible tasks in the way follow it; only a fixed appointment sends it later.
+  if (req.immediate && req.startAt != null) {
+    const start = Math.max(req.startAt, Math.ceil(now / MIN) * MIN);
+    const slot = { start, end: start + dur };
+    const fixed = events.filter((e) => e.fixed && !e.deletedAt);
+    const clash = findConflicts(fixed, slot);
+    if (!clash.length) return done("ok", slot, [], "Starts then; tasks in the way follow it.");
+    const after = firstFit([{ start: slot.start, end: slot.start + 2 * DAY }], busyIntervals(fixed, now, slot.start + 2 * DAY, 0), dur, slot.start);
+    notes.push(`“${clash[0].event.title}” is a fixed appointment at that time, so it starts right after it.`);
+    return done("ok", after ?? slot, [], "Right after the fixed appointment.");
+  }
+
   // ---- an exact time: use it, or explain what is in the way
   if (req.startAt != null && !req.startApprox) {
     const slot = { start: req.startAt, end: req.endAt ?? req.startAt + dur };

@@ -75,6 +75,17 @@ function QueueRow({ row, n, total, now, zone, hour12, task, open: expanded, onTo
           <ChevronRight size={12} className={cx("transition-transform", expanded && "rotate-90")} />
         </button>
       )}
+      {task && (unit || i.kind === "deadline") && i.status !== "now" && i.start - now > 90_000 && (
+        <button
+          type="button"
+          onClick={() => void nexus().startTaskNow(task.id)}
+          aria-label={`Start ${task.title} now`}
+          title="Start now: it begins in the next minute and the work clock counts. Tasks in the way follow it in order."
+          className="shrink-0 h-7 w-7 rounded-lg flex items-center justify-center text-accent bg-[color-mix(in_oklab,var(--accent)_12%,transparent)] hover:bg-accent hover:text-white hover:shadow-[0_0_12px_color-mix(in_oklab,var(--accent)_60%,transparent)] transition"
+        >
+          <Play size={13} fill="currentColor" />
+        </button>
+      )}
       {unit ? (
         <div className="flex flex-col shrink-0" role="group" aria-label={`Move ${i.title}`}>
           <button type="button" className={ARROW} disabled={row.pos === 0} aria-label="Move up the queue" title="Move up: do this one earlier" onClick={() => void nexus().moveInQueue(unit.blocks[0].id, -1)}><ChevronUp size={14} /></button>

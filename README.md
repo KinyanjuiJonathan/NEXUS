@@ -238,6 +238,8 @@ While a task's time is under way the dashboard shows **Current task**: whether t
 
 **Scheduling order.** Tasks are scheduled **first in, first out** by default: in the order you added them. *Settings → Smart Scheduling → Scheduling order* (also on the Queue list) switches to *Priority* (critical first), *Shortest estimated time first* or *Nearest deadline first*; the choice is used by Auto-plan, by automatic rescheduling of unfinished work, and by **Reorganise**, which puts the whole queue in that order on request.
 
+**Start now.** You do not have to wait for a task's time. The play button on every queue row, **Start now** on the *Next appointment* card and on the suggested task, and “…now” or “…in a minute” typed into AI Schedule all do the same thing: the task begins in the next minute, exactly (not at the next free slot, and whatever the working hours say), the work clock starts counting, and it becomes the current task. Tasks that were in the way follow straight after it in their existing order (first in, first out); only a fixed appointment is stepped over. If another task was under way it continues afterwards with the time it still needs. A task with no time reserved can be started the same way. The notice lists what moved, with Undo.
+
 **Predictable changes.** Open a task's row in the queue (the chevron) for its checklist and actions:
 
 - **+15 min / +30 min / +1 hour / +2 hours / −30 min** moves the task by exactly that much. The tasks after it are pushed along in the same order, each only as far as it has to go; a task that was not in the way does not move. Only a fixed appointment or personal time in the way sends something further.
@@ -294,7 +296,7 @@ Every To-Do task with a due date appears on the calendar on that day, in Day, We
 
 ## Updates and feedback
 
-*Settings → About* shows the version, **Check for updates**, and a feedback form. Once a day (switch it off there) NEXUS asks whether a newer version has been published and tells you when there is one; **Open download page** takes you to the installer, and installing over the old version keeps tasks, history and settings. After an update NEXUS says which version you came from. **Send feedback** opens a prefilled report in your browser with your version, and the one before it, attached; nothing is sent until you submit it there. Updates are not downloaded or installed silently: that needs signed releases, which this project does not publish yet.
+The version is shown next to the logo (**v1.1.0**) and, with the build it came from and the day it was built, at the bottom of the sidebar and in *Settings → About* (“v1.1.0 · build 845442c · 22 Nov 2026”), together with a list of what changed in each version. *Settings → About* also shows **Check for updates**, and a feedback form. Once a day (switch it off there) NEXUS asks whether a newer version has been published and tells you when there is one; **Open download page** takes you to the installer, and installing over the old version keeps tasks, history and settings. After an update NEXUS says which version you came from. **Send feedback** opens a prefilled report in your browser with your version, and the one before it, attached; nothing is sent until you submit it there. Updates are not downloaded or installed silently: that needs signed releases, which this project does not publish yet.
 
 ## Auto Typer
 

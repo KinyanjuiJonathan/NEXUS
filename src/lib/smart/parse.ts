@@ -56,6 +56,11 @@ export interface ScheduleRequest {
   /** A start time the request gave. */
   startAt: number | null;
   startApprox: boolean;
+  /**
+   * "now", "immediately", "in a minute", "in 10 minutes": it starts at exactly
+   * that moment, whatever the working hours, and what is in the way follows it.
+   */
+  immediate: boolean;
   /** An explicit end time ("3 to 4 pm"). */
   endAt: number | null;
   deadline: number | null;
@@ -159,15 +164,21 @@ export function parseScheduleRequest(input: string, ctx: SmartContext, answers: 
   // ---- "before my next meeting"
   const beforeNextMeeting = !!t.take(/\b(?:before|ahead of|prior to)\s+(?:my\s+|the\s+)?next\s+(?:meeting|appointment|call|event)\b/i);
 
+  // ---- "now / immediately": starts in the next minute, nothing else is tried
+  const nowWord = !!t.take(/\b(?:(?:starting|start(?:s)?|begin(?:ning)?)\s+)?(?:right\s+now|right\s+away|straight\s*away|immediately|at\s+once|asap|as\s+soon\s+as\s+possible|now)\b/i);
+  let immediate = false;
+  const nextMinute = (ms: number) => Math.ceil(ms / 60_000) * 60_000;
+
   // ---- duration
   let durationMin: number | null = null;
   let durationApprox = false;
-  let inHours: { minutes: number; approx: boolean } | null = null;
+  let inHours: { minutes: number; approx: boolean; exact: boolean } | null = null;
   let m: RegExpMatchArray | null;
   // "in around 3 hours": either how long it takes or how soon it starts. Decided below.
   if ((m = t.take(new RegExp(String.raw`\bin\s+(${APPROX}\s+)?${NUM}\s*${UNIT}\b(?:'?\s*time)?`, "i")))) {
     const n = num(m[2]);
-    if (!Number.isNaN(n)) inHours = { minutes: minutes(n, m[3]), approx: !!m[1] };
+    // "in a minute", "in 10 minutes": that exact moment. "in two hours" stays a rough time, as before.
+    if (!Number.isNaN(n)) inHours = { minutes: minutes(n, m[3]), approx: !!m[1], exact: !m[1] && /^m/i.test(m[3]) };
   }
   const setDuration = (mins: number, approx: boolean) => {
     if (durationMin == null && mins > 0) {
@@ -336,15 +347,17 @@ export function parseScheduleRequest(input: string, ctx: SmartContext, answers: 
 
   // ---- "in N hours": how long, or how soon?
   if (inHours) {
-    const { minutes: mins, approx } = inHours;
+    const { minutes: mins, approx, exact } = inHours;
     const pick = answers.inHours;
     const asDuration = () => {
       setDuration(mins, approx);
       notes.push(`Read “in ${approx ? "around " : ""}${fmtMinutes(mins)}” as how long it takes.`);
     };
     const asStart = () => {
-      startAt = ctx.now + mins * 60_000;
-      startApprox = true;
+      // "in 1 minute" means exactly then; hours and "in around …" are approximate
+      startAt = exact ? nextMinute(ctx.now + mins * 60_000) : ctx.now + mins * 60_000;
+      startApprox = !exact;
+      immediate = exact;
       const s = DateTime.fromMillis(startAt, { zone });
       window = dayWindow(s, s.hasSame(now, "day") ? "today" : "tomorrow");
       notes.push(`Read “in ${fmtMinutes(mins)}” as when to start.`);
@@ -373,7 +386,15 @@ export function parseScheduleRequest(input: string, ctx: SmartContext, answers: 
     notes.push("A commitment at a set time, so it is a fixed appointment.");
   }
 
-  return { text: input, title, zone, zoneLabel, durationMin, durationApprox, window, dated, period, later, startAt, startApprox, endAt, deadline, deadlineLabel, beforeNextMeeting, fixed, priority, questions, notes };
+  if (nowWord && startAt == null) {
+    startAt = nextMinute(ctx.now);
+    startApprox = false;
+    immediate = true;
+    const s = DateTime.fromMillis(startAt, { zone });
+    window = dayWindow(s, "today");
+    notes.push("Starts in the next minute; tasks in the way follow it.");
+  }
+  return { text: input, title, zone, zoneLabel, durationMin, durationApprox, window, dated, period, later, startAt, startApprox, immediate, endAt, deadline, deadlineLabel, beforeNextMeeting, fixed, priority, questions, notes };
 }
 
 export function fmtMinutes(mins: number): string {

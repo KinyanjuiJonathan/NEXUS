@@ -1,4 +1,5 @@
 import { cx } from "./ui";
+import { versionLabel } from "@/lib/changelog";
 
 /**
  * NEXUS identity: the AI MAVERIX wordmark and "Powered by Digital Nomads" with
@@ -91,6 +92,16 @@ export function PoweredBy({ className, flagHeight = 11 }: { className?: string; 
 }
 
 /** Full identity block for the About section. */
+/** The running version and build, so every update can be told apart at a glance. */
+export function VersionBadge({ className, full }: { className?: string; full?: boolean }) {
+  const label = versionLabel(__APP_VERSION__, __APP_BUILD__, __APP_BUILT_ON__);
+  return (
+    <span className={cx("font-mono tabular whitespace-nowrap", className)} title={`NEXUS ${label}`}>
+      {full ? label : `v${__APP_VERSION__}`}
+    </span>
+  );
+}
+
 export function BrandBlock() {
   return (
     <div className="flex flex-col items-center gap-2 py-3 text-center">

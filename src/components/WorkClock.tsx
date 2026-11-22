@@ -34,6 +34,16 @@ export function WorkClockCard({ className }: { className?: string }) {
     [sessions, dayStart, now],
   );
   const plan = hoursFor(dayKey(now, settings.homeZone), workHours(settings));
+  // hours and minutes large, seconds small
+  const sec = Math.floor(todayMs / 1000);
+  const clock = { hm: `${Math.floor(sec / 3600)}:${String(Math.floor((sec % 3600) / 60)).padStart(2, "0")}`, s: String(sec % 60).padStart(2, "0") };
+  // what the tooltip spells out; the card shows only the two that matter at a glance
+  const details = [
+    active ? `Clocked in since ${formatTime(active.startedAt, settings.homeZone, settings.hour12)}` : "Not clocked in",
+    active && sessionMs !== todayMs ? `This session: ${humanDuration(sessionMs)}` : "",
+    idleToday > 60_000 ? `Away ${humanDuration(idleToday)} (not counted)` : "",
+  ].filter(Boolean);
+  const summary = [active ? `since ${formatTime(active.startedAt, settings.homeZone, settings.hour12)}` : "", idleToday > 60_000 ? `away ${humanDuration(idleToday)}` : ""].filter(Boolean).join(" · ") || "ready when you are";
   const held = settings.workAuto && settings.workAutoHoldDay === DateTime.fromMillis(now, { zone: settings.homeZone }).toISODate();
   const working = !!active && !pause;
   const status = !active
@@ -61,25 +71,25 @@ export function WorkClockCard({ className }: { className?: string }) {
           {status}
         </span>
       </div>
-      <div className="px-5 pt-3 pb-4 flex flex-col gap-3 flex-1">
-        <div className="flex items-end justify-between gap-3 flex-wrap">
-          <div>
-            <div className="font-mono tabular text-[34px] font-semibold leading-none">{formatClock(todayMs)}</div>
-            <div className="text-xs text-muted mt-1.5">worked today</div>
+      <div className="px-5 pt-2.5 pb-4 flex flex-col gap-2 flex-1">
+        <div className="flex items-baseline gap-2 min-w-0">
+          <div className="font-mono tabular font-semibold leading-none whitespace-nowrap" aria-label={`${formatClock(todayMs)} worked today`}>
+            <span className="text-[34px]">{clock.hm}</span>
+            <span className="text-[15px] text-muted">:{clock.s}</span>
           </div>
-          <div className="text-[11px] text-fg-2 text-right space-y-0.5 tabular">
-            {active && <div>Since {formatTime(active.startedAt, settings.homeZone, settings.hour12)}</div>}
-            {active && sessionMs !== todayMs && <div>This session {humanDuration(sessionMs)}</div>}
-            {idleToday > 60_000 && <div className="text-muted">Away {humanDuration(idleToday)}, not counted</div>}
-            <button
-              type="button"
-              className="block ml-auto text-accent hover:underline whitespace-nowrap"
-              title="When do you intend to work today? Tasks are planned inside these hours."
-              onClick={() => useUI.getState().openWorkPlan(true)}
-            >
-              {plan ? `Hours ${formatTime(plan.start, settings.homeZone, settings.hour12)} – ${formatTime(plan.end, settings.homeZone, settings.hour12)}` : "Day off · set hours"}
-            </button>
-          </div>
+          <span className="text-xs text-muted truncate">worked today</span>
+        </div>
+        {/* one quiet line instead of a column of details; the full breakdown is in the tooltip */}
+        <div className="flex items-center gap-2 text-[11px] text-muted tabular min-w-0" title={details.join("\n")}>
+          <span className="truncate">{summary}</span>
+          <button
+            type="button"
+            className="ml-auto shrink-0 text-accent hover:underline whitespace-nowrap"
+            title="Your working hours today. Click to change them."
+            onClick={() => useUI.getState().openWorkPlan(true)}
+          >
+            {plan ? `${formatTime(plan.start, settings.homeZone, settings.hour12)} – ${formatTime(plan.end, settings.homeZone, settings.hour12)}` : "Set hours"}
+          </button>
         </div>
         <div className="flex gap-2 mt-auto">
           {!active ? (
