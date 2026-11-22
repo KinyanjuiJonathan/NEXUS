@@ -10,6 +10,7 @@ import type {
   Timer,
 } from "./types";
 import { BUILTIN_CATEGORIES } from "./types";
+import { loadWhenReady } from "@/lib/startup";
 import type { PlannedReminder } from "@/lib/reminders";
 
 /**
@@ -69,7 +70,8 @@ export async function createTauriBackend(): Promise<Backend> {
   return {
     native: true,
     windowLabel: label,
-    load: () => invoke<Snapshot>("load_snapshot"),
+    // The database may still be opening when a window loads: wait for it instead of failing.
+    load: () => loadWhenReady(() => invoke<Snapshot>("load_snapshot")),
     upsertTask: (task) => invoke("task_upsert", { task }),
     deleteTask: (id) => invoke("task_delete", { id }),
     reorderTasks: (ids) => invoke("tasks_reorder", { ids }),

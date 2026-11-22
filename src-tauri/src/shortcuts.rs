@@ -82,8 +82,7 @@ fn run(app: &AppHandle, action: Action) {
 
 pub fn load(app: &AppHandle) -> Shortcuts {
     app.state::<AppState>()
-        .store
-        .lock()
+        .store()
         .ok()
         .and_then(|s| s.get_setting("shortcuts").ok().flatten())
         .and_then(|v| serde_json::from_value(v).ok())
@@ -128,7 +127,7 @@ pub fn register(app: &AppHandle, sc: &Shortcuts) -> Vec<String> {
 pub fn shortcuts_apply(app: AppHandle, shortcuts: Shortcuts) -> CmdResult<Vec<String>> {
     {
         let st = app.state::<AppState>();
-        let s = st.store.lock().map_err(|_| "database busy".to_string())?;
+        let s = st.store()?;
         s.set_setting("shortcuts", &serde_json::to_value(&shortcuts).map_err(friendly)?).map_err(friendly)?;
     }
     Ok(register(&app, &shortcuts))

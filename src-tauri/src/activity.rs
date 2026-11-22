@@ -73,7 +73,7 @@ fn sample(_check_lock: bool, _was_locked: bool) -> Option<(u64, bool)> {
 
 /// Remember that NEXUS was running and watching at this moment.
 pub fn beat(app: &AppHandle) {
-    if let Ok(store) = app.state::<AppState>().store.lock() {
+    if let Ok(store) = app.state::<AppState>().store() {
         let _ = store.set_setting(HEARTBEAT_KEY, &json!(now_ms()));
     };
 }

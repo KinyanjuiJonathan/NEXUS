@@ -8,6 +8,7 @@ pub mod activity;
 pub mod migrations;
 pub mod models;
 pub mod perf;
+pub mod recovery;
 pub mod typer;
 
 use std::collections::BTreeMap;
@@ -112,6 +113,18 @@ impl Store {
 
     pub fn path(&self) -> Option<&Path> {
         self.path.as_deref()
+    }
+
+    /// True when the database passes SQLite's quick integrity check.
+    pub fn quick_check(&self) -> Result<bool> {
+        let r: String = self.conn.query_row("PRAGMA quick_check", [], |r| r.get(0))?;
+        Ok(r == "ok")
+    }
+
+    /// Write everything still in the write-ahead log into the database file itself.
+    pub fn checkpoint(&self) -> Result<()> {
+        self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
+        Ok(())
     }
 
     pub fn schema_version(&self) -> Result<i64> {
@@ -759,21 +772,33 @@ impl Store {
     /// Daily rolling backup in `dir`, keeping the newest `keep` files.
     /// Returns the path written, or None if one was already taken in the last 20 hours.
     pub fn auto_backup(&self, dir: impl AsRef<Path>, keep: usize, now: i64) -> Result<Option<PathBuf>> {
-        let last: i64 = self.get_meta("last_auto_backup")?.and_then(|s| s.parse().ok()).unwrap_or(0);
-        if now - last < 20 * 3600 * 1000 {
+        self.rolling_backup(dir, "nexus-auto-", "last_auto_backup", 20 * 3600 * 1000, keep, now)
+    }
+
+    /// A second, more frequent set of backups (every few hours while NEXUS runs),
+    /// so a bad day loses hours of work at most, not the whole day.
+    pub fn recent_backup(&self, dir: impl AsRef<Path>, keep: usize, now: i64) -> Result<Option<PathBuf>> {
+        self.rolling_backup(dir, "nexus-recent-", "last_recent_backup", 3 * 3600 * 1000, keep, now)
+    }
+
+    /// One rolling set of backups: at most one per `min_gap_ms`, the newest `keep` are kept.
+    /// Only files of this set (same prefix) are ever removed.
+    fn rolling_backup(&self, dir: impl AsRef<Path>, prefix: &str, meta_key: &str, min_gap_ms: i64, keep: usize, now: i64) -> Result<Option<PathBuf>> {
+        let last: i64 = self.get_meta(meta_key)?.and_then(|s| s.parse().ok()).unwrap_or(0);
+        if now - last < min_gap_ms {
             return Ok(None);
         }
         let dir = dir.as_ref();
         std::fs::create_dir_all(dir)?;
-        let target = dir.join(format!("nexus-auto-{now:015}.db"));
+        let target = dir.join(format!("{prefix}{now:015}.db"));
         self.backup_to(&target)?;
-        self.set_meta("last_auto_backup", &now.to_string())?;
+        self.set_meta(meta_key, &now.to_string())?;
         let mut files: Vec<PathBuf> = std::fs::read_dir(dir)?
             .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("nexus-auto-") && n.ends_with(".db")))
+            .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(prefix) && n.ends_with(".db")))
             .collect();
         files.sort();
-        while files.len() > keep {
+        while files.len() > keep.max(1) {
             let old = files.remove(0);
             let _ = std::fs::remove_file(old);
         }

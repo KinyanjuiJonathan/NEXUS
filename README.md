@@ -342,7 +342,9 @@ Only task/appointment titles, times, priorities and working hours are sent, and 
 ## Data, backup & privacy
 
 - **Where:** `%APPDATA%\com.nexus.productivity\nexus.db` (SQLite, WAL mode). Settings show the exact path.
-- **Automatic backups:** a daily rolling backup (newest 7 kept) in `…\backups\`, plus a full copy **before every schema migration, restore and import**.
+- **Same place every time:** the folder comes from the app's fixed identifier, not from the version or the install location, so closing NEXUS, restarting Windows and installing an update all find the same data. The installer never touches it.
+- **Automatic backups** in `…\backups\`: one a day (newest 14 kept), one every three hours while NEXUS is running (newest 8 kept), plus a full copy **before every schema migration, restore and import**. Only NEXUS's own rolling files are ever rotated out.
+- **Start-up never empties anything.** The database is opened and checked before anything else. If it cannot be opened, is damaged, or is missing while backups exist, NEXUS does not create or overwrite a file and does not show an empty dashboard: it shows a **recovery screen** with what happened, where the file is, and every backup on the computer (date, size, how many tasks and calendar entries it holds). From there: **Try again**, **Restore the latest backup** (or any other), **Open the data folder**, or, only on request, start empty. Every choice first copies the current file into `backups\` as `nexus-set-aside-…`, so nothing is ever deleted.
 - **Manual:** *Settings → Data*: **Back up database…** (`.db`), **Export JSON…** (portable, human-readable), **Restore backup…**, **Import JSON…**. Restore and import first save your current data, so they can be undone.
 - **Never in Git:** `.gitignore` excludes `*.db`, WAL/SHM files, backups, `.env` files and keys. No personal data, credentials or secrets belong in the repository.
 - Nothing leaves your PC except optional AI requests you trigger, and Windows' own speech service if you use native dictation.
@@ -427,6 +429,8 @@ src-tauri/
 
 | Problem | Fix |
 |---|---|
+| **“Could not load your data: state not managed for field 'state' on command 'load_snapshot'”** (builds before this fix) | The window asked for its data before the database had been registered at start-up, most often right after Windows starts. **Your data was not touched.** Quit NEXUS from the tray icon (right-click → Quit) and open it again; it loads normally. Current builds register the database before any window exists and wait for it, so this cannot happen. |
+| **A recovery screen instead of the dashboard** | The database could not be opened. Press **Try again** first. If that fails, **Restore the latest backup**; the file that is there now is kept in `backups\`. |
 | **No notifications** | Windows Settings → System → Notifications: make sure notifications are on for NEXUS and Focus Assist / Do Not Disturb isn't hiding them. Use *Settings → Send test notification*. |
 | **Reminders stop after restart** | Enable *Launch NEXUS when Windows starts*. Reminders need NEXUS running (in the tray is fine). |
 | **Overlay is invisible over a game** | The game is in exclusive fullscreen. Switch it to borderless/windowed fullscreen. |

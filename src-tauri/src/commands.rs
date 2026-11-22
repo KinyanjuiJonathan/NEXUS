@@ -12,7 +12,7 @@ use crate::state::{broadcast_change, friendly, AppState, CmdResult};
 
 macro_rules! store {
     ($state:expr) => {
-        $state.store.lock().map_err(|_| "the database is busy, please try again".to_string())?
+        $state.store()?
     };
 }
 
@@ -200,15 +200,15 @@ pub struct DataInfo {
 #[tauri::command]
 pub fn data_info(state: State<AppState>) -> CmdResult<DataInfo> {
     let version = store!(state).schema_version().map_err(friendly)?;
-    let dir = state.backups_dir();
+    let dir = state.backups_dir().ok_or("the data folder is not known yet")?;
     let mut backups: Vec<String> = std::fs::read_dir(&dir)
         .map(|rd| rd.filter_map(|e| e.ok().map(|e| e.path().to_string_lossy().to_string())).collect())
         .unwrap_or_default();
     backups.sort();
     backups.reverse();
     Ok(DataInfo {
-        db_path: state.db_path.to_string_lossy().into(),
-        data_dir: state.data_dir.to_string_lossy().into(),
+        db_path: state.db_path().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
+        data_dir: state.data_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
         backups_dir: dir.to_string_lossy().into(),
         schema_version: version,
         backups,
@@ -220,7 +220,7 @@ pub fn data_info(state: State<AppState>) -> CmdResult<DataInfo> {
 pub fn backup_create(state: State<AppState>, path: Option<String>) -> CmdResult<String> {
     let target = match path {
         Some(p) => PathBuf::from(p),
-        None => state.backups_dir().join(format!("nexus-manual-{:015}.db", now_ms())),
+        None => state.backups_dir().ok_or("the data folder is not known yet")?.join(format!("nexus-manual-{:015}.db", now_ms())),
     };
     store!(state).backup_to(&target).map_err(friendly)?;
     Ok(target.to_string_lossy().into())
@@ -228,7 +228,7 @@ pub fn backup_create(state: State<AppState>, path: Option<String>) -> CmdResult<
 
 #[tauri::command]
 pub fn backup_restore(app: AppHandle, win: WebviewWindow, state: State<AppState>, path: String) -> CmdResult<String> {
-    let safety = state.backups_dir().join(format!("nexus-before-restore-{:015}.db", now_ms()));
+    let safety = state.backups_dir().ok_or("the data folder is not known yet")?.join(format!("nexus-before-restore-{:015}.db", now_ms()));
     store!(state).restore_from(&path, &safety).map_err(friendly)?;
     state.wake_scheduler();
     broadcast_change(&app, win.label(), "all");
@@ -246,7 +246,7 @@ pub fn export_json(state: State<AppState>, path: String) -> CmdResult<()> {
 pub fn import_json(app: AppHandle, win: WebviewWindow, state: State<AppState>, path: String) -> CmdResult<String> {
     let text = std::fs::read_to_string(&path).map_err(|e| format!("could not read the file: {e}"))?;
     let bundle: ExportBundle = serde_json::from_str(&text).map_err(|_| "that file is not a NEXUS JSON export".to_string())?;
-    let safety = state.backups_dir().join(format!("nexus-before-import-{:015}.db", now_ms()));
+    let safety = state.backups_dir().ok_or("the data folder is not known yet")?.join(format!("nexus-before-import-{:015}.db", now_ms()));
     {
         let mut s = store!(state);
         s.backup_to(&safety).map_err(friendly)?;

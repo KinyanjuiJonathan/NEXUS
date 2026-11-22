@@ -26,8 +26,7 @@ pub struct OverlayState {
 fn pinned(app: &AppHandle) -> bool {
     let st = app.state::<AppState>();
     let value = st
-        .store
-        .lock()
+        .store()
         .ok()
         .and_then(|s| s.get_setting("overlayPinned").ok().flatten())
         .and_then(|v| v.as_bool())
@@ -47,7 +46,7 @@ fn emit_state(app: &AppHandle) {
 
 fn persist(app: &AppHandle, key: &str, value: serde_json::Value) {
     let st = app.state::<AppState>();
-    if let Ok(s) = st.store.lock() {
+    if let Ok(s) = st.store() {
         let _ = s.set_setting(key, &value);
     };
 }
@@ -78,8 +77,7 @@ pub fn toggle(app: &AppHandle) -> tauri::Result<()> {
 fn click_through_allowed(app: &AppHandle) -> bool {
     let st = app.state::<AppState>();
     let allowed = st
-        .store
-        .lock()
+        .store()
         .ok()
         .and_then(|s| s.get_setting("overlayAllowClickThrough").ok().flatten())
         .and_then(|v| v.as_bool())
@@ -142,7 +140,7 @@ pub fn overlay_state(app: AppHandle, state: State<AppState>) -> CmdResult<Overla
 /// Restore overlay visibility / click-through / pin from the last session.
 pub fn restore(app: &AppHandle) {
     let st = app.state::<AppState>();
-    let (visible, click, pinned, on_startup) = match st.store.lock() {
+    let (visible, click, pinned, on_startup) = match st.store() {
         Ok(s) => {
             let b = |k: &str, d: bool| s.get_setting(k).ok().flatten().and_then(|v| v.as_bool()).unwrap_or(d);
             (b("overlayVisible", false), b("overlayClickThrough", false), b("overlayPinned", true), b("overlayOnStartup", false))

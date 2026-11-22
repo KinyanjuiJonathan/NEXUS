@@ -722,13 +722,16 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           await reconcileWork((snap.settings as Record<string, unknown> | undefined)?.workHeartbeat).catch(() => {});
           await tidySchedule().catch(() => {});
         } catch (e) {
-          set({ ready: true, error: e instanceof Error ? e.message : String(e) });
+          // Not ready: nothing is shown as if it were the user's (empty) data, and nothing schedules or saves on top of it.
+          set({ ready: false, error: e instanceof Error ? e.message : String(e) });
         }
       },
 
       async reload() {
         try {
           apply(await backend.load());
+          // data that could not be loaded at start-up has arrived (for example after a recovery in another window)
+          if (!get().ready || get().error) set({ ready: true, error: null });
         } catch {
           /* keep current state */
         }
@@ -1198,6 +1201,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
       },
 
       async handleIdle(idleSeconds) {
+        if (!get().ready) return; // nothing is tracked or saved until the stored data is loaded
         const lastInput = now() - idleSeconds * 1000;
         const threshold = Math.max(1, get().settings.idleMinutes) * 60;
         if (idleSeconds >= threshold) {
@@ -1210,6 +1214,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
 
       handleActivity(event) {
         const run = async () => {
+          if (!get().ready) return; // nothing is tracked or saved until the stored data is loaded
           if (event.kind === "away") await goAway(event.since, { timers: event.reason !== "idle", quiet: true });
           else if (event.kind === "longIdle") await goAway(event.since, { timers: true, quiet: false });
           else await comeBack(event.at);

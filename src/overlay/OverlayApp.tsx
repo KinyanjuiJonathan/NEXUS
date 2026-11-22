@@ -67,7 +67,7 @@ function Btn({ label, onClick, active, children, className }: { label: string; o
 
 export default function OverlayApp() {
   const now = useNow();
-  const { tasks, events, timers, settings, workSessions } = useNexus((s) => ({ tasks: s.tasks, events: s.events, timers: s.timers, settings: s.settings, workSessions: s.workSessions }));
+  const { tasks, events, timers, settings, workSessions, loadError } = useNexus((s) => ({ tasks: s.tasks, events: s.events, timers: s.timers, settings: s.settings, workSessions: s.workSessions, loadError: s.error }));
   const [ov, setOv] = useState<OverlayState>({ visible: true, clickThrough: false, pinned: true });
   const [mode, setMode] = useState<OverlayMode>(settings.overlayMode);
   const [voice, setVoice] = useState(false);
@@ -236,6 +236,7 @@ export default function OverlayApp() {
       <AiMaverix className="text-[8px] pointer-events-none" />
       <Flags height={8} className="pointer-events-none mr-auto opacity-90" />
       <div className="no-drag flex items-center gap-0.5">
+        {loadError && <span className="text-[9px] font-semibold text-warning mr-1" title={`Saved data could not be loaded (${loadError}). Open the NEXUS window to recover it. Nothing was overwritten.`}>DATA NOT LOADED · OPEN NEXUS</span>}
         {ov.clickThrough && <span className="text-[9px] text-accent mr-1">CLICK-THROUGH</span>}
         {perfOn && (
           <Btn label={graphOn ? "Hide the live performance graph" : "Show a live performance graph"} active={graphOn} onClick={() => void nexus().setSetting("overlayGraph", !settings.overlayGraph)}>

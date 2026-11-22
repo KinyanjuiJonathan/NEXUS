@@ -121,7 +121,7 @@ fn output_schema(kind: &str) -> Option<Value> {
 pub async fn ai_request(app: tauri::AppHandle, req: AiRequest) -> CmdResult<Value> {
     let (enabled, consent, model) = {
         let st: State<AppState> = app.state();
-        let s = st.store.lock().map_err(|_| "database busy".to_string())?;
+        let s = st.store()?;
         let b = |k: &str| s.get_setting(k).ok().flatten().and_then(|v| v.as_bool()).unwrap_or(false);
         let model = s
             .get_setting("aiModel")

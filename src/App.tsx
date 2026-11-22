@@ -16,6 +16,7 @@ import { RescheduleAllDialog } from "@/components/RescheduleAll";
 import { WorkPlanDialog } from "@/components/WorkPlan";
 import { TimeHoursDialog } from "@/components/TimeHours";
 import { RoutineDialog } from "@/components/Routine";
+import { RecoveryScreen } from "@/components/Recovery";
 import { routineNow } from "@/lib/routine";
 import { activeSession, openPause } from "@/lib/work";
 import { dayKey, isoWeekday } from "@/lib/workPlan";
@@ -62,7 +63,7 @@ function anyModalOpen() {
 
 export default function App() {
   useUpdates();
-  const { theme, reducedMotion, error, idleMinutes } = useNexus((s) => ({ theme: s.settings.theme, reducedMotion: s.settings.reducedMotion, error: s.error, idleMinutes: s.settings.idleMinutes }));
+  const { theme, reducedMotion, error, idleMinutes, ready } = useNexus((s) => ({ theme: s.settings.theme, reducedMotion: s.settings.reducedMotion, error: s.error, idleMinutes: s.settings.idleMinutes, ready: s.ready }));
   const view = useUI((s) => s.view);
   useTheme(theme, reducedMotion);
 
@@ -223,11 +224,17 @@ export default function App() {
       <div className="app-bg h-full flex flex-col text-fg">
         <div className="pointer-events-none fixed inset-0 grid-bg opacity-60" />
         <TitleBar />
-        {error && (
-          <div role="alert" className="mx-4 mt-3 rounded-xl border border-danger/40 bg-danger/10 px-4 py-2 text-sm text-danger">
-            Could not load your data: {error}. Nothing was overwritten. See Settings → Data for backups.
+        {error ? (
+          // Saved data could not be loaded: never an empty dashboard, always the way back to the data.
+          <RecoveryScreen error={error} />
+        ) : !ready ? (
+          <div className="relative flex-1 flex items-center justify-center" role="status">
+            <div className="flex flex-col items-center gap-3 text-sm text-fg-2">
+              <div className="h-8 w-8 rounded-full border-2 border-line border-t-accent animate-spin" />
+              Opening your data…
+            </div>
           </div>
-        )}
+        ) : (
         <div className="relative flex-1 flex min-h-0">
           <Sidebar />
           <main className="flex-1 min-w-0 scroll-y" id="main">
@@ -240,6 +247,7 @@ export default function App() {
             </AnimatePresence>
           </main>
         </div>
+        )}
         <TaskEditor />
         <EventEditor />
         <CommandPalette />

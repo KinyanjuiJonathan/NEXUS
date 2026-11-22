@@ -1,5 +1,6 @@
 import { isTauri } from "@/data/backend";
 import type { OverlayMode, Shortcuts } from "@/data/types";
+import type { StartupStatus } from "@/lib/startup";
 
 /**
  * Thin wrappers over native capabilities. Each degrades gracefully in a plain
@@ -330,3 +331,20 @@ export async function openExternal(url: string): Promise<void> {
   }
   await invokeSafe("open_external", { url });
 }
+
+
+// ------------------------------------------------------------------ start-up and recovery
+
+
+/** What start-up found: where the data is, why it could not be opened, and the backups available. */
+export async function startupStatus(): Promise<StartupStatus | null> {
+  if (!native) return null;
+  return invokeSafe<StartupStatus>("startup_status");
+}
+/** Try opening the database again. */
+export const startupRetry = () => invokeSafe<void>("startup_retry");
+/** Put a backup in place; the current file is copied aside first. Resolves to where it was kept. */
+export const startupRestore = (path: string) => invokeSafe<string | null>("startup_restore", { path });
+/** Start with an empty database; the current file is copied aside first. */
+export const startupFresh = () => invokeSafe<string | null>("startup_fresh");
+export const openDataFolder = () => invokeSafe<void>("open_data_folder");

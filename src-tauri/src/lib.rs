@@ -8,6 +8,7 @@ mod perf;
 mod scheduler;
 mod shortcuts;
 mod speech;
+mod startup;
 mod state;
 mod typer;
 mod updates;
@@ -18,10 +19,7 @@ mod win_input;
 #[cfg(windows)]
 mod win_session;
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
-
-use nexus_core::{now_ms, Store};
+use std::sync::atomic::Ordering;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
@@ -39,8 +37,7 @@ pub(crate) fn show_main(app: &AppHandle) {
 
 fn setting_bool(app: &AppHandle, key: &str, default: bool) -> bool {
     app.state::<AppState>()
-        .store
-        .lock()
+        .store()
         .ok()
         .and_then(|s| s.get_setting(key).ok().flatten())
         .and_then(|v| v.as_bool())
@@ -128,38 +125,24 @@ pub fn run() {
                 .with_state_flags(StateFlags::POSITION | StateFlags::SIZE | StateFlags::MAXIMIZED)
                 .build(),
         )
+        // Every piece of shared state is registered here, before any window exists.
+        // Registering it inside `setup` left a gap in which a window that loaded
+        // quickly (for example right after Windows starts) could ask for its data
+        // and be told the state did not exist.
+        .manage(AppState::new())
+        .manage(perf::PerfState::new())
+        .manage(typer::TyperState::new())
+        .manage(activity::ActivityState::new())
         .setup(|app| {
-            let data_dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&data_dir)?;
-            let db_path = data_dir.join("nexus.db");
-            let store = Store::open(&db_path).map_err(|e| format!("Could not open the NEXUS database: {e}"))?;
-            let now = now_ms();
-            let _ = store.purge_expired(now);
-            if let Err(e) = store.auto_backup(data_dir.join("backups"), 7, now) {
-                log::warn!("automatic backup failed: {e}");
-            }
-            app.manage(perf::PerfState::new());
-            app.manage(typer::TyperState::new());
-            app.manage(activity::ActivityState::new());
-            app.manage(AppState {
-                store: Mutex::new(store),
-                data_dir: data_dir.clone(),
-                db_path: db_path.clone(),
-                scheduler_wake: Mutex::new(None),
-                click_through: AtomicBool::new(false),
-                quitting: AtomicBool::new(false),
-            });
-
             let handle = app.handle().clone();
-            build_tray(&handle)?;
-            let sc = shortcuts::load(&handle);
-            let failed = shortcuts::register(&handle, &sc);
-            if !failed.is_empty() {
-                log::warn!("some shortcuts are in use by other apps: {failed:?}");
+            // The database first; reminders, shortcuts and the overlay follow once it is open.
+            // A failure here never stops the app: the window shows the recovery screen instead.
+            startup::init(&handle);
+            if let Err(e) = build_tray(&handle) {
+                log::warn!("the tray icon could not be created: {e}");
             }
-            scheduler::start(handle.clone(), db_path);
             activity::start(handle.clone());
-            overlay::restore(&handle);
+            startup::start_backup_timer(handle);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -188,6 +171,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             main_ready,
             app_quit,
+            startup::startup_status,
+            startup::startup_retry,
+            startup::startup_restore,
+            startup::startup_fresh,
+            startup::open_data_folder,
             commands::load_snapshot,
             commands::task_upsert,
             commands::task_delete,
