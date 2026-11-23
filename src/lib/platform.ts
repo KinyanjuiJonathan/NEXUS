@@ -348,3 +348,38 @@ export const startupRestore = (path: string) => invokeSafe<string | null>("start
 /** Start with an empty database; the current file is copied aside first. */
 export const startupFresh = () => invokeSafe<string | null>("startup_fresh");
 export const openDataFolder = () => invokeSafe<void>("open_data_folder");
+
+// ------------------------------------------------------------------ screen text (Auto Typer: mirror a region)
+
+/** A rectangle on the screen in physical pixels. */
+export interface ScreenRegion {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** The text currently shown in a region of the screen, one string per line. */
+export async function screenRead(region: ScreenRegion): Promise<string[]> {
+  if (!native) throw new Error("Reading text from the screen runs in the NEXUS desktop app for Windows.");
+  return invokeSafe<string[]>("screen_read", { region });
+}
+/** Open the full-screen picker; resolves with the region the user marks, or null when they cancel. */
+export async function pickRegion(): Promise<ScreenRegion | null> {
+  if (!native) throw new Error("Selecting a region of the screen runs in the NEXUS desktop app for Windows.");
+  return new Promise<ScreenRegion | null>((resolve, reject) => {
+    let off: (() => void) | null = null;
+    void listenTo<ScreenRegion | null>("nexus://region-picked", (r) => {
+      off?.();
+      resolve(r);
+    }).then((u) => {
+      off = u;
+      return invokeSafe<void>("region_pick");
+    }).catch((e) => {
+      off?.();
+      reject(e);
+    });
+  });
+}
+/** Called by the picker window itself. */
+export const regionDone = (rect: { x: number; y: number; w: number; h: number } | null) => invokeSafe<void>("region_done", { rect });

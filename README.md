@@ -322,6 +322,12 @@ Open **Auto Typer** in the sidebar (or press `9`).
 2. Press **Start** (or `F6` from any app while the Auto Typer screen is open), then click into the text box you want during the countdown. NEXUS never types into its own windows: if it is still in front, it waits for you.
 3. Press `F6` or `Esc` to stop. Every key is released, and Caps Lock (switched off for the run) is restored.
 
+**Live sources: Voice and Screen.** The switch at the top of the text card chooses where the text comes from. *Text* is the pad above. The other two show an **Input → Output** view and type as the input arrives:
+
+- **Voice.** *Start dictating*, click into the text box you want, and speak. Each phrase is typed there, with capitals at the start of sentences and one space between phrases. Say “comma”, “full stop”, “question mark”, “new line” or “new paragraph” for punctuation and layout, “delete that” to remove the last phrase, “stop dictation” to end. It uses the voice engine and language from *Settings → Voice*.
+- **Screen (beta).** *Select region*: NEXUS steps aside and you drag a rectangle over the part of the screen to follow (Esc cancels). *Read once* shows what NEXUS sees there. *Start following* reads the region every second (0.5 to 5 s) and types whatever newly appears into the text box you click in. Reading uses the text recognition built into Windows and happens on this PC. To keep recognition flicker out of your text, a line is typed only once it has been read the same way twice, nothing is typed twice, and a line that keeps growing (live captions, a message being written) only has its new part typed. Keep the region away from the text box being typed into, or NEXUS will read its own typing.
+- *Type into the other app* can be turned off to collect the text in the output box only.
+
 | Setting | What it does |
 |---|---|
 | Speed, Mistakes, Pauses | Raw keying speed, share of keys that get a typo (always corrected), and how long the pauses and breaks are |

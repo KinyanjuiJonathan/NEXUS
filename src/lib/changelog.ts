@@ -11,6 +11,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.3",
+    date: "2026-11-23",
+    title: "Auto Typer: dictate, and mirror text from the screen",
+    changes: [
+      "Voice: speak and NEXUS types what you say into the text box you click in, with spoken punctuation and “delete that”.",
+      "Screen (beta): select part of the screen; text that appears there is read on this PC and typed into another app.",
+      "An Input → Output view shows what came in and what was typed.",
+    ],
+  },
+  {
     version: "1.1.2",
     date: "2026-11-23",
     title: "Calendar: zoom, depth and motion",

@@ -2,6 +2,14 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.3 (23 November 2026)
+
+**Auto Typer: live input and output**
+- The Auto Typer has three sources: *Text* (as before), *Voice* and *Screen*. The live ones show an **Input → Output** view: what came in on the left, what was typed on the right.
+- **Voice**: press *Start dictating*, click into any text box, and speak. Each phrase is typed there with your typing settings. Sentences get capitals; say “comma”, “full stop”, “question mark”, “new line”, “new paragraph”; “delete that” removes the last phrase; “stop dictation” ends it.
+- **Screen (beta)**: *Select region*, drag a rectangle over part of the screen, then *Start following*. NEXUS reads the text inside it every second with the recognition built into Windows (nothing leaves the PC) and types whatever newly appears into the text box you click in. A line is typed only after it has been read the same way twice, never twice, and a line that keeps growing (live captions) is followed.
+- Either mode can also just collect the text in the output box instead of typing it into another app.
+
 ## v1.1.2 (23 November 2026)
 
 **Calendar: zoom, depth and motion**

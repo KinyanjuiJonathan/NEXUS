@@ -6,18 +6,30 @@ import { isTauri } from "./data/backend";
 
 const App = lazy(() => import("./App"));
 const OverlayApp = lazy(() => import("./overlay/OverlayApp"));
+const RegionPicker = lazy(() => import("./region/RegionPicker"));
 
-async function detectWindow(): Promise<"main" | "overlay"> {
+async function detectWindow(): Promise<"main" | "overlay" | "region"> {
+  const named = (label: string | null) => (label === "overlay" || label === "region" ? label : "main");
   if (isTauri()) {
     const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-    return getCurrentWebviewWindow().label === "overlay" ? "overlay" : "main";
+    return named(getCurrentWebviewWindow().label);
   }
-  return new URLSearchParams(location.search).get("window") === "overlay" ? "overlay" : "main";
+  return named(new URLSearchParams(location.search).get("window"));
 }
 
 async function boot() {
   const kind = await detectWindow();
   if (kind === "overlay") document.documentElement.classList.add("overlay");
+  if (kind === "region") {
+    // The region picker is a see-through sheet over the screen: no data, no app shell.
+    document.documentElement.classList.add("overlay");
+    createRoot(document.getElementById("root")!).render(
+      <Suspense fallback={null}>
+        <RegionPicker />
+      </Suspense>,
+    );
+    return;
+  }
   await bootstrapStore();
   createRoot(document.getElementById("root")!).render(
     <StrictMode>

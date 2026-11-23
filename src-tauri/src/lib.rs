@@ -18,6 +18,9 @@ mod win_cpu;
 mod win_input;
 #[cfg(windows)]
 mod win_session;
+mod screen;
+#[cfg(windows)]
+mod win_screen;
 
 use std::sync::atomic::Ordering;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
@@ -209,6 +212,9 @@ pub fn run() {
             ai::ai_clear_key,
             ai::ai_has_key,
             ai::ai_request,
+            screen::screen_read,
+            screen::region_pick,
+            screen::region_done,
             updates::update_check,
             updates::open_external,
             speech::speech_available,

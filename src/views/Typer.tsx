@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Bold, Eraser, Heading, Italic, Keyboard, Lock, Play, Redo2, RemoveFormatting, Square, Undo2 } from "lucide-react";
+import { Bold, Eraser, Heading, Italic, Keyboard, Lock, Mic, Play, Redo2, RemoveFormatting, ScanText, Square, Undo2 } from "lucide-react";
 import { useNexus, nexus } from "@/store";
 import { idleSeconds, native, typerShortcut } from "@/lib/platform";
 import { shouldLeaveTyper } from "@/lib/typer/idle";
 import { useUI } from "@/store/ui";
 import { DEFAULT_TYPER, MAX_REPEAT, buildPlan, htmlToMarkup, markupToHtml, prepareText, type TyperOptions } from "@/lib/typer/engine";
 import { isBusy, useTyper } from "@/lib/typer/controller";
-import { Button, Card, CardHeader, Field, Input, Kbd, ProgressBar, Select, Toggle, cx } from "@/components/ui";
+import { LiveTyper } from "@/components/LiveTyper";
+import { useLive } from "@/lib/typer/liveController";
+import { Button, Card, CardHeader, Field, Input, Kbd, ProgressBar, Segmented, Select, Toggle, cx } from "@/components/ui";
 
 const accel = (s: string) => s.replace("CommandOrControl", "Ctrl");
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, "0")}`;
@@ -165,7 +167,7 @@ export default function TyperView() {
     const check = async () => {
       const t = useTyper.getState();
       const idle = await idleSeconds().catch(() => 0);
-      if (!alive || !shouldLeaveTyper({ enabled: true, minutes: idleReturnMin, idleSeconds: idle, busy: isBusy(t.status) || t.starting })) return;
+      if (!alive || !shouldLeaveTyper({ enabled: true, minutes: idleReturnMin, idleSeconds: idle, busy: isBusy(t.status) || t.starting || useLive.getState().running })) return;
       alive = false;
       useUI.getState().setView("dashboard");
       nexus().toast({ kind: "info", title: "Back on the Dashboard", body: "The Auto Typer screen was idle. Your text and settings are still there.", ttl: 8000 });
@@ -179,6 +181,8 @@ export default function TyperView() {
 
   // A rough length for the run; every run differs, so this is planned once per change and only as a guide.
   const [estimate, setEstimate] = useState<{ seconds: number; chars: number } | null>(null);
+  // Where the text comes from: written here, spoken, or read off a part of the screen.
+  const [source, setSource] = useState<"text" | "voice" | "screen">("text");
   useEffect(() => {
     if (!text.trim() || text.length > 30_000) return setEstimate(null);
     const t = setTimeout(() => {
@@ -243,16 +247,32 @@ export default function TyperView() {
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,1fr)] items-start">
         <Card className="flex flex-col min-h-[420px]">
           <CardHeader
-            title="Text to type"
-            icon={<Keyboard size={16} />}
-            right={estimate && <span className="text-xs text-muted tabular">{estimate.chars.toLocaleString()} characters · about {clock(estimate.seconds)}</span>}
+            title={source === "text" ? "Text to type" : source === "voice" ? "Dictate: your voice in, typing out" : "Mirror: screen text in, typing out"}
+            icon={source === "text" ? <Keyboard size={16} /> : source === "voice" ? <Mic size={16} /> : <ScanText size={16} />}
+            right={
+              <div className="flex items-center gap-3">
+                {source === "text" && estimate && <span className="text-xs text-muted tabular hidden md:inline">{estimate.chars.toLocaleString()} characters · about {clock(estimate.seconds)}</span>}
+                <Segmented
+                  size="sm"
+                  value={source}
+                  onChange={setSource}
+                  options={[
+                    { value: "text", label: "Text", title: "Type text you wrote or pasted" },
+                    { value: "voice", label: "Voice", title: "Speak, and NEXUS types what you say into another app" },
+                    { value: "screen", label: "Screen", title: "Select part of the screen; text that appears there is typed into another app" },
+                  ]}
+                />
+              </div>
+            }
           />
           <div className="px-5 pb-5 flex flex-col flex-1 min-h-0">
-            <Editor value={text} onChange={setText} literal={literal} disabled={busy} />
+            {source === "text" ? <Editor value={text} onChange={setText} literal={literal} disabled={busy} /> : <LiveTyper source={source} />}
           </div>
         </Card>
 
         <div className="flex flex-col gap-4">
+          {/* Start / Stop for typed text; the live sources have their own controls beside the input */}
+          {source === "text" && (
           <Card glow={busy}>
             <div className="p-5 flex flex-col gap-3">
               <div className="flex items-center gap-3">
@@ -272,6 +292,7 @@ export default function TyperView() {
               {(busy || status.state === "stopped" || status.state === "done") && <ProgressBar value={status.state === "countdown" ? 0 : status.progress} tone={status.state === "done" ? "success" : "accent"} />}
             </div>
           </Card>
+          )}
 
           <Card>
             <CardHeader title="Rhythm" />
