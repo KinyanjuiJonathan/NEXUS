@@ -11,6 +11,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.5",
+    date: "2026-11-23",
+    title: "Dictation that hears everything",
+    changes: [
+      "Dictation now listens continuously: one recogniser stays open, so words said between phrases are no longer lost.",
+      "The phrase being spoken is shown live before it is typed.",
+      "“Keep up with my speech” types quickly and without deliberate typos so nothing queues up.",
+      "Uses Windows' dictation model, meant for sentences; phrases Windows is unsure about are marked.",
+    ],
+  },
+  {
     version: "1.1.4",
     date: "2026-11-23",
     title: "Region picker fixes and the microphone in view",

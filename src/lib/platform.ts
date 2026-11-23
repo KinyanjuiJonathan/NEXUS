@@ -383,3 +383,29 @@ export async function pickRegion(): Promise<ScreenRegion | null> {
 }
 /** Called by the picker window itself. */
 export const regionDone = (rect: { x: number; y: number; w: number; h: number } | null) => invokeSafe<void>("region_done", { rect });
+
+
+// ------------------------------------------------------------------ continuous dictation
+
+export interface DictationEvent {
+  /** "partial": words so far in the phrase being spoken. "phrase": a finished phrase. */
+  kind: "partial" | "phrase" | "ended" | "error";
+  text: string;
+  /** False when Windows was not confident about a finished phrase. */
+  sure: boolean;
+}
+
+/** Listen continuously; `on` receives every partial and finished phrase. Resolves to a function that stops listening. */
+export async function startDictation(language: string, on: (e: DictationEvent) => void): Promise<() => void> {
+  const off = await listenTo<DictationEvent>("nexus://dictation", on);
+  try {
+    await invokeSafe<void>("dictation_start", { language });
+  } catch (e) {
+    off();
+    throw e;
+  }
+  return () => {
+    off();
+    void invokeSafe<void>("dictation_stop").catch(() => {});
+  };
+}

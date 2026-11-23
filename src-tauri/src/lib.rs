@@ -21,6 +21,8 @@ mod win_session;
 mod screen;
 #[cfg(windows)]
 mod win_screen;
+#[cfg(windows)]
+mod win_dictation;
 
 use std::sync::atomic::Ordering;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
@@ -136,6 +138,7 @@ pub fn run() {
         .manage(perf::PerfState::new())
         .manage(typer::TyperState::new())
         .manage(activity::ActivityState::new())
+        .manage(speech::DictationState::new())
         .setup(|app| {
             let handle = app.handle().clone();
             // The database first; reminders, shortcuts and the overlay follow once it is open.
@@ -221,6 +224,8 @@ pub fn run() {
             updates::open_external,
             speech::speech_available,
             speech::speech_listen,
+            speech::dictation_start,
+            speech::dictation_stop,
             perf::perf_snapshot,
             commands::work_upsert,
             commands::work_delete,

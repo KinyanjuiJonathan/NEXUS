@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { nexus } from "@/store";
-import { native, pickRegion, screenRead, typerStart, typerStop, type ScreenRegion } from "@/lib/platform";
+import { native, pickRegion, screenRead, startDictation, typerStart, typerStop, type ScreenRegion } from "@/lib/platform";
 import { listen } from "@/lib/voice/engine";
 import { buildPlan } from "./engine";
 import { isBusy, useTyper } from "./controller";
@@ -19,6 +19,10 @@ interface LiveStore {
   output: string;
   /** Text waiting to be typed. */
   waiting: number;
+  /** Words recognised so far in the phrase being spoken. */
+  interim: string;
+  /** Type fast and without deliberate typos, so the typing keeps up with speech. */
+  keepUp: boolean;
   error: string | null;
   region: ScreenRegion | null;
   /** Seconds between readings of the screen. */
@@ -29,7 +33,7 @@ interface LiveStore {
   fullStop: boolean;
   /** Type into the app that has focus, or only show the text in the output box. */
   toApp: boolean;
-  set(patch: Partial<Pick<LiveStore, "interval" | "joiner" | "includeExisting" | "fullStop" | "toApp">>): void;
+  set(patch: Partial<Pick<LiveStore, "interval" | "joiner" | "includeExisting" | "fullStop" | "toApp" | "keepUp">>): void;
   chooseRegion(): Promise<void>;
   readOnce(): Promise<void>;
   startVoice(): Promise<void>;
@@ -52,6 +56,8 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 /** Bumped by every start and stop, so a loop from an earlier session ends itself. */
 let session = 0;
 let queue: Promise<void> = Promise.resolve();
+/** Ends the native dictation session, when one is open. */
+let stopListening: (() => void) | null = null;
 
 /** Wait until the typer is free (the previous piece has been typed, or typing was stopped). */
 async function typerIdle(mine: number) {
@@ -77,7 +83,9 @@ export const useLive = create<LiveStore>((set, get) => {
           // live text is typed as it is: no formatting pass, no repeats, no countdown
           const lead = backspaceEvents(backspaces);
           const at = lead.length ? lead[lead.length - 1].t + 0.12 : 0;
-          const plan = text ? buildPlan(text, { ...o, format: "literal", repeat: 1, enterAfter: false, countdown: 0 }) : null;
+          // "Keep up": quick, steady and without deliberate typos, so a backlog never builds while speaking
+          const pace = get().keepUp ? { wpm: Math.max(o.wpm, 140), mistakes: 0, pauses: Math.min(o.pauses, 20) } : {};
+          const plan = text ? buildPlan(text, { ...o, ...pace, format: "literal", repeat: 1, enterAfter: false, countdown: 0 }) : null;
           const events = [...lead, ...(plan?.events ?? []).map((e) => ({ t: e.t + at, down: e.down, key: e.key }))];
           if (events.length) {
             await typerStart({ events, countdown: 0, lock: false });
@@ -97,6 +105,8 @@ export const useLive = create<LiveStore>((set, get) => {
   const finish = (mine: number, error: string | null = null) => {
     if (mine !== session) return;
     session += 1;
+    stopListening?.();
+    stopListening = null;
     set({ running: false, phase: "idle", source: null, error });
   };
 
@@ -107,6 +117,8 @@ export const useLive = create<LiveStore>((set, get) => {
     input: [],
     output: "",
     waiting: 0,
+    interim: "",
+    keepUp: true,
     error: null,
     region: loadRegion(),
     interval: 1,
@@ -115,7 +127,7 @@ export const useLive = create<LiveStore>((set, get) => {
     fullStop: false,
     toApp: true,
     set: (patch) => set(patch),
-    clear: () => set({ input: [], output: "", error: null }),
+    clear: () => set({ input: [], output: "", interim: "", error: null }),
 
     chooseRegion: async () => {
       try {
@@ -147,9 +159,35 @@ export const useLive = create<LiveStore>((set, get) => {
       if (get().running) return;
       const mine = ++session;
       queue = Promise.resolve();
-      set({ running: true, source: "voice", phase: "listening", error: null, input: [], output: "", waiting: 0 });
+      set({ running: true, source: "voice", phase: "listening", error: null, input: [], output: "", interim: "", waiting: 0 });
       const { voiceEngine, voiceLanguage } = nexus().settings;
       let state: DictationState = NEW_DICTATION;
+
+      // In the desktop app one recogniser stays open for the whole session and hands over every phrase,
+      // so nothing said between phrases is lost.
+      if (native && voiceEngine !== "web") {
+        try {
+          stopListening = await startDictation(voiceLanguage, (e) => {
+            if (mine !== session) return;
+            if (e.kind === "partial") return set({ interim: e.text });
+            if (e.kind === "phrase") {
+              const step = dictate(e.text, state, { fullStop: get().fullStop });
+              state = step.state;
+              set((s) => ({ interim: "", input: [...s.input, e.sure ? e.text : `${e.text}  (unsure)`].slice(-200), phase: "typing" }));
+              if (step.stop) return void get().stop();
+              send(step.type, step.backspaces, mine);
+              void queue.then(() => mine === session && set({ phase: "listening" }));
+              return;
+            }
+            // "ended" without being asked, or an error: the session is over
+            void queue.then(() => finish(mine, e.kind === "error" ? e.text : null));
+          });
+        } catch (e) {
+          finish(mine, e instanceof Error ? e.message : String(e));
+        }
+        return;
+      }
+
       let misses = 0;
       while (mine === session) {
         set({ phase: get().waiting ? "typing" : "listening" });
@@ -210,7 +248,9 @@ export const useLive = create<LiveStore>((set, get) => {
 
     stop: async () => {
       session += 1;
-      set({ running: false, phase: "idle", source: null });
+      stopListening?.();
+      stopListening = null;
+      set({ running: false, phase: "idle", source: null, interim: "" });
       if (native && isBusy(useTyper.getState().status)) await typerStop().catch(() => {});
     },
   };

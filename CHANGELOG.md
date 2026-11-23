@@ -2,6 +2,14 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.5 (23 November 2026)
+
+**Dictation that hears everything**
+- **Fixed: words went missing while dictating.** Dictation listened to one phrase at a time and restarted the recogniser in between; whatever was said during a restart was never heard. It now keeps one recogniser open for the whole session (Windows' continuous dictation), so every phrase is handed over as it finishes. Windows ending a session after a long silence is handled by starting it again.
+- It uses Windows' dictation model, which is meant for sentences rather than short commands.
+- The phrase being spoken appears live in the input box before it is finished and typed; a phrase Windows was not confident about is marked “(unsure)”.
+- **Keep up with my speech** (on by default): live text is typed quickly and without deliberate typos, so nothing queues up while you talk.
+
 ## v1.1.4 (23 November 2026)
 
 - **Fixed: selecting a screen region closed NEXUS.** Closing the selection window was treated as closing the last window of the app. Helper windows can no longer quit NEXUS.

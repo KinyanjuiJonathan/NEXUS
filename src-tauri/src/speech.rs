@@ -81,3 +81,93 @@ fn listen_once(language: Option<String>, timeout: u64) -> CmdResult<String> {
 fn listen_once(_language: Option<String>, _timeout: u64) -> CmdResult<String> {
     Err("Native speech recognition is only available on Windows. Use the browser engine or type the command.".into())
 }
+
+// ------------------------------------------------------------------ continuous dictation (Auto Typer)
+
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+use tauri::{AppHandle, Emitter, State};
+
+pub const DICTATION: &str = "nexus://dictation";
+
+/// One dictation session at a time; `stop` ends it.
+pub struct DictationState {
+    running: Arc<AtomicBool>,
+    stop: Arc<AtomicBool>,
+}
+
+impl DictationState {
+    pub fn new() -> Self {
+        Self { running: Arc::new(AtomicBool::new(false)), stop: Arc::new(AtomicBool::new(false)) }
+    }
+}
+
+impl Default for DictationState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// What the UI receives while dictating.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DictationEvent {
+    /// "partial" (words so far), "phrase" (a finished phrase), "ended" or "error".
+    pub kind: &'static str,
+    pub text: String,
+    /// False when Windows was not confident about a finished phrase.
+    pub sure: bool,
+}
+
+/// Start listening continuously. Phrases arrive as `nexus://dictation` events until `dictation_stop`.
+#[tauri::command]
+pub fn dictation_start(app: AppHandle, state: State<DictationState>, language: Option<String>) -> CmdResult<()> {
+    if state.running.swap(true, Ordering::SeqCst) {
+        return Ok(()); // already listening
+    }
+    state.stop.store(false, Ordering::SeqCst);
+    let running = Arc::clone(&state.running);
+    let stop = Arc::clone(&state.stop);
+    let spawned = std::thread::Builder::new().name("nexus-dictation".into()).spawn(move || {
+        let outcome = dictate(&app, language, stop);
+        running.store(false, Ordering::SeqCst);
+        let event = match outcome {
+            Ok(()) => DictationEvent { kind: "ended", text: String::new(), sure: true },
+            Err(message) => DictationEvent { kind: "error", text: message, sure: true },
+        };
+        let _ = app.emit(DICTATION, event);
+    });
+    if let Err(e) = spawned {
+        state.running.store(false, Ordering::SeqCst);
+        return Err(format!("Dictation could not start: {e}"));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn dictation_stop(state: State<DictationState>) {
+    state.stop.store(true, Ordering::SeqCst);
+}
+
+#[cfg(windows)]
+fn dictate(app: &AppHandle, language: Option<String>, stop: Arc<AtomicBool>) -> CmdResult<()> {
+    use crate::win_dictation::{run, Heard};
+    let app = app.clone();
+    run(
+        language,
+        stop,
+        Arc::new(move |heard: Heard| {
+            let event = match heard {
+                Heard::Partial(text) => DictationEvent { kind: "partial", text, sure: true },
+                Heard::Phrase { text, sure } => DictationEvent { kind: "phrase", text, sure },
+            };
+            let _ = app.emit(DICTATION, event);
+        }),
+    )
+}
+
+#[cfg(not(windows))]
+fn dictate(_app: &AppHandle, _language: Option<String>, _stop: Arc<AtomicBool>) -> CmdResult<()> {
+    Err("Continuous dictation uses Windows speech recognition, so it only works in the Windows desktop app.".into())
+}

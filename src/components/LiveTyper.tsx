@@ -71,14 +71,16 @@ export function LiveTyper({ source }: { source: LiveSource }) {
       <div className="flex items-stretch gap-2">
         <Pane title={voice ? "Input · your voice" : "Input · the screen"} hint={voice ? language : r ? "latest reading" : "no region yet"} live={mine && live.phase !== "typing"} tone="var(--success)">
           {live.input.length ? (
-            voice ? live.input.map((p, i) => <p key={i} className={cx(i === live.input.length - 1 ? "text-fg" : "text-fg-2")}>{p}</p>) : live.input.join("\n")
-          ) : (
+            voice ? live.input.map((p, i) => <p key={i} className={cx(i === live.input.length - 1 && !live.interim ? "text-fg" : "text-fg-2")}>{p}</p>) : live.input.join("\n")
+          ) : voice && live.interim ? null : (
             <span className="text-muted">
               {voice
                 ? "Press Start dictating, click into the text box you want, and speak. Each phrase appears here as it is heard."
                 : "Select a region of the screen. NEXUS reads the text inside it and shows it here; while following, whatever newly appears is typed out."}
             </span>
           )}
+          {/* the phrase being spoken right now, before it is finished and typed */}
+          {voice && live.interim && <p className="text-success/90 italic">{live.interim}…</p>}
         </Pane>
         <div className="flex flex-col items-center justify-center w-7 shrink-0" aria-hidden>
           <ArrowRight size={18} className={cx("transition-colors", mine ? "text-accent live-flow" : "text-muted")} />
@@ -103,6 +105,9 @@ export function LiveTyper({ source }: { source: LiveSource }) {
           <Toggle checked={live.fullStop} disabled={live.running} onChange={(v) => live.set({ fullStop: v })} label="Full stop after each phrase" description="For recognisers that leave punctuation out. You can always say “comma”, “full stop”, “question mark”." />
         ) : (
           <Toggle checked={live.includeExisting} disabled={live.running} onChange={(v) => live.set({ includeExisting: v })} label="Also type what is there now" description="Off: only text that appears after you start is typed." />
+        )}
+        {voice && (
+          <Toggle checked={live.keepUp} disabled={live.running} onChange={(v) => live.set({ keepUp: v })} label="Keep up with my speech" description="Types quickly and without deliberate typos, so nothing queues up while you talk. Off: your normal human-like typing settings are used." />
         )}
         {!voice && (
           <div className="flex flex-wrap items-center gap-2 text-xs text-fg-2 sm:col-span-2">
