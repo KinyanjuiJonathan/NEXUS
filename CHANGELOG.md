@@ -2,6 +2,15 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.2 (23 November 2026)
+
+**Calendar: zoom, depth and motion**
+- Zoom in and out with the slider, Ctrl + wheel (the time under the pointer stays put), or `+` and `−`; `0` or *Fit day* fits the whole waking day again. The zoom level is remembered.
+- Zoomed in, blocks have room for more: their length, checklist progress and notes, and the half and quarter hours are labelled.
+- Blocks are raised, lit tiles with a shadow in their own colour; they lift under the pointer, the one under way breathes, finished ones sit flat, and the block being dragged lifts off the page.
+- A hairline follows the pointer across the days and shows the time it points at.
+- Switching view tips the new one into place; stepping through time slides the days in from the side you came from. Motion is reduced when Windows asks for less animation.
+
 ## v1.1.1 (23 November 2026)
 
 **A schedule that adapts to you**

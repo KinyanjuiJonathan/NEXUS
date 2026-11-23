@@ -261,3 +261,87 @@ html.overlay body {
 .typer-rich i, .typer-rich em { font-style: italic; }
 .typer-rich h1, .typer-rich h2, .typer-rich h3, .typer-rich h4, .typer-rich h5, .typer-rich h6 { font-size: 16px; font-weight: 700; margin: 0; color: var(--accent); }
 .typer-rich div { min-height: 1.6em; }
+
+
+/* ------------------------------------------------------------------ calendar: depth and motion */
+.cal-stage { perspective: 1600px; }
+
+/* A block is a raised, lit tile: a highlight along the top edge, a darker lower edge, and a
+   shadow tinted with its own colour underneath. --c is its colour, --m how strong it is. */
+.cal-block {
+  --c: var(--accent);
+  --m: 16%;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.02) 38%, rgba(0, 0, 0, 0.10) 100%),
+    color-mix(in oklab, var(--c) var(--m), var(--bg-2));
+  border-color: color-mix(in oklab, var(--c) 46%, transparent);
+  border-left: 3px solid var(--c);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    0 6px 14px -6px color-mix(in oklab, var(--c) 55%, transparent);
+  transform: translateZ(0);
+  transition: top 0.2s ease-out, height 0.2s ease-out, opacity 0.2s, transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.18s;
+  animation: cal-pop 0.32s cubic-bezier(0.2, 0.9, 0.25, 1.15) both;
+  backface-visibility: hidden;
+}
+.cal-block.cal-flex { border-style: dashed; border-left-style: dashed; }
+.cal-block.cal-fixed { --m: 26%; }
+.cal-block:hover {
+  transform: translateY(-2px) scale(1.012);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.35),
+    0 3px 6px rgba(0, 0, 0, 0.45),
+    0 16px 28px -10px color-mix(in oklab, var(--c) 70%, transparent);
+}
+.cal-block:active { transform: translateY(0) scale(0.995); }
+/* finished or past: pressed flat into the surface */
+.cal-block.cal-flat { background: color-mix(in oklab, var(--c) var(--m), var(--bg-2)); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35); }
+.cal-block.cal-flat:hover { transform: none; }
+/* under way: a slow breathing glow */
+.cal-block.cal-live { animation: cal-pop 0.32s both, cal-breathe 2.6s ease-in-out 0.4s infinite; }
+
+/* the block in the hand: lifted off the page, slightly turned, with a long shadow */
+.cal-ghost {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.02) 45%, rgba(0, 0, 0, 0.12)),
+    color-mix(in oklab, var(--accent) 30%, var(--bg-2));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 26px 46px -8px rgba(0, 0, 0, 0.7), 0 0 26px color-mix(in oklab, var(--accent) 50%, transparent);
+  transform: perspective(700px) rotateX(5deg) rotateZ(-0.7deg) scale(1.035);
+  transform-origin: 50% 0%;
+  animation: cal-lift 0.16s ease-out both;
+}
+
+/* today: the column is lit from above */
+.cal-today { background: linear-gradient(180deg, color-mix(in oklab, var(--accent) 9%, transparent), color-mix(in oklab, var(--accent) 2%, transparent) 55%); box-shadow: inset 1px 0 0 color-mix(in oklab, var(--accent) 30%, transparent), inset -1px 0 0 color-mix(in oklab, var(--accent) 30%, transparent); }
+.cal-today-chip { background: linear-gradient(180deg, color-mix(in oklab, var(--accent) 80%, white), var(--accent)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 4px 12px color-mix(in oklab, var(--accent) 60%, transparent); }
+
+.cal-now { background: var(--danger); box-shadow: 0 0 10px var(--danger); }
+.cal-now-dot { background: var(--danger); animation: cal-pulse 1.8s ease-out infinite; }
+
+/* the hairline under the pointer */
+.cal-hair { height: 0; border-top: 1px solid color-mix(in oklab, var(--accent) 55%, transparent); transition: opacity 0.12s; will-change: transform; }
+.cal-hair-label { position: absolute; right: 100%; margin-right: 4px; white-space: nowrap; top: -8px; font-size: 9px; line-height: 14px; padding: 0 5px; border-radius: 4px; color: white; background: color-mix(in oklab, var(--accent) 85%, black); font-variant-numeric: tabular-nums; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4); }
+
+/* month cells rise slightly under the pointer */
+.cal-cell { transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.18s, background-color 0.18s; }
+.cal-cell:hover { transform: translateY(-2px); box-shadow: 0 10px 22px -10px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.07); background-color: color-mix(in oklab, var(--accent) 5%, transparent); z-index: 1; position: relative; }
+.cal-cell-over { background-color: color-mix(in oklab, var(--accent) 14%, transparent); }
+
+/* zoom slider */
+.cal-zoom { appearance: none; height: 4px; border-radius: 999px; background: var(--border); outline: none; }
+.cal-zoom::-webkit-slider-thumb { appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px color-mix(in oklab, var(--accent) 70%, transparent); cursor: pointer; }
+.cal-zoom::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: var(--accent); cursor: pointer; }
+
+@keyframes cal-pop { from { opacity: 0; transform: translateY(6px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes cal-lift { from { transform: perspective(700px) rotateX(0) rotateZ(0) scale(1); } }
+@keyframes cal-breathe { 0%, 100% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 0 10px color-mix(in oklab, var(--success) 30%, transparent); } 50% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 0 22px color-mix(in oklab, var(--success) 60%, transparent); } }
+@keyframes cal-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--danger) 70%, transparent); } 100% { box-shadow: 0 0 0 9px transparent; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .cal-block, .cal-ghost, .cal-now-dot, .cal-cell { animation: none !important; transition: none !important; }
+  .cal-block:hover, .cal-cell:hover { transform: none; }
+  .cal-ghost { transform: none; }
+}

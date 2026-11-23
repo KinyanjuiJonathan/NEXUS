@@ -11,6 +11,18 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.2",
+    date: "2026-11-23",
+    title: "Calendar: zoom, depth and motion",
+    changes: [
+      "Zoom the calendar: slider, Ctrl + wheel around the pointer, or + and − (0 fits the day).",
+      "Zoomed in, blocks show their length, checklist progress and notes; half and quarter hours are labelled.",
+      "Blocks are raised, lit tiles with coloured shadows; the one you drag lifts off the page.",
+      "A hairline follows the pointer and shows the time it points at.",
+      "Views tip into place and days slide in from the side you came from.",
+    ],
+  },
+  {
     version: "1.1.1",
     date: "2026-11-23",
     title: "A schedule that adapts to you, and a calendar you can read at a glance",

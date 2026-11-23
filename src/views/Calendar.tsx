@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DateTime } from "luxon";
+import { hoursMinutes } from "@/lib/countdown";
 import { motion } from "framer-motion";
+import { ZoomIn, ZoomOut } from "lucide-react";
 import { CalendarClock, Check, ChevronLeft, ChevronRight, Flag, Globe2, Lock, Plus, Repeat, RotateCcw, Search, Star, TriangleAlert, Wand2 } from "lucide-react";
 import type { CalendarEvent, Category, Occurrence, Task } from "@/data/types";
 import { useNexus, nexus } from "@/store";
@@ -25,6 +27,8 @@ import { dueOnDay, isHighPriority, scheduledTasks, taskCalendarState, tasksForDa
 type Mode = "day" | "week" | "month" | "agenda";
 /** Height of one hour when the day is not fitted to the window. */
 const ROOMY_PX = 56;
+const ZOOM_MIN = 24;
+const ZOOM_MAX = 200;
 const MIN = 60_000;
 
 interface Placed {
@@ -202,11 +206,12 @@ interface DragState {
 const STATUS_LABEL: Record<OccStatus, string> = { done: "Completed", overdue: "Overdue", worked: "Time clocked, not marked complete", now: "Under way", past: "Past", upcoming: "Upcoming" };
 
 function TimeGrid({
-  days, zone, occ, tasks, allTasks, now, hour12, texasZone, match, onStep, wh, routine, fit, onShiftDays, categories,
+  days, zone, occ, tasks, allTasks, now, hour12, texasZone, match, onStep, wh, routine, zoom, onZoom, onShiftDays, categories,
 }: {
   routine: Routine;
-  /** Size the hours so the whole waking day is visible without scrolling. */
-  fit: boolean;
+  /** Height of one hour in pixels, or null to size the hours so the whole waking day is visible without scrolling. */
+  zoom: number | null;
+  onZoom: (next: number | null) => void;
   /** Slide the visible days by this many (horizontal scrolling). */
   onShiftDays: (n: number) => void;
   categories: Category[];
@@ -255,18 +260,94 @@ function TimeGrid({
     return () => ro.disconnect();
   }, []);
   // Fitted: the hours shrink (never below a readable size) until that span fills the window exactly.
-  const HOUR_PX = fit ? Math.min(72, Math.max(24, (viewH - 6) / Math.max(6, span.to - span.from))) : ROOMY_PX;
+  const fit = zoom == null;
+  const wasFit = useRef(zoom == null);
+  const fitPx = Math.min(72, Math.max(ZOOM_MIN, (viewH - 6) / Math.max(6, span.to - span.from)));
+  const HOUR_PX = fit ? fitPx : zoom;
 
   useEffect(() => {
     if (dragRef.current) return; // do not jump while a block is being carried to another week
+    // zooming in from the fitted view keeps the spot being looked at (handled below), it does not jump to the morning
+    const leavingFit = wasFit.current && !fit;
+    wasFit.current = fit;
+    if (leavingFit) return;
     const h = fit ? span.from : Math.max(0, Math.min(DateTime.fromMillis(now, { zone }).hour, 8) - 1);
     scrollRef.current?.scrollTo({ top: h * HOUR_PX });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [days[0], zone, fit, HOUR_PX, span.from]);
+  }, [days[0], zone, fit, fit ? HOUR_PX : 0, span.from]);
+
+  // ---- zoom: Ctrl + wheel (or pinch) zooms around the pointer, so the time under it stays put
+  const zoomAnchor = useRef<{ hours: number; offset: number } | null>(null);
+  const px = useRef(HOUR_PX);
+  px.current = HOUR_PX;
+  const zoomTo = (next: number, pointerY?: number) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const offset = pointerY ?? el.clientHeight / 2;
+    zoomAnchor.current = { hours: (el.scrollTop + offset) / px.current, offset };
+    onZoom(Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next))));
+  };
+  const prevPx = useRef(HOUR_PX);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const was = prevPx.current;
+    prevPx.current = HOUR_PX;
+    if (!el || was === HOUR_PX || zoom == null) {
+      zoomAnchor.current = null;
+      return;
+    }
+    // without a pointer (slider, buttons, keys) the middle of the view stays where it is
+    const a = zoomAnchor.current ?? { hours: (el.scrollTop + el.clientHeight / 2) / was, offset: el.clientHeight / 2 };
+    zoomAnchor.current = null;
+    el.scrollTop = Math.max(0, a.hours * HOUR_PX - a.offset);
+  }, [HOUR_PX, zoom]);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onNative = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault(); // the page itself must not zoom
+      zoomTo(px.current * Math.exp(-e.deltaY * 0.0022), e.clientY - el.getBoundingClientRect().top);
+    };
+    el.addEventListener("wheel", onNative, { passive: false });
+    return () => el.removeEventListener("wheel", onNative);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable || document.querySelector("[role=dialog]")) return;
+      if (e.key === "+" || e.key === "=") zoomTo(px.current * 1.25);
+      else if (e.key === "-" || e.key === "_") zoomTo(px.current / 1.25);
+      else if (e.key === "0") onZoom(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ---- a hairline that follows the pointer and says what time it is pointing at (moved directly, without re-rendering the grid)
+  const hairRef = useRef<HTMLDivElement>(null);
+  const hairLabel = useRef<HTMLSpanElement>(null);
+  const onHover = (e: React.PointerEvent) => {
+    const el = colsRef.current;
+    const hair = hairRef.current;
+    if (!el || !hair) return;
+    if (dragRef.current) {
+      hair.style.opacity = "0";
+      return;
+    }
+    const top = e.clientY - el.getBoundingClientRect().top;
+    const minutes = Math.max(0, Math.min(24 * 60 - 1, Math.round(((top / px.current) * 60) / 5) * 5));
+    hair.style.opacity = "1";
+    hair.style.transform = `translateY(${(minutes / 60) * px.current}px)`;
+    if (hairLabel.current) hairLabel.current.textContent = DateTime.fromObject({ hour: Math.floor(minutes / 60), minute: minutes % 60 }).toFormat(hour12 ? "h:mm a" : "HH:mm");
+  };
 
   // Sideways scrolling (trackpad, tilt wheel, or Shift + wheel) slides the days one at a time.
   const wheelAcc = useRef(0);
   const onWheel = (e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) return; // zooming, handled above
     const dx = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.shiftKey ? e.deltaY : 0;
     if (!dx || dragRef.current) return;
     wheelAcc.current += dx;
@@ -409,7 +490,7 @@ function TimeGrid({
   const working = useMemo(() => workWindows(days[0], DateTime.fromMillis(days[days.length - 1], { zone }).plus({ days: 1 }).toMillis(), wh), [days, zone, wh]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className={cx("glass rounded-2xl overflow-hidden flex flex-col min-h-0", drag?.moved && "select-none")} style={{ height: "calc(100vh - 250px)", minHeight: 420 }} onWheel={onWheel}>
+    <div className={cx("cal-stage glass rounded-2xl overflow-hidden flex flex-col min-h-0", drag?.moved && "select-none")} style={{ height: "calc(100vh - 250px)", minHeight: 420 }} onWheel={onWheel}>
       {/* header */}
       <div className="flex border-b border-line">
         <div className="w-16 shrink-0 flex flex-col items-end justify-between pr-1.5 py-1.5 text-[9px] uppercase tracking-wider text-muted">
@@ -440,7 +521,7 @@ function TimeGrid({
               >
                 <div className="flex items-center gap-2">
                   <span className={cx("text-[11px] uppercase tracking-[0.14em]", isToday ? "text-accent font-semibold" : dt.weekday > 5 ? "text-muted" : "text-fg-2")}>{dt.toFormat("ccc")}</span>
-                  <span className={cx("h-7 min-w-7 px-1.5 rounded-full flex items-center justify-center text-[15px] font-semibold font-display leading-none tabular", isToday ? "bg-accent text-white shadow-[0_0_14px_color-mix(in_oklab,var(--accent)_55%,transparent)]" : "text-fg")}>{dt.toFormat("d")}</span>
+                  <span className={cx("h-7 min-w-7 px-1.5 rounded-full flex items-center justify-center text-[15px] font-semibold font-display leading-none tabular", isToday ? "cal-today-chip text-white" : "text-fg")}>{dt.toFormat("d")}</span>
                 </div>
                 {/* Every task due this day; scrolls when there are many. */}
                 {due.length > 0 && (
@@ -458,8 +539,13 @@ function TimeGrid({
         <div className="flex relative" style={{ height: 24 * HOUR_PX }}>
           <div className="w-16 shrink-0 relative">
             {Array.from({ length: 24 }, (_, h) => (
-              <div key={h} className="absolute right-2 text-[10px] text-muted tabular -translate-y-1/2" style={{ top: h * HOUR_PX }}>
-                {h === 0 ? "" : hour12 ? `${h % 12 || 12} ${h < 12 ? "AM" : "PM"}` : `${String(h).padStart(2, "0")}:00`}
+              <div key={h}>
+                <div className="absolute right-2 text-[10px] text-muted tabular -translate-y-1/2" style={{ top: h * HOUR_PX }}>
+                  {h === 0 ? "" : hour12 ? `${h % 12 || 12} ${h < 12 ? "AM" : "PM"}` : `${String(h).padStart(2, "0")}:00`}
+                </div>
+                {/* zoomed in, the half and quarter hours are labelled too */}
+                {HOUR_PX >= 64 && <div className="absolute right-2 text-[9px] text-muted/60 tabular -translate-y-1/2" style={{ top: (h + 0.5) * HOUR_PX }}>:30</div>}
+                {HOUR_PX >= 120 && [0.25, 0.75].map((q) => <div key={q} className="absolute right-2 text-[9px] text-muted/40 tabular -translate-y-1/2" style={{ top: (h + q) * HOUR_PX }}>:{q === 0.25 ? "15" : "45"}</div>)}
               </div>
             ))}
             {live && (() => {
@@ -469,7 +555,10 @@ function TimeGrid({
               return <div className="absolute right-1 -translate-y-1/2 z-30 rounded-md bg-accent text-white text-[10px] font-semibold tabular px-1.5 py-0.5 shadow-lg" style={{ top }}>{formatTime(ds.toMillis(), zone, hour12)}</div>;
             })()}
           </div>
-          <div ref={colsRef} className="flex-1 grid relative" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}>
+          <div ref={colsRef} className="flex-1 grid relative" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }} onPointerMove={onHover} onPointerLeave={() => hairRef.current && (hairRef.current.style.opacity = "0")}>
+            <div ref={hairRef} className="cal-hair absolute left-0 right-0 top-0 z-[5] pointer-events-none" style={{ opacity: 0 }} aria-hidden>
+              <span ref={hairLabel} className="cal-hair-label" />
+            </div>
             {days.map((d) => {
               const dayEnd = DateTime.fromMillis(d, { zone }).plus({ days: 1 }).toMillis();
               const placed = layoutDay(occ, d, dayEnd, HOUR_PX);
@@ -478,7 +567,7 @@ function TimeGrid({
               const ghost = live && live.end > d && live.start < dayEnd ? live : null;
               const guide = live?.guide != null && live.guide >= d && live.guide <= dayEnd && ghost ? live.guide : null;
               return (
-                <div key={d} className={cx("relative border-l border-line", isToday && "bg-[color-mix(in_oklab,var(--accent)_3%,transparent)]")} onDoubleClick={(e) => e.target === e.currentTarget && createAt(e, d)} onClick={(e) => e.detail === 1 && e.target === e.currentTarget && createAt(e, d)}>
+                <div key={d} className={cx("relative border-l border-line", isToday && "cal-today")} onDoubleClick={(e) => e.target === e.currentTarget && createAt(e, d)} onClick={(e) => e.detail === 1 && e.target === e.currentTarget && createAt(e, d)}>
                   {/* working time is slightly lit, so the hours tasks are planned in stand out */}
                   {work.map((w) => (
                     <div key={w.start} className="absolute left-0 right-0 pointer-events-none bg-[color-mix(in_oklab,var(--accent)_5%,transparent)] border-y border-[color-mix(in_oklab,var(--accent)_16%,transparent)]" style={{ top: y(Math.max(w.start, d), d), height: y(Math.min(w.end, dayEnd), d) - y(Math.max(w.start, d), d) }} />
@@ -516,11 +605,12 @@ function TimeGrid({
                     <div key={h} className="pointer-events-none">
                       <div className="absolute left-0 right-0 border-t border-line" style={{ top: h * HOUR_PX, opacity: 0.6 }} />
                       <div className="absolute left-0 right-0 border-t border-dashed border-line" style={{ top: (h + 0.5) * HOUR_PX, opacity: 0.25 }} />
+                      {HOUR_PX >= 88 && [0.25, 0.75].map((q) => <div key={q} className="absolute left-0 right-0 border-t border-dotted border-line" style={{ top: (h + q) * HOUR_PX, opacity: 0.14 }} />)}
                     </div>
                   ))}
                   {isToday && (
-                    <div className="absolute left-0 right-0 h-[2px] bg-danger z-20 pointer-events-none" style={{ top: nowTop }}>
-                      <span className="absolute -left-1 -top-[3px] h-2 w-2 rounded-full bg-danger" />
+                    <div className="cal-now absolute left-0 right-0 h-[2px] z-20 pointer-events-none" style={{ top: nowTop }}>
+                      <span className="cal-now-dot absolute -left-1 -top-[3px] h-2 w-2 rounded-full" />
                     </div>
                   )}
                   {placed.map((p) => {
@@ -546,23 +636,22 @@ function TimeGrid({
                         onKeyDown={(e) => e.key === "Enter" && ui.openEvent(ev.id, undefined, p.occ.seriesStart)}
                         onPointerDown={(e) => onPointerDown(e, p.occ, "move")}
                         className={cx(
-                          "group/blk absolute rounded-lg border px-1.5 overflow-hidden cursor-grab select-none text-[11px] leading-tight touch-none",
+                          "cal-block group/blk absolute rounded-lg border px-1.5 overflow-hidden cursor-grab select-none text-[11px] leading-tight touch-none z-10 hover:z-20",
                           tight ? "py-px" : "py-1",
-                          "transition-[top,height,opacity,box-shadow,transform] duration-200 ease-out z-10 hover:z-20 hover:shadow-lg hover:-translate-y-px",
-                          isDrag && "opacity-30",
-                          dim && "opacity-20 saturate-50",
-                          status === "now" && "shadow-[0_0_16px_color-mix(in_oklab,var(--success)_35%,transparent)]",
+                          fixed ? "cal-fixed" : "cal-flex",
+                          status === "now" && "cal-live",
+                          (status === "done" || status === "past") && "cal-flat",
+                          isDrag && "!opacity-30",
+                          dim && "!opacity-20 saturate-50",
                         )}
                         style={{
                           top: p.top,
                           height: p.height,
                           left: `calc(${(p.col / p.cols) * 100}% + 2px)`,
                           width: `calc(${100 / p.cols}% - 4px)`,
-                          background: `color-mix(in oklab, ${color} ${status === "done" || status === "past" ? 8 : fixed ? 24 : 14}%, var(--bg-2))`,
-                          borderColor: `color-mix(in oklab, ${color} ${fixed ? 60 : 45}%, transparent)`,
-                          borderLeft: `3px ${fixed ? "solid" : "dashed"} ${color}`,
-                          // fixed appointments are solid; flexible blocks are dashed
-                          borderStyle: fixed ? "solid" : "dashed",
+                          // the colour and its strength; the raised, lit surface itself is drawn by .cal-block
+                          ["--c" as string]: color,
+                          ["--m" as string]: `${status === "done" || status === "past" ? 8 : fixed ? 26 : 16}%`,
                         }}
                         title={`${ev.title}\n${STATUS_LABEL[status]} · ${fixed ? "Fixed appointment — never moved automatically" : "Flexible — NEXUS may re-plan it"}\n${formatWithZone(p.occ.start, KENYA_ZONE, hour12)}\n${formatWithZone(p.occ.start, texasZone, hour12)}\nOriginal zone: ${ev.tz}${badge ? `\n${badge.text}${history.length ? `:\n${history.join("\n")}` : ""}` : ""}\nDrag to move (hold Alt for exact minutes) · drag an edge to change its length`}
                       >
@@ -585,6 +674,19 @@ function TimeGrid({
                             KE {formatTime(p.occ.start, KENYA_ZONE, hour12)} · TX {formatTime(p.occ.start, texasZone, hour12)}
                           </div>
                         )}
+                        {/* zoomed in, a block has room to say more: how long, the checklist, the notes */}
+                        {p.height > 78 && (
+                          <div className="mt-0.5 flex items-center gap-1.5 text-muted truncate">
+                            <span className="tabular">{hoursMinutes(p.occ.end - p.occ.start)}</span>
+                            {task && task.subtasks.length > 0 && (
+                              <span className="flex items-center gap-1 min-w-0">
+                                <span className="h-1 w-10 rounded-full bg-line overflow-hidden shrink-0"><span className="block h-full bg-success" style={{ width: `${(task.subtasks.filter((x) => x.done).length / task.subtasks.length) * 100}%` }} /></span>
+                                <span className="tabular">{task.subtasks.filter((x) => x.done).length}/{task.subtasks.length}</span>
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {p.height > 104 && (task?.notes || ev.notes) && <div className="mt-0.5 text-muted/90 line-clamp-2 whitespace-pre-line">{(task?.notes || ev.notes).replace(/^Requested: /, "")}</div>}
                         <div onPointerDown={(e) => onPointerDown(e, p.occ, "resize-end")} className="absolute left-0 right-0 bottom-0 h-2 cursor-ns-resize flex items-end justify-center" aria-hidden>
                           <span className="h-[3px] w-6 rounded-full bg-current opacity-0 group-hover/blk:opacity-40 mb-px" />
                         </div>
@@ -594,7 +696,7 @@ function TimeGrid({
                   {/* the block being dragged, where it would land */}
                   {ghost && drag && (
                     <div
-                      className="absolute left-0.5 right-0.5 z-30 rounded-lg border-2 border-accent bg-[color-mix(in_oklab,var(--accent)_26%,var(--bg-2))] shadow-[0_10px_30px_rgba(0,0,0,0.5),0_0_18px_color-mix(in_oklab,var(--accent)_45%,transparent)] px-1.5 py-1 text-[11px] leading-tight pointer-events-none overflow-hidden transition-[top,height] duration-75 ease-out"
+                      className="cal-ghost absolute left-0.5 right-0.5 z-30 rounded-lg border-2 border-accent px-1.5 py-1 text-[11px] leading-tight pointer-events-none overflow-hidden transition-[top,height] duration-75 ease-out"
                       style={{ top: y(Math.max(ghost.start, d), d), height: Math.max(18, y(Math.min(ghost.end, dayEnd), d) - y(Math.max(ghost.start, d), d) - 2) }}
                     >
                       <div className="font-semibold text-fg truncate">{drag.occ.event.title}</div>
@@ -751,7 +853,7 @@ function MonthGrid({ month, zone, events, tasks, now, hour12, onOpenDay }: { mon
               onDragLeave={() => setOver((o) => (o === key ? null : o))}
               onDrop={(e) => void onDrop(e, day)}
               onDoubleClick={() => { const st = day.set({ hour: 9 }).toMillis(); ui.openEvent(null, { startAt: st, endAt: st + 3600_000 }); }}
-              className={cx("border-l border-t border-line p-1 flex flex-col gap-0.5 min-h-0 overflow-hidden transition-colors", !inMonth && "opacity-45", over === key && "bg-[color-mix(in_oklab,var(--accent)_12%,transparent)]")}
+              className={cx("cal-cell border-l border-t border-line p-1 flex flex-col gap-0.5 min-h-0 overflow-hidden", !inMonth && "opacity-45", isToday && "cal-today", over === key && "cal-cell-over")}
             >
               <span className={cx("text-xs font-semibold h-6 w-6 flex items-center justify-center rounded-full shrink-0", isToday ? "bg-accent text-white" : "text-fg-2")}>{day.day}</span>
               {items.slice(0, items.length > 4 ? 3 : 4).map((it) => it.task ? (
@@ -803,27 +905,33 @@ export default function Calendar() {
   const [kind, setKind] = useState<Kind>("all");
   /** Week view normally shows Monday to Sunday; after sliding sideways it shows seven days from the anchor. */
   const [rolling, setRolling] = useState(false);
-  const [fit, setFitState] = useState(() => {
+  // Zoom: null fits the waking day to the window; a number is the height of one hour.
+  const [zoom, setZoomState] = useState<number | null>(() => {
     try {
-      return localStorage.getItem("nexus.cal.fit") !== "0";
+      const v = Number(localStorage.getItem("nexus.cal.zoom"));
+      return Number.isFinite(v) && v >= ZOOM_MIN ? Math.min(ZOOM_MAX, v) : null;
     } catch {
-      return true;
+      return null;
     }
   });
-  const setFit = (v: boolean) => {
-    setFitState(v);
+  const setZoom = (v: number | null) => {
+    setZoomState(v);
     try {
-      localStorage.setItem("nexus.cal.fit", v ? "1" : "0");
+      if (v == null) localStorage.removeItem("nexus.cal.zoom");
+      else localStorage.setItem("nexus.cal.zoom", String(v));
     } catch {
       /* not essential */
     }
   };
+  /** Which way the last step went, so the new days slide in from that side. */
+  const [dir, setDir] = useState(0);
   const categories = useNexus((s) => s.categories);
   const zone = settings.calendarDisplayZone === "kenya" ? KENYA_ZONE : settings.calendarDisplayZone === "texas" ? settings.texasZone : settings.homeZone;
   const a = DateTime.fromMillis(anchor, { zone });
   const days =
     mode === "day" ? [a.startOf("day").toMillis()] : Array.from({ length: 7 }, (_, i) => (rolling ? a.startOf("day") : a.startOf("week")).plus({ days: i }).toMillis());
   const shiftDays = (n: number) => {
+    setDir(n > 0 ? 1 : -1);
     if (mode === "week" && !rolling) {
       // start sliding from the Monday on screen, so the first step moves by exactly one day
       setRolling(true);
@@ -836,7 +944,11 @@ export default function Calendar() {
   const openTasks = useMemo(() => scheduledTasks(tasks), [tasks]);
   const unscheduled = useMemo(() => unscheduledOpenTasks(tasks).length, [tasks]);
   const wh = useMemo(() => workHours(settings), [settings]);
-  const step = (dir: number) => setAnchor((cur) => DateTime.fromMillis(cur, { zone }).plus(mode === "day" ? { days: dir } : mode === "week" ? { weeks: dir } : mode === "month" ? { months: dir } : { days: 14 * dir }).toMillis());
+  const step = (dir: number) => {
+    setDir(dir);
+    stepAnchor(dir);
+  };
+  const stepAnchor = (dir: number) => setAnchor((cur) => DateTime.fromMillis(cur, { zone }).plus(mode === "day" ? { days: dir } : mode === "week" ? { weeks: dir } : mode === "month" ? { months: dir } : { days: 14 * dir }).toMillis());
   const label =
     mode === "day" ? a.toFormat("cccc, d LLLL yyyy") : mode === "week" ? `${DateTime.fromMillis(days[0], { zone }).toFormat("d LLL")} – ${DateTime.fromMillis(days[6], { zone }).toFormat("d LLL yyyy")}` : mode === "month" ? a.toFormat("LLLL yyyy") : `From ${a.toFormat("d LLL yyyy")}`;
 
@@ -901,7 +1013,7 @@ export default function Calendar() {
         </div>
         <DateTimePicker value={anchor} zone={zone} hour12={settings.hour12} withTime={false} onChange={(ms) => ms != null && setAnchor(ms)} ariaLabel="Go to a date" className="!h-8 !border-transparent !bg-transparent hover:!bg-hover font-medium" format={() => label} />
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <Segmented size="sm" value={mode} onChange={setMode} options={[{ value: "day", label: "Day" }, { value: "week", label: "Week" }, { value: "month", label: "Month" }, { value: "agenda", label: "Agenda" }]} />
+          <Segmented size="sm" value={mode} onChange={(m) => { setDir(0); setMode(m); }} options={[{ value: "day", label: "Day" }, { value: "week", label: "Week" }, { value: "month", label: "Month" }, { value: "agenda", label: "Agenda" }]} />
           <Button size="sm" variant="outline" icon={<Wand2 size={14} />} onClick={() => useUI.getState().openAutoPlan(true)} title="Fit open tasks into free working time">Auto-plan</Button>
           <Button size="sm" variant="outline" icon={<CalendarClock size={14} />} onClick={() => useUI.getState().openRescheduleAll(true)} title="Move every open task to a later date or time">Reschedule all</Button>
           <AiScheduleButton size="sm" />
@@ -933,19 +1045,31 @@ export default function Calendar() {
             ]}
           />
           {(mode === "day" || mode === "week") && (
-            <Segmented size="sm" value={fit ? "fit" : "roomy"} onChange={(v) => setFit(v === "fit")} options={[{ value: "fit", label: "Fit day", title: "Size the hours so the whole waking day is visible at once" }, { value: "roomy", label: "Roomy", title: "Larger hours; scroll through the day" }]} />
+            <div className="flex items-center h-8 rounded-lg border border-line overflow-hidden" role="group" aria-label="Zoom">
+              <button type="button" onClick={() => setZoom(Math.max(ZOOM_MIN, Math.round((zoom ?? ROOMY_PX) / 1.25)))} aria-label="Zoom out" title="Zoom out ( − )" className="h-full w-8 flex items-center justify-center text-fg-2 hover:text-accent hover:bg-hover"><ZoomOut size={14} /></button>
+              <input type="range" min={ZOOM_MIN} max={ZOOM_MAX} step={2} value={zoom ?? ROOMY_PX} onChange={(e) => setZoom(Number(e.target.value))} aria-label="Zoom level" title="Zoom: drag, Ctrl + wheel over the calendar, or + / −" className="cal-zoom w-24 mx-1" />
+              <button type="button" onClick={() => setZoom(Math.min(ZOOM_MAX, Math.round((zoom ?? ROOMY_PX) * 1.25)))} aria-label="Zoom in" title="Zoom in ( + )" className="h-full w-8 flex items-center justify-center text-fg-2 hover:text-accent hover:bg-hover"><ZoomIn size={14} /></button>
+              <button type="button" onClick={() => setZoom(null)} aria-pressed={zoom == null} title="Fit the whole waking day in the window ( 0 )" className={cx("h-full px-2.5 text-xs font-medium border-l border-line", zoom == null ? "text-accent bg-[color-mix(in_oklab,var(--accent)_10%,transparent)]" : "text-fg-2 hover:text-fg hover:bg-hover")}>{zoom == null ? "Fit day" : `${Math.round((zoom / ROOMY_PX) * 100)}%`}</button>
+            </div>
           )}
           <Button size="sm" variant="ghost" icon={<Globe2 size={14} />} onClick={() => useUI.getState().openTimeHours(true)} title="Time zone & working hours">Hours</Button>
           <Button size="sm" variant="ghost" onClick={() => useUI.getState().openRoutine(true)} title="Sleep, morning, work sessions, breaks, lunch and gym">Routine</Button>
         </div>
       </div>
-      <motion.div key={mode} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18, ease: "easeOut" }}>
+      {/* Changing view tips the new one into place; stepping through time slides it in from the side it came from. */}
+      <motion.div
+        key={`${mode}-${rangeStart}`}
+        initial={dir ? { opacity: 0, x: dir * 46, rotateY: dir * -5, scale: 0.985 } : { opacity: 0, y: 14, rotateX: 7, scale: 0.985 }}
+        animate={{ opacity: 1, x: 0, y: 0, rotateX: 0, rotateY: 0, scale: 1 }}
+        transition={{ type: "spring", stiffness: 300, damping: 30, mass: 0.7 }}
+        style={{ transformPerspective: 1400, transformOrigin: "50% 0%" }}
+      >
       {mode === "month" ? (
         <MonthGrid month={anchor} zone={zone} events={filtering ? events.filter((e) => expandEvents([e], rangeStart, rangeEnd).some(match)) : events} tasks={shownTasks} now={now} hour12={settings.hour12} onOpenDay={(d) => { setAnchor(d); setMode("day"); }} />
       ) : mode === "agenda" ? (
         <AgendaList from={anchor} zone={zone} events={events} tasks={shownTasks} allTasks={tasks} now={now} hour12={settings.hour12} match={match} matchTask={matchTask} />
       ) : (
-        <TimeGrid days={days} zone={zone} occ={occ} tasks={shownTasks} allTasks={tasks} now={now} hour12={settings.hour12} texasZone={settings.texasZone} match={match} onStep={step} wh={wh} routine={settings.routine} fit={fit} onShiftDays={shiftDays} categories={categories} />
+        <TimeGrid days={days} zone={zone} occ={occ} tasks={shownTasks} allTasks={tasks} now={now} hour12={settings.hour12} texasZone={settings.texasZone} match={match} onStep={step} wh={wh} routine={settings.routine} zoom={zoom} onZoom={setZoom} onShiftDays={shiftDays} categories={categories} />
       )}
       </motion.div>
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1">
@@ -957,7 +1081,7 @@ export default function Calendar() {
         )}
       </div>
       <p className="text-[11px] text-muted">
-        Times in <b>{zone}</b>; lit bands are your working hours. Drag a block to move it, to another day, or hold it at the left or right edge to carry it to another week. It snaps to neighbouring blocks and quarter hours (hold <b>Alt</b> for exact minutes); drag its top or bottom edge to change its length; Esc cancels. Scroll sideways (or Shift + wheel, or the small arrows by the hours) to slide the days one at a time. Task blocks take their category's colour; a flag marks high priority. Click an empty slot to add. Keys: ←/→, T, D/W/M/A, /.
+        Times in <b>{zone}</b>; lit bands are your working hours. Drag a block to move it, to another day, or hold it at the left or right edge to carry it to another week. It snaps to neighbouring blocks and quarter hours (hold <b>Alt</b> for exact minutes); drag its top or bottom edge to change its length; Esc cancels. Scroll sideways (or Shift + wheel, or the small arrows by the hours) to slide the days one at a time. Task blocks take their category's colour; a flag marks high priority. Zoom with the slider, Ctrl + wheel over the calendar, or + and − (0 fits the day); zoomed in, blocks show their length, checklist and notes. Click an empty slot to add. Keys: ←/→, T, D/W/M/A, /.
       </p>
     </div>
   );
