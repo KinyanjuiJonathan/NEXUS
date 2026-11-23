@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DateTime } from "luxon";
+import { motion } from "framer-motion";
 import { CalendarClock, Check, ChevronLeft, ChevronRight, Flag, Globe2, Lock, Plus, Repeat, RotateCcw, Search, Star, TriangleAlert, Wand2 } from "lucide-react";
-import type { CalendarEvent, Occurrence, Task } from "@/data/types";
+import type { CalendarEvent, Category, Occurrence, Task } from "@/data/types";
 import { useNexus, nexus } from "@/store";
 import { useUI } from "@/store/ui";
 import { useNow } from "@/lib/ticker";
@@ -22,7 +23,8 @@ import { autoBadge, moveHistory } from "@/lib/smart/format";
 import { dueOnDay, isHighPriority, scheduledTasks, taskCalendarState, tasksForDay, unscheduledOpenTasks } from "@/lib/calendarTasks";
 
 type Mode = "day" | "week" | "month" | "agenda";
-const HOUR_PX = 56;
+/** Height of one hour when the day is not fitted to the window. */
+const ROOMY_PX = 56;
 const MIN = 60_000;
 
 interface Placed {
@@ -34,7 +36,7 @@ interface Placed {
 }
 
 /** Lay out overlapping blocks side by side within one day column. */
-function layoutDay(occ: Occurrence[], dayStart: number, dayEnd: number): Placed[] {
+function layoutDay(occ: Occurrence[], dayStart: number, dayEnd: number, HOUR_PX: number): Placed[] {
   const items = occ
     .filter((o) => o.end > dayStart && o.start < dayEnd)
     .sort((a, b) => a.start - b.start || b.end - a.end);
@@ -53,7 +55,7 @@ function layoutDay(occ: Occurrence[], dayStart: number, dayEnd: number): Placed[
     const used = new Set(cluster.filter((p) => p.occ.end > o.start).map((p) => p.col));
     let col = 0;
     while (used.has(col)) col++;
-    const p: Placed = { occ: o, top: ((s - dayStart) / 3600_000) * HOUR_PX, height: Math.max(18, ((e - s) / 3600_000) * HOUR_PX - 2), col, cols: 1 };
+    const p: Placed = { occ: o, top: ((s - dayStart) / 3600_000) * HOUR_PX, height: Math.max(16, ((e - s) / 3600_000) * HOUR_PX - 2), col, cols: 1 };
     cluster.push(p);
     placed.push(p);
     clusterEnd = Math.max(clusterEnd, o.end);
@@ -200,9 +202,14 @@ interface DragState {
 const STATUS_LABEL: Record<OccStatus, string> = { done: "Completed", overdue: "Overdue", worked: "Time clocked, not marked complete", now: "Under way", past: "Past", upcoming: "Upcoming" };
 
 function TimeGrid({
-  days, zone, occ, tasks, allTasks, now, hour12, texasZone, match, onStep, wh, routine,
+  days, zone, occ, tasks, allTasks, now, hour12, texasZone, match, onStep, wh, routine, fit, onShiftDays, categories,
 }: {
   routine: Routine;
+  /** Size the hours so the whole waking day is visible without scrolling. */
+  fit: boolean;
+  /** Slide the visible days by this many (horizontal scrolling). */
+  onShiftDays: (n: number) => void;
+  categories: Category[];
   days: number[]; zone: string; occ: Occurrence[]; tasks: Task[]; allTasks: Task[]; now: number; hour12: boolean; texasZone: string;
   match: (o: Occurrence) => boolean; onStep: (dir: number) => void; wh: WorkHours;
 }) {
@@ -214,13 +221,60 @@ function TimeGrid({
   const [overDay, setOverDay] = useState<number | null>(null);
   const ui = useUI.getState();
   const byTask = useMemo(() => new Map(allTasks.map((t) => [t.id, t])), [allTasks]);
+  const catColor = useMemo(() => new Map(categories.map((c) => [c.id, c.color])), [categories]);
+
+  // The part of the day worth seeing: from getting up (or the first thing scheduled) to going to sleep (or the last thing).
+  const span = useMemo(() => {
+    let lo = 24;
+    let hi = 0;
+    const hourOf = (ms: number, d: number) => (ms - d) / 3600_000;
+    for (const d of days) {
+      const end = DateTime.fromMillis(d, { zone }).plus({ days: 1 }).toMillis();
+      for (const o of occ) {
+        if (o.end <= d || o.start >= end) continue;
+        lo = Math.min(lo, hourOf(Math.max(o.start, d), d));
+        hi = Math.max(hi, hourOf(Math.min(o.end, end), d));
+      }
+      for (const b of routineBlocks(d, end, routine)) {
+        if (b.kind === "sleep") continue;
+        lo = Math.min(lo, hourOf(Math.max(b.start, d), d));
+        hi = Math.max(hi, hourOf(Math.min(b.end, end), d));
+      }
+    }
+    if (lo >= hi) [lo, hi] = [7, 21];
+    return { from: Math.max(0, Math.floor(lo - 0.25)), to: Math.min(24, Math.ceil(hi + 0.25)) };
+  }, [days, zone, occ, routine]);
+  const [viewH, setViewH] = useState(600);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => setViewH(el.clientHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // Fitted: the hours shrink (never below a readable size) until that span fills the window exactly.
+  const HOUR_PX = fit ? Math.min(72, Math.max(24, (viewH - 6) / Math.max(6, span.to - span.from))) : ROOMY_PX;
 
   useEffect(() => {
     if (dragRef.current) return; // do not jump while a block is being carried to another week
-    const h = DateTime.fromMillis(now, { zone }).hour;
-    scrollRef.current?.scrollTo({ top: Math.max(0, (Math.min(h, 8) - 1) * HOUR_PX) });
+    const h = fit ? span.from : Math.max(0, Math.min(DateTime.fromMillis(now, { zone }).hour, 8) - 1);
+    scrollRef.current?.scrollTo({ top: h * HOUR_PX });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [days[0], zone]);
+  }, [days[0], zone, fit, HOUR_PX, span.from]);
+
+  // Sideways scrolling (trackpad, tilt wheel, or Shift + wheel) slides the days one at a time.
+  const wheelAcc = useRef(0);
+  const onWheel = (e: React.WheelEvent) => {
+    const dx = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.shiftKey ? e.deltaY : 0;
+    if (!dx || dragRef.current) return;
+    wheelAcc.current += dx;
+    if (Math.abs(wheelAcc.current) >= 60) {
+      onShiftDays(wheelAcc.current > 0 ? 1 : -1);
+      wheelAcc.current = 0;
+    }
+  };
 
   const colWidth = () => (colsRef.current ? colsRef.current.clientWidth / days.length : 1);
 
@@ -351,14 +405,20 @@ function TimeGrid({
   const live = drag?.moved ? preview(drag) : null;
   const y = (ms: number, dayStart: number) => ((ms - dayStart) / 3600_000) * HOUR_PX;
   const range = (a: number, b: number) => `${formatTime(a, zone, hour12)} – ${formatTime(b, zone, hour12)}`;
-  const personal = useMemo(() => routineBlocks(days[0], DateTime.fromMillis(days[days.length - 1], { zone }).plus({ days: 1 }).toMillis(), routine).filter((b) => b.kind !== "work"), [days, zone, routine]); // eslint-disable-line react-hooks/exhaustive-deps
+  const personal = useMemo(() => routineBlocks(days[0], DateTime.fromMillis(days[days.length - 1], { zone }).plus({ days: 1 }).toMillis(), routine).filter((b) => b.kind !== "work" && b.kind !== "open"), [days, zone, routine]); // eslint-disable-line react-hooks/exhaustive-deps
   const working = useMemo(() => workWindows(days[0], DateTime.fromMillis(days[days.length - 1], { zone }).plus({ days: 1 }).toMillis(), wh), [days, zone, wh]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className={cx("glass rounded-2xl overflow-hidden flex flex-col min-h-0", drag?.moved && "select-none")} style={{ height: "calc(100vh - 250px)", minHeight: 420 }}>
+    <div className={cx("glass rounded-2xl overflow-hidden flex flex-col min-h-0", drag?.moved && "select-none")} style={{ height: "calc(100vh - 250px)", minHeight: 420 }} onWheel={onWheel}>
       {/* header */}
       <div className="flex border-b border-line">
-        <div className="w-16 shrink-0 flex items-end justify-end pr-2 pb-1.5 text-[9px] uppercase tracking-wider text-muted">{DateTime.fromMillis(days[0], { zone }).toFormat("ZZZZ")}</div>
+        <div className="w-16 shrink-0 flex flex-col items-end justify-between pr-1.5 py-1.5 text-[9px] uppercase tracking-wider text-muted">
+          <div className="flex gap-0.5">
+            <button type="button" onClick={() => onShiftDays(-1)} aria-label="One day earlier" title="One day earlier (or scroll sideways)" className="h-5 w-5 rounded hover:bg-hover hover:text-accent flex items-center justify-center"><ChevronLeft size={12} /></button>
+            <button type="button" onClick={() => onShiftDays(1)} aria-label="One day later" title="One day later (or scroll sideways)" className="h-5 w-5 rounded hover:bg-hover hover:text-accent flex items-center justify-center"><ChevronRight size={12} /></button>
+          </div>
+          {DateTime.fromMillis(days[0], { zone }).toFormat("ZZZZ")}
+        </div>
         <div className="flex-1 grid" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}>
           {days.map((d) => {
             const dt = DateTime.fromMillis(d, { zone });
@@ -412,7 +472,7 @@ function TimeGrid({
           <div ref={colsRef} className="flex-1 grid relative" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}>
             {days.map((d) => {
               const dayEnd = DateTime.fromMillis(d, { zone }).plus({ days: 1 }).toMillis();
-              const placed = layoutDay(occ, d, dayEnd);
+              const placed = layoutDay(occ, d, dayEnd, HOUR_PX);
               const isToday = now >= d && now < dayEnd;
               const work = working.filter((w) => w.end > d && w.start < dayEnd);
               const ghost = live && live.end > d && live.start < dayEnd ? live : null;
@@ -467,7 +527,11 @@ function TimeGrid({
                     const isDrag = !!drag?.moved && drag.occ.event.id === p.occ.event.id && drag.occ.start === p.occ.start;
                     const ev = p.occ.event;
                     const status = occStatus(p.occ, ev.taskId ? byTask.get(ev.taskId) : undefined, now);
-                    const base = ev.color ?? (ev.important ? "#f59e0b" : "var(--accent)");
+                    const task = ev.taskId ? byTask.get(ev.taskId) : undefined;
+                    // a task's block takes its category's colour; an appointment keeps its own
+                    const base = (task && catColor.get(task.categoryId)) ?? ev.color ?? (ev.important ? "#f59e0b" : "var(--accent-2)");
+                    const urgent = task && (task.priority === "critical" || task.priority === "high") && status !== "done";
+                    const tight = p.height < 30;
                     const color = status === "done" ? "var(--muted)" : status === "overdue" ? "var(--danger)" : status === "now" ? "var(--success)" : base;
                     const fixed = ev.fixed;
                     const badge = autoBadge(ev);
@@ -482,7 +546,8 @@ function TimeGrid({
                         onKeyDown={(e) => e.key === "Enter" && ui.openEvent(ev.id, undefined, p.occ.seriesStart)}
                         onPointerDown={(e) => onPointerDown(e, p.occ, "move")}
                         className={cx(
-                          "group/blk absolute rounded-lg border px-1.5 py-1 overflow-hidden cursor-grab select-none text-[11px] leading-tight touch-none",
+                          "group/blk absolute rounded-lg border px-1.5 overflow-hidden cursor-grab select-none text-[11px] leading-tight touch-none",
+                          tight ? "py-px" : "py-1",
                           "transition-[top,height,opacity,box-shadow,transform] duration-200 ease-out z-10 hover:z-20 hover:shadow-lg hover:-translate-y-px",
                           isDrag && "opacity-30",
                           dim && "opacity-20 saturate-50",
@@ -509,10 +574,13 @@ function TimeGrid({
                           {badge && status !== "done" && (badge.attention ? <TriangleAlert size={10} className="shrink-0 text-danger" aria-label={badge.text} /> : <RotateCcw size={10} className="shrink-0 text-warning" aria-label={badge.text} />)}
                           {ev.important && <Star size={10} className="text-warning shrink-0" fill="currentColor" />}
                           {p.occ.recurring && <Repeat size={10} className="text-muted shrink-0" />}
+                          {urgent && <Flag size={10} className="shrink-0" style={{ color: PRIORITY_META[task!.priority].color }} fill="currentColor" aria-label={`${PRIORITY_META[task!.priority].label} priority`} />}
                           <span className="truncate">{ev.title}</span>
+                          {/* a short block still says when: the time sits beside the title */}
+                          {tight && <span className="ml-auto pl-1 shrink-0 font-normal text-fg-2 tabular">{formatTime(p.occ.start, zone, hour12)}</span>}
                         </div>
-                        {p.height > 30 && <div className="text-fg-2 tabular truncate">{range(p.occ.start, p.occ.end)}</div>}
-                        {p.height > 46 && (
+                        {!tight && <div className="text-fg-2 tabular truncate">{range(p.occ.start, p.occ.end)}</div>}
+                        {p.height > 58 && (
                           <div className="text-muted tabular truncate">
                             KE {formatTime(p.occ.start, KENYA_ZONE, hour12)} · TX {formatTime(p.occ.start, texasZone, hour12)}
                           </div>
@@ -733,10 +801,35 @@ export default function Calendar() {
   const [anchor, setAnchor] = useState(() => Date.now());
   const [q, setQ] = useState("");
   const [kind, setKind] = useState<Kind>("all");
+  /** Week view normally shows Monday to Sunday; after sliding sideways it shows seven days from the anchor. */
+  const [rolling, setRolling] = useState(false);
+  const [fit, setFitState] = useState(() => {
+    try {
+      return localStorage.getItem("nexus.cal.fit") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const setFit = (v: boolean) => {
+    setFitState(v);
+    try {
+      localStorage.setItem("nexus.cal.fit", v ? "1" : "0");
+    } catch {
+      /* not essential */
+    }
+  };
+  const categories = useNexus((s) => s.categories);
   const zone = settings.calendarDisplayZone === "kenya" ? KENYA_ZONE : settings.calendarDisplayZone === "texas" ? settings.texasZone : settings.homeZone;
   const a = DateTime.fromMillis(anchor, { zone });
   const days =
-    mode === "day" ? [a.startOf("day").toMillis()] : Array.from({ length: 7 }, (_, i) => a.startOf("week").plus({ days: i }).toMillis());
+    mode === "day" ? [a.startOf("day").toMillis()] : Array.from({ length: 7 }, (_, i) => (rolling ? a.startOf("day") : a.startOf("week")).plus({ days: i }).toMillis());
+  const shiftDays = (n: number) => {
+    if (mode === "week" && !rolling) {
+      // start sliding from the Monday on screen, so the first step moves by exactly one day
+      setRolling(true);
+      setAnchor(a.startOf("week").plus({ days: n }).toMillis());
+    } else setAnchor((cur) => DateTime.fromMillis(cur, { zone }).plus({ days: n }).toMillis());
+  };
   const rangeStart = mode === "month" ? a.startOf("month").startOf("week").toMillis() : days[0];
   const rangeEnd = mode === "month" ? a.endOf("month").endOf("week").toMillis() : DateTime.fromMillis(days[days.length - 1], { zone }).plus({ days: 1 }).toMillis();
   const occ = useMemo(() => expandEvents(events, rangeStart, rangeEnd), [events, rangeStart, rangeEnd]);
@@ -780,7 +873,10 @@ export default function Calendar() {
       if (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || document.querySelector("[role=dialog]")) return;
       if (e.key === "ArrowLeft") step(-1);
       if (e.key === "ArrowRight") step(1);
-      if (e.key.toLowerCase() === "t") setAnchor(Date.now());
+      if (e.key.toLowerCase() === "t") {
+        setRolling(false);
+        setAnchor(Date.now());
+      }
       if (e.key.toLowerCase() === "d") setMode("day");
       if (e.key.toLowerCase() === "w") setMode("week");
       if (e.key.toLowerCase() === "m") setMode("month");
@@ -800,7 +896,7 @@ export default function Calendar() {
         <h1 className="font-display text-2xl font-semibold">Calendar</h1>
         <div className="flex items-center gap-1">
           <Button size="sm" variant="ghost" onClick={() => step(-1)} aria-label="Previous"><ChevronLeft size={16} /></Button>
-          <Button size="sm" variant="soft" onClick={() => setAnchor(Date.now())}>Today</Button>
+          <Button size="sm" variant="soft" onClick={() => { setRolling(false); setAnchor(Date.now()); }}>Today</Button>
           <Button size="sm" variant="ghost" onClick={() => step(1)} aria-label="Next"><ChevronRight size={16} /></Button>
         </div>
         <DateTimePicker value={anchor} zone={zone} hour12={settings.hour12} withTime={false} onChange={(ms) => ms != null && setAnchor(ms)} ariaLabel="Go to a date" className="!h-8 !border-transparent !bg-transparent hover:!bg-hover font-medium" format={() => label} />
@@ -836,17 +932,22 @@ export default function Calendar() {
               { value: "texas", label: `Texas ${zoneAbbr(settings.texasZone, now)}`, title: settings.texasZone },
             ]}
           />
+          {(mode === "day" || mode === "week") && (
+            <Segmented size="sm" value={fit ? "fit" : "roomy"} onChange={(v) => setFit(v === "fit")} options={[{ value: "fit", label: "Fit day", title: "Size the hours so the whole waking day is visible at once" }, { value: "roomy", label: "Roomy", title: "Larger hours; scroll through the day" }]} />
+          )}
           <Button size="sm" variant="ghost" icon={<Globe2 size={14} />} onClick={() => useUI.getState().openTimeHours(true)} title="Time zone & working hours">Hours</Button>
           <Button size="sm" variant="ghost" onClick={() => useUI.getState().openRoutine(true)} title="Sleep, morning, work sessions, breaks, lunch and gym">Routine</Button>
         </div>
       </div>
+      <motion.div key={mode} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18, ease: "easeOut" }}>
       {mode === "month" ? (
         <MonthGrid month={anchor} zone={zone} events={filtering ? events.filter((e) => expandEvents([e], rangeStart, rangeEnd).some(match)) : events} tasks={shownTasks} now={now} hour12={settings.hour12} onOpenDay={(d) => { setAnchor(d); setMode("day"); }} />
       ) : mode === "agenda" ? (
         <AgendaList from={anchor} zone={zone} events={events} tasks={shownTasks} allTasks={tasks} now={now} hour12={settings.hour12} match={match} matchTask={matchTask} />
       ) : (
-        <TimeGrid days={days} zone={zone} occ={occ} tasks={shownTasks} allTasks={tasks} now={now} hour12={settings.hour12} texasZone={settings.texasZone} match={match} onStep={step} wh={wh} routine={settings.routine} />
+        <TimeGrid days={days} zone={zone} occ={occ} tasks={shownTasks} allTasks={tasks} now={now} hour12={settings.hour12} texasZone={settings.texasZone} match={match} onStep={step} wh={wh} routine={settings.routine} fit={fit} onShiftDays={shiftDays} categories={categories} />
       )}
+      </motion.div>
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1">
         <Legend />
         {unscheduled > 0 && (
@@ -856,7 +957,7 @@ export default function Calendar() {
         )}
       </div>
       <p className="text-[11px] text-muted">
-        Times in <b>{zone}</b>; lit bands are your working hours. Drag a block to move it, to another day, or hold it at the left or right edge to carry it to another week. It snaps to neighbouring blocks and quarter hours (hold <b>Alt</b> for exact minutes); drag its top or bottom edge to change its length; Esc cancels. Click an empty slot to add. Keys: ←/→, T, D/W/M/A, /.
+        Times in <b>{zone}</b>; lit bands are your working hours. Drag a block to move it, to another day, or hold it at the left or right edge to carry it to another week. It snaps to neighbouring blocks and quarter hours (hold <b>Alt</b> for exact minutes); drag its top or bottom edge to change its length; Esc cancels. Scroll sideways (or Shift + wheel, or the small arrows by the hours) to slide the days one at a time. Task blocks take their category's colour; a flag marks high priority. Click an empty slot to add. Keys: ←/→, T, D/W/M/A, /.
       </p>
     </div>
   );

@@ -232,6 +232,8 @@ While a task's time is under way the dashboard shows **Current task**: whether t
 
 **Split tasks.** A task that had to be split into several blocks stays one task (one row in the queue, “2 parts”). Whenever its whole length fits in one piece again, after a reorder, a reschedule or simply because something moved away, the parts are joined into one block. Its total time, clocked time, notes and everything else are kept; a task longer than the longest block allowed in Settings stays in parts on purpose.
 
+**Calendar at a glance.** *Fit day* (on by default, next to *Roomy*) sizes the hours so the whole waking day, from getting up to going to sleep, is visible without scrolling. Task blocks take their category's colour and carry a flag when the priority is high or critical; a block too short for two lines shows its time beside the title. Slide the days sideways one at a time with a trackpad, Shift + wheel, or the small arrows beside the hours; *Today* snaps back.
+
 **Calendar.** Day, Week, Month and Agenda views; search and filters (tasks, appointments, overdue, completed); click the date to jump anywhere. Working hours are lit. Completed blocks are greyed and struck through, overdue ones red, the one under way glows green. Drag a block to move it, to another day, or hold it at the left or right edge to carry it into the next or previous week; drag its top or bottom edge to change its length. While dragging, the block snaps to the end or start of neighbouring blocks (a dashed guide shows the alignment) and otherwise to the quarter hour; hold **Alt** for exact minutes, **Esc** cancels. Snapping never stacks two blocks; dropping one squarely on another still asks before double-booking.
 
 **Time zone & working hours** (globe button in the top bar, any time). Pick the zone times are shown and typed in: Kenya, Texas, UK, US East/Mountain/West, Australia, or any other. Switching zones moves nothing: every task keeps its actual moment, and daylight-saving changes are handled. Below it, set hours per weekday (*Set hours*, *Day off*, or *Flexible* to follow your daily answer), and *Reschedule tasks into these hours* when you want the plan redone.
@@ -262,6 +264,16 @@ Clicking a task in *Up next* opens the task itself, with its notes, subtasks and
 | 9:00 – 10:30 PM | Gym, Monday to Thursday |
 
 Every time, length, the number of sessions and the gym days can be changed; the editor refuses less than 6 hours of sleep or more than 12 hours of work in a day. Tasks are planned inside the work sessions, and nothing is scheduled over sleep, the morning routine, admin time, lunch or the gym, whichever screen the change is made on. Breaks are a guide: a task longer than one session runs through the break instead of being cut in two. The calendar shows the routine behind your tasks. If the computer is still in use when sleep time starts, NEXUS says so once; it cannot switch the computer off for you. A day you give hours for by hand follows those hours instead, and with the routine on the daily “when do you intend to work?” question is not asked.
+
+**A routine that adapts (freelance).** *Daily routine → Adapt to how my day really goes* is on by default. The times in the routine are then a starting point, not a timetable:
+
+- **Still working at bedtime?** Sleep that is due moves later, half an hour at a time while you keep working, and keeps its full length; the next day's wake-up, morning and work shift with it, and tasks that would now fall into sleep move into the new day.
+- **Away for four hours or more?** When you are back NEXUS asks whether that was your sleep, or your sleep and breakfast. *Yes* makes that stretch the sleep: your day starts now. *No* changes nothing. (A long break in the middle of a day is deducted from the next planned sleep instead.)
+- **Admin and planning first.** After sleep, tasks that are admin or planning (by title or category: admin, planning, plan the day, emails, invoices, paperwork) go to the front of the queue, and the rest of today's tasks follow from the first working moment, in your scheduling order.
+- **No fixed working hours.** The whole waking day after the morning routine is open for work, up to 12 hours; sessions, breaks and lunch are a guide.
+- **The gym is the one fixed commitment**: its days and time never move and nothing is planned over it. Anything else stays flexible unless you mark it *Fixed Time – Do Not Reschedule*.
+
+Turn the option off to get the plain timetable back.
 
 **Picking dates.** Date fields (task deadline, appointment start and end, Reschedule all, the day to plan) open a calendar: click a day, set the time underneath, or use *Today*, *Tomorrow* or *In a week*.
 
@@ -295,6 +307,8 @@ Every To-Do task with a due date appears on the calendar on that day, in Day, We
 - Tasks without a date are not on the calendar; they stay in the To-Do list, and the calendar says how many there are.
 
 ## Updates and feedback
+
+**Versions.** NEXUS stays on version 1: releases are numbered 1.x.y and go up one step at a time. The full history is in [CHANGELOG.md](CHANGELOG.md) and in *Settings → About*. A release is published from the *CI & Windows installer* workflow (*Run workflow* → tick **publish**): it runs every test first, builds the installers and attaches them to a release named after the version. Installing a release over an older version keeps all data.
 
 The version is shown next to the logo (**v1.1.0**) and, with the build it came from and the day it was built, at the bottom of the sidebar and in *Settings → About* (“v1.1.0 · build 845442c · 22 Nov 2026”), together with a list of what changed in each version. *Settings → About* also shows **Check for updates**, and a feedback form. Once a day (switch it off there) NEXUS asks whether a newer version has been published and tells you when there is one; **Open download page** takes you to the installer, and installing over the old version keeps tasks, history and settings. After an update NEXUS says which version you came from. **Send feedback** opens a prefilled report in your browser with your version, and the one before it, attached; nothing is sent until you submit it there. Updates are not downloaded or installed silently: that needs signed releases, which this project does not publish yet.
 

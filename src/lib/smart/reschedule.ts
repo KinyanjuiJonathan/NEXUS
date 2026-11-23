@@ -213,7 +213,14 @@ export type BulkTarget =
   /** Everything moves later by this much. */
   | { mode: "shift"; byMs: number }
   /** Everything starts again from this moment, in the same order. */
-  | { mode: "from"; at: number; /** Only inside working hours, even if `at` is outside them. */ strict?: boolean };
+  | {
+      mode: "from";
+      at: number;
+      /** Only inside working hours, even if `at` is outside them. */
+      strict?: boolean;
+      /** Blocks that start before this moment are pulled forward to follow one another from `at` (the day starts earlier than planned); later ones only move if they have to. */
+      packUntil?: number;
+    };
 
 /**
  * The user asked to move every open task at once. Fixed appointments stay
@@ -233,7 +240,8 @@ export function planBulk(tasks: Task[], events: CalendarEvent[], now: number, s:
   const moves: Move[] = [];
   for (const event of blocks) {
     const dur = Math.max(15 * MIN, event.endAt - event.startAt);
-    const earliest = Math.max(now, target.mode === "from" ? Math.max(target.at, event.startAt) : event.startAt + target.byMs);
+    const packed = target.mode === "from" && target.packUntil != null && event.startAt < target.packUntil;
+    const earliest = Math.max(now, target.mode === "from" ? (packed ? target.at : Math.max(target.at, event.startAt)) : event.startAt + target.byMs);
     const wins = [...working];
     // A time the user named outside working hours is still honoured, as is a block that was outside them already.
     if (target.mode === "from" && !target.strict && !inWorking(target.at)) wins.push({ start: target.at, end: DateTime.fromMillis(target.at, { zone: s.homeZone }).endOf("day").toMillis() });
@@ -423,11 +431,14 @@ function fitExact(wins: Interval[], busy: Interval[], dur: number, notBefore: nu
 }
 
 /** The queue's task ids in a scheduling order (FIFO, priority, shortest first, nearest deadline). */
-export function sortedQueue(tasks: Task[], events: CalendarEvent[], now: number, order: SchedOrder): string[] {
+export function sortedQueue(tasks: Task[], events: CalendarEvent[], now: number, order: SchedOrder, first?: (t: Task) => boolean): string[] {
   const byId = new Map(tasks.map((t) => [t.id, t]));
+  const cmp = compareBy(order);
+  // `first`: tasks that go ahead of everything else whatever the order (admin and planning after sleep)
+  const lead = (x: { task: Task | null }) => (first && x.task && first(x.task) ? 0 : 1);
   return queueUnits(tasks, events, now)
     .map((u) => ({ id: u.taskId, task: byId.get(u.taskId) ?? null, at: u.start, dur: u.durationMs }))
-    .sort(compareBy(order))
+    .sort((a, b) => lead(a) - lead(b) || cmp(a, b))
     .map((u) => u.id);
 }
 

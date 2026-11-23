@@ -26,6 +26,7 @@ export const ROUTINE_STYLE: Record<RoutineKind, { color: string; icon: React.Rea
   break: { color: "#94a3b8", icon: <Coffee size={12} /> },
   lunch: { color: "#f97316", icon: <Utensils size={12} /> },
   gym: { color: "#22c55e", icon: <Dumbbell size={12} /> },
+  open: { color: "#22d3ee", icon: <Briefcase size={12} /> },
 };
 
 function Minutes({ label, value, onChange, min = 0, max = 240, step = 5 }: { label: string; value: number; onChange: (v: number) => void; min?: number; max?: number; step?: number }) {
@@ -67,6 +68,13 @@ export function RoutineDialog() {
     <Modal open={open} onClose={close} title="Daily routine" icon={<Sunrise size={18} />} width={720} footer={<Button variant="primary" onClick={close}>Done</Button>}>
       <div className="flex flex-col gap-4">
         <Toggle checked={r.enabled} onChange={(v) => set({ enabled: v })} label="Plan my days around this routine" description="Every day of the week. Tasks go into the work sessions only; sleep, the morning routine, admin time, lunch and the gym are never scheduled over. A day you give hours for by hand follows those hours instead." />
+        <Toggle
+          checked={r.flexible}
+          disabled={!r.enabled}
+          onChange={(v) => set({ flexible: v })}
+          label="Adapt to how my day really goes (freelance)"
+          description="The times below are a starting point, not a timetable. While you are still working, sleep moves later and keeps its full length. After four hours away NEXUS asks whether that was your sleep, and your day then starts when you are back, with admin and planning first. The whole waking day stays open for work. Only the gym keeps its fixed time."
+        />
         <div className={cx("grid md:grid-cols-[minmax(0,1fr)_260px] gap-5", !r.enabled && "opacity-50 pointer-events-none")}>
           <div className="flex flex-col gap-4">
             <section className="flex flex-wrap items-end gap-3">

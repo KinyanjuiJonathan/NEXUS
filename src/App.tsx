@@ -16,6 +16,7 @@ import { RescheduleAllDialog } from "@/components/RescheduleAll";
 import { WorkPlanDialog } from "@/components/WorkPlan";
 import { TimeHoursDialog } from "@/components/TimeHours";
 import { RoutineDialog } from "@/components/Routine";
+import { SleepCheckDialog } from "@/components/SleepCheck";
 import { RecoveryScreen } from "@/components/Recovery";
 import { routineNow } from "@/lib/routine";
 import { activeSession, openPause } from "@/lib/work";
@@ -115,7 +116,9 @@ export default function App() {
         // Sleep time with the computer still in use: one reminder a night.
         const sleep = st.ready ? routineNow(now, st.settings.routine, "sleep") : null;
         const w = activeSession(st.workSessions);
-        if (sleep && w && !openPause(w) && lastSleepNudge !== sleep.start) {
+        // Flexible routine: sleep that is due moves later while the user is still working.
+        if (st.ready && st.settings.routine?.flexible) void st.adaptRoutine().catch(() => {});
+        else if (sleep && w && !openPause(w) && lastSleepNudge !== sleep.start) {
           lastSleepNudge = sleep.start;
           st.toast({ kind: "warning", title: "It is your sleep time", body: `Your routine keeps ${formatTime(sleep.start, st.settings.homeZone, st.settings.hour12)} – ${formatTime(sleep.end, st.settings.homeZone, st.settings.hour12)} for at least 6 hours of unbroken sleep. Nothing is scheduled now; put the computer to sleep.`, ttl: 0 });
         }
@@ -257,6 +260,7 @@ export default function App() {
         <WorkPlanDialog />
         <TimeHoursDialog />
         <RoutineDialog />
+        <SleepCheckDialog />
         <AiSchedulerPanel />
         <ConfirmHost />
         <Toasts />

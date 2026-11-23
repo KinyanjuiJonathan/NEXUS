@@ -28,7 +28,7 @@ import { activeSession, openPause } from "@/lib/work";
 import { freeFrom, planBulk, planDisplaced, planMerges, planQueueOrder, planRipple, planUnfinished, queueUnits, sortedQueue, type BulkTarget, type Move, type RescheduleSettings, type UnitPlan } from "@/lib/smart/reschedule";
 import { blockClock, currentBlock, unclockedMs } from "@/lib/taskClock";
 import { dayKey, prunePlans, workHours, type DayPlan } from "@/lib/workPlan";
-import { DEFAULT_ROUTINE, normalizeRoutine } from "@/lib/routine";
+import { DEFAULT_ROUTINE, SLEEP_CHECK_MS, countAsSleep, isAdminTask, nextSleep, normalizeRoutine, postponeSleep } from "@/lib/routine";
 import type { ScheduleRequest } from "@/lib/smart/parse";
 import type { Interval } from "@/lib/schedule";
 import { planTasks, type PlanBlock, type PlanOptions, type PlanResult } from "@/lib/planner";
@@ -223,7 +223,15 @@ export interface NexusState {
    */
   autoReschedule(): Promise<Move[]>;
   /** Move every open task's reserved time at once: later by a set amount, or starting again from a moment. Fixed appointments stay. */
-  rescheduleAll(target: BulkTarget): Promise<Move[]>;
+  rescheduleAll(target: BulkTarget, opts?: { title?: string; quiet?: boolean; note?: string; since?: CalendarEvent[] }): Promise<Move[]>;
+  /** A long absence the user may have slept through, waiting for their answer. */
+  sleepCheck: { from: number; to: number } | null;
+  /** Answer the question about a long absence: it was sleep, sleep and breakfast, or neither. */
+  answerSleepCheck(answer: "sleep" | "sleep+breakfast" | "no"): Promise<void>;
+  /** Once a minute: while the user is still working, sleep that is due moves later. Returns the new sleep start, if it moved. */
+  adaptRoutine(): Promise<number | null>;
+  /** The day begins: admin and planning tasks go to the front of the queue and everything is fitted into the day as it now looks. */
+  startDay(note?: string): Promise<void>;
   /** Move a task one place up (-1) or down (+1) the queue of upcoming flexible tasks. False when it cannot move. */
   moveInQueue(eventId: string, dir: -1 | 1): Promise<boolean>;
   /** Put the queue of upcoming flexible tasks in this order (task ids). Each position keeps its start time; later tasks follow. */
@@ -427,6 +435,8 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
       if (w && p && p.reason === "idle" && s.idleAutoResume) {
         const resumeAt = Math.min(ts, Math.max(p.start, at));
         const away = resumeAt - p.start;
+        // Four hours or more without a sign of life: ask whether that was the sleep, instead of assuming a timetable.
+        if (away >= SLEEP_CHECK_MS && s.routine?.enabled && s.routine.flexible) set({ sleepCheck: { from: p.start, to: resumeAt } });
         if (s.workAuto && homeDay(p.start) !== homeDay(resumeAt)) {
           // Away over midnight: yesterday's session ends where the activity stopped; today starts fresh.
           const pauses = w.pauses.filter((x) => x !== p);
@@ -592,6 +602,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
     };
 
     let merging = false;
+    const SLEEP_MOVED = "Sleep moved later";
 
     /** Make sure the work clock is counting: clock in, or end a pause. */
     const startClock = async () => {
@@ -720,6 +731,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
       toasts: [],
       workSessions: [],
       activity: [],
+      sleepCheck: null,
 
       async init() {
         try {
@@ -1309,8 +1321,53 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         }
       },
 
-      async rescheduleAll(target) {
-        const snapshot = get().events;
+      async adaptRoutine() {
+        const s = get().settings;
+        const w = activeSession(get().workSessions);
+        if (!get().ready || !s.routine?.enabled || !s.routine.flexible || !w || openPause(w)) return null;
+        const p = postponeSleep(now(), s.routine);
+        if (!p) return null;
+        await get().setSetting("routine", p.routine);
+        const t = (ms: number) => formatTime(ms, s.homeZone, s.hour12);
+        // one notice that is updated, not a new one every half hour
+        set({ toasts: get().toasts.filter((x) => x.title !== SLEEP_MOVED) });
+        get().toast({ kind: "info", title: SLEEP_MOVED, body: `You are still working, so sleep now starts at ${t(p.start)} and the day after begins at ${t(p.end)}. The full ${humanDuration(p.end - p.start)} is kept.`, ttl: 20_000 });
+        // tomorrow's tasks that now sit in sleep or the morning routine move into the new day
+        await get().rescheduleAll({ mode: "from", at: now(), strict: true }, { quiet: true, title: "Schedule adjusted to your new sleep time" });
+        return p.start;
+      },
+
+      async answerSleepCheck(answer) {
+        const check = get().sleepCheck;
+        set({ sleepCheck: null });
+        if (!check || answer === "no") return;
+        const s = get().settings;
+        const r = countAsSleep(s.routine, check.from, check.to, answer === "sleep+breakfast", now());
+        await get().setSetting("routine", r.routine);
+        const span = `${formatTime(check.from, s.homeZone, s.hour12)} – ${formatTime(check.to, s.homeZone, s.hour12)}`;
+        get().log("resumed", r.kind === "night" ? "Counted as sleep" : "Deducted from the next sleep", `${span}${answer === "sleep+breakfast" ? ", breakfast included" : ""}`);
+        await get().startDay(
+          r.kind === "night"
+            ? `${span} is counted as your sleep${answer === "sleep+breakfast" ? " and breakfast" : ""}. Your day starts now, with admin and planning first.`
+            : `${humanDuration(check.to - check.from)} is deducted from your next sleep${answer === "sleep+breakfast" ? ", and breakfast is counted as done" : ""}.`,
+        );
+      },
+
+      async startDay(note) {
+        const s = get().settings;
+        const before = get().events;
+        const names = new Map(get().categories.map((c) => [c.id, c.name]));
+        const order = sortedQueue(get().tasks, before, now(), s.schedOrder, (t) => isAdminTask(t, names.get(t.categoryId)));
+        await applyUnits(planQueueOrder(get().tasks, before, now(), get().slotSettings(), order), "queue");
+        // then everything is fitted into the day as it now looks (new wake-up, sleep and working time)
+        // today's tasks follow one another from the first working moment; later days only move if they have to
+        const night = nextSleep(now(), s.routine);
+        await get().rescheduleAll({ mode: "from", at: now(), strict: true, packUntil: night?.start }, { quiet: true, title: "Your day is planned", note, since: before });
+        if (!describeChanges(before).length && note) get().toast({ kind: "success", title: "Your day is planned", body: note, ttl: 9000 });
+      },
+
+      async rescheduleAll(target, opts) {
+        const snapshot = opts?.since ?? get().events;
         const moves = planBulk(get().tasks, get().events, now(), get().slotSettings(), target);
         const s = get().settings;
         const before: CalendarEvent[] = [];
@@ -1337,7 +1394,8 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         const stuck = moves.filter((m) => !m.to).length;
         if (n) {
           get().log("task_rescheduled", `Rescheduled ${n} task${n === 1 ? "" : "s"} at once`, `Now starting ${formatWithZone(first!, s.homeZone, s.hour12)}`);
-          get().toast({
+          if (opts?.title) announce(opts.title, snapshot, opts.note ?? "");
+          else get().toast({
             kind: "success",
             title: `${n} task${n === 1 ? "" : "s"} rescheduled`,
             body: `Now starting ${formatWithZone(first!, s.homeZone, s.hour12)}. Fixed appointments were not moved.${stuck ? ` ${stuck} could not be fitted in and stayed where ${stuck === 1 ? "it was" : "they were"}.` : ""}`,
@@ -1348,7 +1406,8 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
             ttl: 15_000,
           });
         } else {
-          get().toast({ kind: "info", title: "Nothing to reschedule", body: stuck ? "No free time was found for the open tasks." : "There are no open tasks with reserved time to move.", ttl: 5000 });
+          if (opts?.title && describeChanges(snapshot).length) announce(opts.title, snapshot, opts.note ?? "");
+          else if (!opts?.quiet) get().toast({ kind: "info", title: "Nothing to reschedule", body: stuck ? "No free time was found for the open tasks." : "There are no open tasks with reserved time to move.", ttl: 5000 });
         }
         return moves;
       },

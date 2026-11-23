@@ -11,6 +11,19 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.1",
+    date: "2026-11-23",
+    title: "A schedule that adapts to you, and a calendar you can read at a glance",
+    changes: [
+      "Flexible routine: sleep moves later while you are still working, with its full length kept.",
+      "After four hours away NEXUS asks whether that was your sleep (and breakfast); your day then starts when you are back.",
+      "Admin and planning tasks go first after sleep; the rest of the day is refitted around the time you have.",
+      "The whole waking day is open for work; only the gym keeps its fixed time.",
+      "Calendar: the day fits the window, days slide sideways, blocks are coloured by category with priority flags.",
+      "Releases are published from the build workflow; versions stay within 1.x.",
+    ],
+  },
+  {
     version: "1.1.0",
     date: "2026-11-22",
     title: "Start now, safer start-up, daily routine",
@@ -38,3 +51,6 @@ export function versionLabel(version: string, build: string, builtOn: string): s
   const date = Number.isNaN(d.getTime()) ? builtOn : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
   return `v${version} · build ${build} · ${date}`;
 }
+
+/** NEXUS stays on version 1 until its owner says otherwise. */
+export const MAJOR = 1;

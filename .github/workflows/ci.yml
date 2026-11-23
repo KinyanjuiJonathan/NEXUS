@@ -6,6 +6,11 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish this build as a release (v + the version in package.json) once every test has passed"
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -65,10 +70,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # On a version tag (v1.2.3) the installers are attached to a draft release.
-          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
-          releaseName: ${{ startsWith(github.ref, 'refs/tags/v') && format('NEXUS {0}', github.ref_name) || '' }}
-          releaseDraft: true
+          # A release is made in two cases, always after the tests above have passed:
+          #  - "Run workflow" with "publish" ticked: published as v<version from package.json>, with the installers attached;
+          #  - a pushed version tag (v1.2.3): a draft release for that tag.
+          # Installing a release over an older version keeps the user's data (it lives in %APPDATA%, not in the program folder).
+          tagName: ${{ inputs.publish && 'v__VERSION__' || (startsWith(github.ref, 'refs/tags/v') && github.ref_name || '') }}
+          releaseName: ${{ inputs.publish && 'NEXUS v__VERSION__' || (startsWith(github.ref, 'refs/tags/v') && format('NEXUS {0}', github.ref_name) || '') }}
+          releaseBody: "See CHANGELOG.md for what changed. Install over your current version: your tasks, schedule, history and settings are kept."
+          releaseDraft: ${{ !inputs.publish }}
           prerelease: false
       - name: Upload installers
         uses: actions/upload-artifact@v4
