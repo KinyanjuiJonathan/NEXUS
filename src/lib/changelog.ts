@@ -11,6 +11,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.4",
+    date: "2026-11-23",
+    title: "Region picker fixes and the microphone in view",
+    changes: [
+      "Fixed: selecting a screen region no longer closes NEXUS.",
+      "The region picker now opens on every monitor, so a region on an extended screen can be selected.",
+      "Dictation shows the microphone in use, a live input level, a Test button, the other microphones found and a shortcut to Windows sound settings.",
+    ],
+  },
+  {
     version: "1.1.3",
     date: "2026-11-23",
     title: "Auto Typer: dictate, and mirror text from the screen",

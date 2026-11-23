@@ -163,6 +163,8 @@ pub fn run() {
                         api.prevent_close();
                         let _ = window.hide();
                     }
+                    // Helper windows (the screen-region picker) come and go; closing one must never quit NEXUS.
+                    label if label != "main" => {}
                     _ => {
                         activity::beat(app);
                         app.state::<AppState>().quitting.store(true, Ordering::SeqCst);

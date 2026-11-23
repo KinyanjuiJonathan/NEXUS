@@ -9,7 +9,8 @@ const OverlayApp = lazy(() => import("./overlay/OverlayApp"));
 const RegionPicker = lazy(() => import("./region/RegionPicker"));
 
 async function detectWindow(): Promise<"main" | "overlay" | "region"> {
-  const named = (label: string | null) => (label === "overlay" || label === "region" ? label : "main");
+  // one picker window per monitor: region-0, region-1, …
+  const named = (label: string | null) => (label === "overlay" ? "overlay" : label?.startsWith("region") ? "region" : "main");
   if (isTauri()) {
     const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
     return named(getCurrentWebviewWindow().label);

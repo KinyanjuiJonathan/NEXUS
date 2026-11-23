@@ -2,6 +2,12 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.4 (23 November 2026)
+
+- **Fixed: selecting a screen region closed NEXUS.** Closing the selection window was treated as closing the last window of the app. Helper windows can no longer quit NEXUS.
+- **Extended screens.** The region picker opens on every monitor (one sheet per screen, so different display scaling is handled correctly); drag on whichever screen holds the text. A region on a second monitor is read like any other.
+- **Microphone.** Dictation shows the microphone in use (the Windows default input), a live input level with a peak marker, a *Test* button, the other microphones Windows knows about, and *Change*, which opens Windows sound settings to pick another one.
+
 ## v1.1.3 (23 November 2026)
 
 **Auto Typer: live input and output**

@@ -54,10 +54,13 @@ pub async fn update_check() -> CmdResult<Option<Release>> {
     Ok(Some(Release { version, name: text("name"), notes: text("body"), url: text("html_url"), published_at: text("published_at") }))
 }
 
-/// Open a link in the default browser (or mail program). Only GitHub pages of this project and mailto links are allowed.
+/// Windows settings pages NEXUS may open: sound devices, and the microphone and speech privacy switches.
+const SETTINGS_PAGES: [&str; 3] = ["ms-settings:sound", "ms-settings:privacy-microphone", "ms-settings:privacy-speech"];
+
+/// Open a link in the default browser (or mail program). Only GitHub pages of this project, mailto links and a few Windows settings pages are allowed.
 #[tauri::command]
 pub fn open_external(url: String) -> CmdResult<()> {
-    let allowed = url.starts_with("https://github.com/KinyanjuiJonathan/") || url.starts_with("mailto:");
+    let allowed = url.starts_with("https://github.com/KinyanjuiJonathan/") || url.starts_with("mailto:") || SETTINGS_PAGES.contains(&url.as_str());
     if !allowed || url.contains('"') || url.chars().any(|c| c.is_control()) {
         return Err("That link cannot be opened from here.".into());
     }

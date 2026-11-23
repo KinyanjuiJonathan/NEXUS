@@ -6,6 +6,7 @@ import { voiceSupported } from "@/lib/voice/engine";
 import { useLive, type LiveSource } from "@/lib/typer/liveController";
 import { SPOKEN_HELP } from "@/lib/typer/live";
 import { Button, Select, Toggle, cx } from "./ui";
+import { MicPanel } from "./MicPanel";
 
 /** A box that keeps its newest text in view. */
 function Pane({ title, hint, children, live, tone }: { title: string; hint: string; children: React.ReactNode; live: boolean; tone: string }) {
@@ -64,6 +65,8 @@ export function LiveTyper({ source }: { source: LiveSource }) {
         </span>
         <Button size="sm" variant="ghost" className="ml-auto" icon={<Eraser size={14} />} disabled={!live.input.length && !live.output} onClick={live.clear}>Clear</Button>
       </div>
+
+      {voice && <MicPanel active={mine} />}
 
       <div className="flex items-stretch gap-2">
         <Pane title={voice ? "Input · your voice" : "Input · the screen"} hint={voice ? language : r ? "latest reading" : "no region yet"} live={mine && live.phase !== "typing"} tone="var(--success)">

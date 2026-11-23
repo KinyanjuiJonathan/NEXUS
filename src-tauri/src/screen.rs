@@ -43,44 +43,67 @@ fn read(_r: Region) -> CmdResult<Vec<String>> {
     Err("Reading text from the screen uses Windows text recognition, so it only works in the Windows desktop app.".into())
 }
 
-/// Show the full-screen picker over the monitor NEXUS is on. NEXUS itself steps
-/// aside so the user can see what they want to mark. The answer arrives as the
+fn pickers(app: &AppHandle) -> Vec<WebviewWindow> {
+    app.webview_windows().into_iter().filter(|(label, _)| label.starts_with(PICKER)).map(|(_, w)| w).collect()
+}
+
+/// Show a see-through picker over every monitor (each has its own, so mixed
+/// display scaling is handled per screen). NEXUS itself steps aside so the
+/// user can see what they want to mark. The answer arrives as the
 /// `nexus://region-picked` event.
 #[tauri::command]
 pub async fn region_pick(app: AppHandle) -> CmdResult<()> {
     let main = app.get_webview_window("main");
-    let monitor = main
-        .as_ref()
-        .and_then(|w| w.current_monitor().ok().flatten())
-        .or_else(|| app.primary_monitor().ok().flatten())
-        .ok_or("No screen was found.")?;
-    let pos = *monitor.position();
-    let size = *monitor.size();
-    if let Some(old) = app.get_webview_window(PICKER) {
+    let mut monitors = app.available_monitors().unwrap_or_default();
+    if monitors.is_empty() {
+        monitors.extend(app.primary_monitor().ok().flatten());
+    }
+    if monitors.is_empty() {
+        return Err("No screen was found.".into());
+    }
+    for old in pickers(&app) {
         let _ = old.close();
     }
     if let Some(m) = &main {
         let _ = m.minimize();
     }
-    let picker = WebviewWindowBuilder::new(&app, PICKER, WebviewUrl::App("index.html?window=region".into()))
-        .title("NEXUS: select a region")
-        .decorations(false)
-        .transparent(true)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .resizable(false)
-        .shadow(false)
-        .visible(false)
-        .build()
-        .map_err(friendly)?;
-    let _ = picker.set_position(PhysicalPosition::new(pos.x, pos.y));
-    let _ = picker.set_size(PhysicalSize::new(size.width, size.height));
-    let _ = picker.show();
-    let _ = picker.set_focus();
+    let mut opened = 0;
+    for (i, monitor) in monitors.iter().enumerate() {
+        let pos = *monitor.position();
+        let size = *monitor.size();
+        let built = WebviewWindowBuilder::new(&app, format!("{PICKER}-{i}"), WebviewUrl::App("index.html?window=region".into()))
+            .title("NEXUS: select a region")
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false)
+            .shadow(false)
+            .visible(false)
+            .build();
+        let Ok(picker) = built else { continue };
+        // onto its monitor first, so the size is applied at that monitor's scale
+        let _ = picker.set_position(PhysicalPosition::new(pos.x, pos.y));
+        let _ = picker.set_size(PhysicalSize::new(size.width, size.height));
+        let _ = picker.set_position(PhysicalPosition::new(pos.x, pos.y));
+        let _ = picker.show();
+        opened += 1;
+    }
+    if opened == 0 {
+        if let Some(m) = &main {
+            let _ = m.unminimize();
+        }
+        return Err("The selection window could not be opened.".into());
+    }
+    // keyboard focus on the screen the pointer is most likely on: the one NEXUS was on
+    if let Some(first) = pickers(&app).into_iter().next() {
+        let _ = first.set_focus();
+    }
     Ok(())
 }
 
-/// The picker is finished: `rect` is what the user marked (None when cancelled).
+/// A picker is finished: `rect` is what the user marked in that window (None when cancelled).
+/// Every picker closes, NEXUS comes back, and the region is announced.
 #[tauri::command]
 pub fn region_done(app: AppHandle, win: WebviewWindow, rect: Option<CssRect>) -> CmdResult<()> {
     let picked = rect.and_then(|r| {
@@ -90,7 +113,9 @@ pub fn region_done(app: AppHandle, win: WebviewWindow, rect: Option<CssRect>) ->
         let region = Region { x: origin.x + px(r.x), y: origin.y + px(r.y), w: px(r.w), h: px(r.h) };
         (region.w >= 8 && region.h >= 8).then_some(region)
     });
-    let _ = win.close();
+    for w in pickers(&app) {
+        let _ = w.close();
+    }
     if let Some(m) = app.get_webview_window("main") {
         let _ = m.unminimize();
         let _ = m.show();
