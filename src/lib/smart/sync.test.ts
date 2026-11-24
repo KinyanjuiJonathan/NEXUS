@@ -226,7 +226,8 @@ describe("finishing a task early", () => {
     const toast = main.getState().toasts.at(-1)!;
     expect(toast.title).toBe("45 min saved");
     // Undo puts the calendar back as it was
-    await toast.action!.run();
+    toast.action!.run();
+    await new Promise((r) => setTimeout(r, 20)); // the undo saves in the background
     expect(ev(main, c.event.id)).toMatchObject({ startAt: at("2026-11-18T13:00") });
     expect(ev(main, a.event.id)).toMatchObject({ endAt: at("2026-11-18T12:00") });
   });
