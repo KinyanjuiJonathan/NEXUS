@@ -2,6 +2,18 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.7 (24 November 2026)
+
+**Accounts: managed accounts, taskers and money**
+- **New Accounts area** in the side bar. It is locked until someone signs in, and locks again when you leave it.
+- **Accounts.** Each managed account has a name, an owner, the owner's share of the profit (the rest is yours), a tax rate and a currency. One person can own several accounts, each with its own terms.
+- **People.** Owners and taskers. A tasker can be assigned to one account or several, and can only be given tasks on accounts they are assigned to.
+- **Projects and tasks.** A project is in one account at a time. It can be moved to another account, or copied so that another account has the same project. Tasks are given to a tasker at a fixed amount or an hourly rate, and go from assigned to in progress, submitted, approved and paid.
+- **Money.** Per account and in total: revenue, tax, tasker pay, expenses, profit, the owner's share and yours, and what is still owed in tax, to owners and to taskers. A ledger records payments actually made. Amounts in different currencies are never added together.
+- **Signing in.** The manager signs in with Windows Hello (fingerprint, face or PIN) or a passcode. Taskers sign in with their name and their own PIN and see only their own tasks, accounts and pay; the account's revenue and other people's figures are hidden from them. Passcodes and PINs are stored only in scrambled form.
+- The module is self-contained (its own data layer, rules and money maths, all covered by tests) so that a separate taskers' interface can be added later on the same foundation. For now taskers sign in on this computer; signing in from their own devices needs a hosted server, which is not part of this release.
+- Existing data is untouched: the update only adds a new table to the database, after the usual automatic backup.
+
 ## v1.1.6 (24 November 2026)
 
 **Work clock counts only real work**

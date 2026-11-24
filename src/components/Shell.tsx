@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { motion } from "framer-motion";
+import { Landmark } from "lucide-react";
 import { CalendarDays, Globe, History, Keyboard, LayoutDashboard, LineChart, ListTodo, Mic, Minus, PanelTop, Plus, Settings, Sparkles, Square, Timer, X } from "lucide-react";
 import { useUI, type View } from "@/store/ui";
 import { useNexus } from "@/store";
@@ -22,6 +23,7 @@ export const NAV: { view: View; label: string; icon: ReactNode; key: string }[] 
   { view: "insights", label: "Insights", icon: <LineChart size={18} />, key: "7" },
   { view: "history", label: "History", icon: <History size={18} />, key: "8" },
   { view: "typer", label: "Auto Typer", icon: <Keyboard size={18} />, key: "9" },
+  { view: "accounts", label: "Accounts", icon: <Landmark size={18} />, key: "" },
 ];
 
 function ActiveTimerPill() {
@@ -120,7 +122,7 @@ export function Sidebar() {
           key={n.view}
           onClick={() => setView(n.view)}
           aria-current={view === n.view ? "page" : undefined}
-          title={`${n.label} (${n.key})`}
+          title={n.key ? `${n.label} (${n.key})` : n.label}
           className={cx("relative h-10 rounded-xl flex items-center justify-center lg:justify-start gap-3 lg:px-3 text-sm transition-colors", view === n.view ? "text-fg" : "text-muted hover:text-fg hover:bg-hover")}
         >
           {view === n.view && <motion.span layoutId="nav-active" className="absolute inset-0 rounded-xl bg-hover border border-line" transition={{ type: "spring", stiffness: 500, damping: 40 }} />}

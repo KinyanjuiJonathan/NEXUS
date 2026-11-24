@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { MissedItem } from "@/lib/schedule";
 
-export type View = "dashboard" | "tasks" | "calendar" | "focus" | "clocks" | "assistant" | "insights" | "history" | "typer" | "settings";
+export type View = "dashboard" | "tasks" | "calendar" | "focus" | "clocks" | "assistant" | "insights" | "history" | "typer" | "accounts" | "settings";
 
 export interface EventDraft {
   startAt: number;

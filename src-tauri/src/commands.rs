@@ -119,6 +119,26 @@ pub fn activity_add(app: AppHandle, win: WebviewWindow, state: State<AppState>, 
     Ok(())
 }
 
+/// Records of the Accounts module, by kind ("person", "account", "project", "job", "entry").
+#[tauri::command]
+pub fn records_list(state: State<AppState>, kind: String) -> CmdResult<Vec<serde_json::Value>> {
+    store!(state).list_records(&kind).map_err(friendly)
+}
+
+#[tauri::command]
+pub fn record_put(app: AppHandle, win: WebviewWindow, state: State<AppState>, kind: String, record: serde_json::Value) -> CmdResult<()> {
+    store!(state).put_record(&kind, &record).map_err(friendly)?;
+    broadcast_change(&app, win.label(), "records");
+    Ok(())
+}
+
+#[tauri::command]
+pub fn record_delete(app: AppHandle, win: WebviewWindow, state: State<AppState>, kind: String, id: String) -> CmdResult<()> {
+    store!(state).delete_record(&kind, &id).map_err(friendly)?;
+    broadcast_change(&app, win.label(), "records");
+    Ok(())
+}
+
 #[tauri::command]
 pub fn activity_clear(app: AppHandle, win: WebviewWindow, state: State<AppState>) -> CmdResult<()> {
     store!(state).clear_activity().map_err(friendly)?;

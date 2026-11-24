@@ -23,6 +23,9 @@ mod screen;
 mod win_screen;
 #[cfg(windows)]
 mod win_dictation;
+mod hello;
+#[cfg(windows)]
+mod win_hello;
 
 use std::sync::atomic::Ordering;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
@@ -231,6 +234,11 @@ pub fn run() {
             commands::work_delete,
             commands::activity_add,
             commands::activity_clear,
+            commands::records_list,
+            commands::record_put,
+            commands::record_delete,
+            hello::hello_available,
+            hello::hello_verify,
             commands::idle_seconds,
             perf::perf_stop,
             typer::typer_start,

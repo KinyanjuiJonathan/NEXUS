@@ -178,6 +178,18 @@ pub const MIGRATIONS: &[&str] = &[
     ALTER TABLE events ADD COLUMN sched TEXT;
     UPDATE events SET fixed = 1 WHERE task_id IS NULL;
     "#,
+    // v5 — the Accounts module (people, managed accounts, projects, jobs, ledger).
+    // Its records are stored as JSON documents by kind, so the module can grow
+    // (new fields, new kinds of record) without a schema change for each step.
+    r#"
+    CREATE TABLE records (
+        kind        TEXT NOT NULL,
+        id          TEXT NOT NULL,
+        data        TEXT NOT NULL,
+        updated_at  INTEGER NOT NULL,
+        PRIMARY KEY (kind, id)
+    ) WITHOUT ROWID;
+    "#,
 ];
 
 pub const LATEST: i64 = MIGRATIONS.len() as i64;

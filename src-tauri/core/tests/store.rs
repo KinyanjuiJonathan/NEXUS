@@ -398,3 +398,31 @@ fn events_keep_their_scheduling_type_and_history() {
     assert_eq!(again.iter().find(|e| e.id == "flex").unwrap().sched, get("flex").sched);
     assert_eq!(again.iter().find(|e| e.id == "fixed").unwrap().fixed, Some(true));
 }
+
+#[test]
+fn records_are_stored_by_kind_and_survive_reopening() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("nexus.db");
+    {
+        let s = Store::open(&path).unwrap();
+        s.put_record("account", &json!({ "id": "a1", "name": "Upwork · Amina", "taxPct": 16 })).unwrap();
+        s.put_record("account", &json!({ "id": "a2", "name": "Fiverr · Amina" })).unwrap();
+        s.put_record("person", &json!({ "id": "a1", "name": "Amina" })).unwrap(); // same id, another kind
+        // replacing keeps one copy
+        s.put_record("account", &json!({ "id": "a1", "name": "Upwork · Amina", "taxPct": 20 })).unwrap();
+        assert!(s.put_record("account", &json!({ "name": "no id" })).is_err());
+        assert!(s.put_record("", &json!({ "id": "x" })).is_err());
+    }
+    let s = Store::open(&path).unwrap();
+    let accounts = s.list_records("account").unwrap();
+    assert_eq!(accounts.len(), 2);
+    assert_eq!(accounts[0]["taxPct"], json!(20));
+    assert_eq!(s.list_records("person").unwrap().len(), 1);
+    s.delete_record("account", "a2").unwrap();
+    assert_eq!(s.list_records("account").unwrap().len(), 1);
+    assert!(s.list_records("job").unwrap().is_empty());
+    // a backup carries the records with it
+    let backup = dir.path().join("b.db");
+    s.backup_to(&backup).unwrap();
+    assert_eq!(Store::open(&backup).unwrap().list_records("account").unwrap().len(), 1);
+}

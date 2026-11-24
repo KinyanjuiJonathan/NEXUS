@@ -26,6 +26,7 @@ More screens: [Calendar](docs/screenshots/calendar.png) · [Tasks](docs/screensh
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Voice commands](#voice-commands)
 - [The floating overlay](#the-floating-overlay)
+- [Accounts](#accounts)
 - [Reminders & background behaviour](#reminders--background-behaviour)
 - [AI assistant (optional)](#ai-assistant-optional)
 - [Data, backup & privacy](#data-backup--privacy)
@@ -346,6 +347,18 @@ Open **Auto Typer** in the sidebar (or press `9`).
 **Return to Dashboard After Inactivity** (*Settings → Auto Typer*, on by default): if the Auto Typer screen is left open with no keyboard or mouse activity anywhere for 5 minutes (configurable), NEXUS goes back to the Dashboard. It never happens while the Auto Typer is typing, and your text and settings are kept.
 
 The target should be a plain text field: autocorrect, auto-indent or auto-closing brackets in the other app can throw corrections off. Apps running as administrator only accept the keystrokes if NEXUS runs as administrator too.
+
+## Accounts
+
+For managing accounts on behalf of other people. Open **Accounts** in the side bar and sign in: the manager with Windows Hello (fingerprint, face or PIN) or the manager passcode chosen on first use; a tasker with their name and PIN. The area locks again when you leave it.
+
+- **People**: account owners and taskers (someone can be both). Set a tasker's PIN here.
+- **Accounts**: each has an owner, the owner's share of the profit (you keep the rest), a tax rate and a currency. One owner can have several accounts on different terms. Click a tasker's name on an account to assign or remove them.
+- **Projects & tasks**: a project is in one account at a time; **Move** it, or **Copy** it so another account has the same project. Give a task to a tasker on that account at a fixed amount or hourly rate, with what the account earns for it. Tasks go assigned → in progress → submitted → approved → paid.
+- **Overview**: revenue, tax, tasker pay, profit, owner's share, your share and what is still owed, per account and per currency, with tasker balances and a six-month trend. Tax is taken off revenue; profit is revenue minus tax, tasker pay and expenses; only approved work counts.
+- **Ledger**: payments actually made (to taskers, to owners, tax, other income and expenses).
+
+Taskers see only their own tasks, accounts and pay. They sign in on this computer; signing in from other devices would need a hosted server and is not available yet. The code lives in `src/accounts/` (types, `finance.ts`, `rules.ts`, `store.ts`, a swappable `backend.ts`) so other interfaces can reuse it.
 
 ## Reminders & background behaviour
 

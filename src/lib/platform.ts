@@ -409,3 +409,16 @@ export async function startDictation(language: string, on: (e: DictationEvent) =
     void invokeSafe<void>("dictation_stop").catch(() => {});
   };
 }
+
+// ------------------------------------------------------------------ Windows Hello (Accounts sign-in)
+
+/** Whether Windows Hello (fingerprint, face or PIN) is set up on this PC. */
+export async function helloAvailable(): Promise<boolean> {
+  if (!native) return false;
+  return invokeSafe<boolean>("hello_available").catch(() => false);
+}
+/** Ask Windows to verify the user. True when verified; false when they cancelled or it failed. */
+export async function helloVerify(message: string): Promise<boolean> {
+  if (!native) return false;
+  return invokeSafe<boolean>("hello_verify", { message });
+}

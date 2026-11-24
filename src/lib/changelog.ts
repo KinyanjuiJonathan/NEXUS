@@ -11,6 +11,18 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.7",
+    date: "2026-11-24",
+    title: "Accounts: managed accounts, taskers and money",
+    changes: [
+      "New Accounts area: the accounts you manage for other people, each with its own owner, profit split, tax rate and currency. One person can own several.",
+      "Assign taskers to accounts, give them tasks at a fixed or hourly rate, and approve and pay the work.",
+      "Balances and analysis: revenue, tax, tasker pay, profit, the owner's share and yours, and what is still owed to whom.",
+      "Sign in with Windows Hello (fingerprint, face or PIN) or a manager passcode; taskers sign in with their own PIN and see only their own work and pay.",
+      "A project belongs to one account at a time; it can be moved, or copied so another account has the same project.",
+    ],
+  },
+  {
     version: "1.1.6",
     date: "2026-11-24",
     title: "Work clock counts only real work",

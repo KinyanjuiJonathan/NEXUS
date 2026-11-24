@@ -201,6 +201,38 @@ impl Store {
         Ok(())
     }
 
+    // ------------------------------------------------------------ generic records (Accounts module)
+
+    /// Every record of one kind, as stored.
+    pub fn list_records(&self, kind: &str) -> Result<Vec<Value>> {
+        let mut stmt = self.conn.prepare("SELECT data FROM records WHERE kind = ?1 ORDER BY id")?;
+        let rows = stmt.query_map([kind], |r| r.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(serde_json::from_str(&row?)?);
+        }
+        Ok(out)
+    }
+
+    /// Insert or replace one record. The record must carry a non-empty string `id`.
+    pub fn put_record(&self, kind: &str, record: &Value) -> Result<()> {
+        let id = record.get("id").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
+        let (Some(id), false) = (id, kind.trim().is_empty()) else {
+            return Err(Error::Invalid("a record needs a kind and an id".into()));
+        };
+        self.conn.execute(
+            "INSERT INTO records (kind, id, data, updated_at) VALUES (?1,?2,?3,?4)
+             ON CONFLICT(kind, id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
+            params![kind, id, record.to_string(), now_ms()],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_record(&self, kind: &str, id: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM records WHERE kind = ?1 AND id = ?2", params![kind, id])?;
+        Ok(())
+    }
+
     /// Empty the history log. Nothing else is touched.
     pub fn clear_activity(&self) -> Result<()> {
         self.conn.execute("DELETE FROM activity_log", [])?;

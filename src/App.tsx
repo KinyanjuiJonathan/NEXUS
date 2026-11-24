@@ -38,6 +38,7 @@ const SettingsView = lazy(() => import("@/views/Settings"));
 const Insights = lazy(() => import("@/views/Insights"));
 const History = lazy(() => import("@/views/History"));
 const Typer = lazy(() => import("@/views/Typer"));
+const Accounts = lazy(() => import("@/views/Accounts"));
 
 const VIEWS: Record<View, React.ComponentType> = {
   dashboard: Dashboard,
@@ -49,6 +50,7 @@ const VIEWS: Record<View, React.ComponentType> = {
   insights: Insights,
   history: History,
   typer: Typer,
+  accounts: Accounts,
   settings: SettingsView,
 };
 
