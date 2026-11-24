@@ -11,6 +11,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.6",
+    date: "2026-11-24",
+    title: "Work clock counts only real work",
+    changes: [
+      "Fixed: the work clock could show more than 24 hours in a day and keep counting while paused.",
+      "Stray work sessions left open in the background are closed automatically, and can no longer be created.",
+      "The same minute is never counted twice.",
+    ],
+  },
+  {
     version: "1.1.5",
     date: "2026-11-23",
     title: "Dictation that hears everything",

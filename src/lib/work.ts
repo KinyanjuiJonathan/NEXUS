@@ -10,8 +10,18 @@ export interface Interval {
   end: number;
 }
 
+/**
+ * The open session. If more than one is open (older data), the real one is the
+ * one NEXUS has been keeping up to date (its pauses and resumes were recorded
+ * there); between equals, the most recently started.
+ */
 export function activeSession(sessions: WorkSession[]): WorkSession | null {
-  return sessions.find((s) => s.endedAt == null) ?? null;
+  let best: WorkSession | null = null;
+  for (const s of sessions) {
+    if (s.endedAt != null) continue;
+    if (!best || s.updatedAt > best.updatedAt || (s.updatedAt === best.updatedAt && s.startedAt > best.startedAt)) best = s;
+  }
+  return best;
 }
 
 export function openPause(s: WorkSession | null): WorkPause | null {
@@ -48,12 +58,58 @@ export function pausedMs(s: WorkSession, now: number, reason?: WorkPause["reason
     .reduce((a, p) => a + Math.max(0, Math.min(p.end ?? end, end) - Math.max(p.start, s.startedAt)), 0);
 }
 
-/** Worked ms inside [from, to) across sessions (sessions spanning midnight are split correctly). */
+/**
+ * Worked ms inside [from, to) across sessions (sessions spanning midnight are split correctly).
+ *
+ * The same minute is never counted twice: if two sessions overlap, the
+ * overlap counts once. So the total can never be more than the time that
+ * actually passed between `from` and `to`.
+ */
 export function workedBetween(sessions: WorkSession[], from: number, to: number, now: number): number {
-  let total = 0;
+  const parts: Interval[] = [];
   for (const s of sessions) {
     if ((s.endedAt ?? now) <= from || s.startedAt >= to) continue;
-    for (const i of workIntervals(s, now)) total += Math.max(0, Math.min(i.end, to) - Math.max(i.start, from));
+    for (const i of workIntervals(s, now)) {
+      const start = Math.max(i.start, from);
+      const end = Math.min(i.end, to);
+      if (end > start) parts.push({ start, end });
+    }
+  }
+  parts.sort((a, b) => a.start - b.start);
+  let total = 0;
+  let cursor = -Infinity;
+  for (const p of parts) {
+    const start = Math.max(p.start, cursor);
+    if (p.end > start) {
+      total += p.end - start;
+      cursor = p.end;
+    }
   }
   return total;
+}
+
+/**
+ * Only one session can be open. When more are found (two were started at the
+ * same moment, or one was left open by an older version), the most recently
+ * one being kept up to date stays open and each of the others is closed where
+ * its real work stopped: at the pause it was left in, or at the moment the
+ * next session began. One that was never touched after it was created is a
+ * plain duplicate and counts for nothing. A stray session that never paused
+ * would otherwise count around the clock. Returns the sessions that were changed.
+ */
+export function closeStraySessions(sessions: WorkSession[], now: number): WorkSession[] {
+  const open = sessions.filter((s) => s.endedAt == null);
+  if (open.length < 2) return [];
+  const keep = activeSession(sessions)!;
+  const starts = sessions.map((s) => s.startedAt).sort((a, b) => a - b);
+  const changed: WorkSession[] = [];
+  for (const s of open) {
+    if (s === keep) continue;
+    const next = starts.find((t) => t > s.startedAt) ?? keep.startedAt;
+    const paused = openPause(s)?.start ?? Infinity;
+    const duplicate = !s.pauses.length && s.updatedAt <= s.createdAt;
+    const endedAt = duplicate ? s.startedAt : Math.max(s.startedAt, Math.min(paused, next, now));
+    changed.push({ ...s, endedAt, pauses: s.pauses.filter((p) => p.start < endedAt).map((p) => (p.end == null || p.end > endedAt ? { ...p, end: endedAt } : p)), updatedAt: now });
+  }
+  return changed;
 }

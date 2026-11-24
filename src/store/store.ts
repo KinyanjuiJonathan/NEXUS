@@ -28,6 +28,7 @@ import { activeSession, openPause } from "@/lib/work";
 import { freeFrom, planBulk, planDisplaced, planMerges, planQueueOrder, planRipple, planUnfinished, queueUnits, sortedQueue, type BulkTarget, type Move, type RescheduleSettings, type UnitPlan } from "@/lib/smart/reschedule";
 import { blockClock, currentBlock, unclockedMs } from "@/lib/taskClock";
 import { dayKey, prunePlans, workHours, type DayPlan } from "@/lib/workPlan";
+import { closeStraySessions } from "@/lib/work";
 import { DEFAULT_ROUTINE, SLEEP_CHECK_MS, countAsSleep, isAdminTask, nextSleep, normalizeRoutine, postponeSleep } from "@/lib/routine";
 import type { ScheduleRequest } from "@/lib/smart/parse";
 import type { Interval } from "@/lib/schedule";
@@ -414,9 +415,17 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
       get().toast({ kind: "info", title: AWAY_TOAST, body: `Nothing was counted after ${formatWithZone(since, s.homeZone, s.hour12)}.`, ttl: 0 });
     };
 
+    /** More than one open session (see closeStraySessions): close the strays so only real work is counted. */
+    const repairWork = async () => {
+      const fixed = closeStraySessions(get().workSessions, now());
+      for (const w of fixed) await saveWork(w);
+      return fixed.length;
+    };
+
     /** In automatic mode, start a work session if none is running (unless the user clocked out today). */
     const ensureAutoWork = async (at: number) => {
       const s = get().settings;
+      await repairWork();
       if (!s.workAuto || activeSession(get().workSessions)) return;
       const ts = now();
       if (s.workAutoHoldDay && s.workAutoHoldDay === homeDay(ts)) return;
@@ -531,6 +540,17 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
     };
 
     let activityQueue: Promise<void> = Promise.resolve();
+    /**
+     * Everything that starts, pauses, resumes or ends the work clock runs one
+     * at a time. Two of them running together (the idle check and an activity
+     * report, or a click and either) could each see "no session open" and
+     * each open one; the extra one would then count for ever.
+     */
+    const serial = <T,>(fn: () => Promise<T>): Promise<T> => {
+      const result = activityQueue.then(fn, fn);
+      activityQueue = result.then(() => undefined, () => undefined);
+      return result;
+    };
     let rescheduling = false;
 
     /** Apply decisions of the automatic scheduler, keeping a history on each block. */
@@ -738,6 +758,11 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           const snap = await backend.load();
           apply(snap);
           set({ ready: true, error: null });
+          const strays = await repairWork().catch(() => 0);
+          if (strays) {
+            get().log("clock_out", "Work clock corrected", `${strays} session${strays === 1 ? " was" : "s were"} left open by mistake and counting in the background; closed where the work really stopped`);
+            get().toast({ kind: "info", title: "Work clock corrected", body: `${strays} work session${strays === 1 ? " was" : "s were"} left open and kept counting in the background. ${strays === 1 ? "It has" : "They have"} been closed where the work really stopped, so today's total is accurate again.`, ttl: 0 });
+          }
           await reconcileWork((snap.settings as Record<string, unknown> | undefined)?.workHeartbeat).catch(() => {});
           await tidySchedule().catch(() => {});
         } catch (e) {
@@ -751,6 +776,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           apply(await backend.load());
           // data that could not be loaded at start-up has arrived (for example after a recovery in another window)
           if (!get().ready || get().error) set({ ready: true, error: null });
+          await repairWork().catch(() => {});
         } catch {
           /* keep current state */
         }
@@ -1175,7 +1201,8 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
       },
 
       // ------------------------------------------------------------ work clock
-      async clockIn() {
+      clockIn() {
+        return serial(async () => {
         if (activeSession(get().workSessions)) return;
         const ts = now();
         const w: WorkSession = { id: id(), startedAt: ts, endedAt: null, pauses: [], note: "", createdAt: ts, updatedAt: ts };
@@ -1183,9 +1210,11 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         get().log("clock_in", "Clocked in", "", w.id);
         // Clocking in by hand turns automatic tracking back on for today.
         if (get().settings.workAutoHoldDay) await get().setSetting("workAutoHoldDay", null);
+        });
       },
 
-      async clockOut() {
+      clockOut() {
+        return serial(async () => {
         const w = activeSession(get().workSessions);
         if (!w) return;
         const ts = now();
@@ -1196,17 +1225,21 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         get().log("clock_out", "Clocked out", `${humanDuration(workedMs(done, ts))} worked`, w.id);
         // Otherwise automatic tracking would clock straight back in on the next key press.
         if (get().settings.workAuto) await get().setSetting("workAutoHoldDay", homeDay(ts));
+        });
       },
 
-      async pauseWork() {
+      pauseWork() {
+        return serial(async () => {
         const w = activeSession(get().workSessions);
         if (!w || openPause(w)) return;
         const ts = now();
         await saveWork({ ...w, pauses: [...w.pauses, { start: ts, end: null, reason: "manual" }], updatedAt: ts });
         get().log("paused", "Work paused", "", w.id);
+        });
       },
 
-      async resumeWork() {
+      resumeWork() {
+        return serial(async () => {
         const w = activeSession(get().workSessions);
         const p = openPause(w);
         if (!w || !p) return;
@@ -1217,9 +1250,11 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           if (t && t.state === "paused") await get().resumeTimer(tid);
         }
         get().log("resumed", "Work resumed", `after ${humanDuration(ts - p.start)}`, w.id);
+        });
       },
 
-      async handleIdle(idleSeconds) {
+      handleIdle(idleSeconds) {
+        return serial(async () => {
         if (!get().ready) return; // nothing is tracked or saved until the stored data is loaded
         const lastInput = now() - idleSeconds * 1000;
         const threshold = Math.max(1, get().settings.idleMinutes) * 60;
@@ -1229,6 +1264,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         } else if (idleSeconds < 30) {
           await comeBack(lastInput);
         }
+        });
       },
 
       handleActivity(event) {
@@ -1239,8 +1275,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           else await comeBack(event.at);
         };
         // One at a time: "away" and "back" can arrive together (after sleep) and must not interleave.
-        activityQueue = activityQueue.then(run, run);
-        return activityQueue;
+        return serial(run);
       },
 
       log(kind, title, detail = "", refId = null) {

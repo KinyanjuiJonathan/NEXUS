@@ -2,6 +2,15 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.6 (24 November 2026)
+
+**Work clock counts only real work**
+- **Fixed: more than 24 hours in a day, and counting while paused.** Two parts of NEXUS could start the work clock at the same moment (the idle check and an activity report, or a click and either), each opening a session. Only one of them was ever paused; the other kept counting around the clock, on top of the real one.
+- Everything that starts, pauses, resumes or stops the clock now runs strictly one at a time, so a second session cannot be opened.
+- Stray open sessions already in your data are closed when NEXUS starts, where their work really stopped; a pure duplicate counts for nothing. NEXUS tells you once when it has done this. Your real sessions are not changed.
+- The same minute is never counted twice, so a day's total can never exceed the time that actually passed.
+- As before, time is counted only while you are active: not while away from the keyboard, not on a break, not while the PC is locked or asleep, and not after clocking out.
+
 ## v1.1.5 (23 November 2026)
 
 **Dictation that hears everything**
