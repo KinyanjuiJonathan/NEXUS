@@ -202,6 +202,50 @@ describe("one schedule everywhere", () => {
   });
 });
 
+describe("finishing a task early", () => {
+  /** A flexible task with one block on the calendar. */
+  const plan = async (main: Awaited<ReturnType<typeof setup>>["main"], title: string, from: string, to: string) => {
+    const task = await main.getState().addTask({ title }, { autoPlace: false });
+    const event = await main.getState().addEvent({ title, startAt: at(from), endAt: at(to), taskId: task.id, fixed: false });
+    return { task, event };
+  };
+  const ev = (main: Awaited<ReturnType<typeof setup>>["main"], id: string) => main.getState().events.find((e) => e.id === id)!;
+
+  it("ends its block now and brings what was next forward, in the same order", async () => {
+    const { main, clock } = await setup();
+    const a = await plan(main, "Write report", "2026-11-18T10:00", "2026-11-18T12:00");
+    const b = await plan(main, "Review budget", "2026-11-18T12:00", "2026-11-18T13:00");
+    const c = await plan(main, "Call supplier", "2026-11-18T13:00", "2026-11-18T13:30");
+    const tomorrow = await plan(main, "Plan next week", "2026-11-20T10:00", "2026-11-20T11:00");
+    clock.now = at("2026-11-18T11:15"); // done 45 minutes early
+    await main.getState().setTaskDone(a.task.id, true);
+    expect(ev(main, a.event.id)).toMatchObject({ startAt: at("2026-11-18T10:00"), endAt: at("2026-11-18T11:15") });
+    expect(ev(main, b.event.id)).toMatchObject({ startAt: at("2026-11-18T11:15"), endAt: at("2026-11-18T12:15") });
+    expect(ev(main, c.event.id)).toMatchObject({ startAt: at("2026-11-18T12:15"), endAt: at("2026-11-18T12:45") });
+    expect(ev(main, tomorrow.event.id)).toMatchObject({ startAt: at("2026-11-20T10:00") }); // later days stay as planned
+    const toast = main.getState().toasts.at(-1)!;
+    expect(toast.title).toBe("45 min saved");
+    // Undo puts the calendar back as it was
+    await toast.action!.run();
+    expect(ev(main, c.event.id)).toMatchObject({ startAt: at("2026-11-18T13:00") });
+    expect(ev(main, a.event.id)).toMatchObject({ endAt: at("2026-11-18T12:00") });
+  });
+
+  it("a task finished before its block began gives its place to the ones after it, and never moves a fixed appointment", async () => {
+    const { main, clock } = await setup();
+    const early = await plan(main, "Stretch", "2026-11-18T13:00", "2026-11-18T13:30");
+    const a = await plan(main, "Write report", "2026-11-18T14:00", "2026-11-18T15:00");
+    const b = await plan(main, "Review budget", "2026-11-18T15:00", "2026-11-18T16:00");
+    const fixed = await main.getState().addEvent({ title: "Dentist", startAt: at("2026-11-18T16:30"), endAt: at("2026-11-18T17:00"), fixed: true });
+    clock.now = at("2026-11-18T12:00");
+    await main.getState().setTaskDone(a.task.id, true);
+    expect(ev(main, a.event.id).deletedAt).not.toBeNull();
+    expect(ev(main, b.event.id)).toMatchObject({ startAt: at("2026-11-18T14:00"), endAt: at("2026-11-18T15:00") }); // into the freed place, not all the way to now
+    expect(ev(main, fixed.id)).toMatchObject({ startAt: at("2026-11-18T16:30") });
+    expect(ev(main, early.event.id)).toMatchObject({ startAt: at("2026-11-18T13:00") });
+  });
+});
+
 describe("the pop-up's schedule list", () => {
   it("is chronological, tells fixed from flexible, and highlights what is now, next and overdue", async () => {
     const { main, say, clock } = await setup();

@@ -2,6 +2,15 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.8 (24 November 2026)
+
+**Time saved goes to what is next**
+- **Finishing early frees the rest of the block.** When you mark a task complete while its block is still running, the block ends at that moment, so the calendar shows the time really used.
+- **What was next comes forward.** The flexible tasks that follow move up to use the time saved, in the same order, each straight after the one before. The next task starts at the moment you finished.
+- The same happens when a task is completed before its block has begun: the block is removed and the tasks after it move into its place.
+- A notice says how much time was saved and shows each task's old and new time, with **Undo**.
+- Not moved: fixed appointments, personal time (sleep, meals, gym), and tasks planned more than 18 hours ahead, so later days stay as you planned them. Nothing is ever moved later by this.
+
 ## v1.1.7 (24 November 2026)
 
 **Accounts: managed accounts, taskers and money**

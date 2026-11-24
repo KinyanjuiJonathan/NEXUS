@@ -25,7 +25,7 @@ import { nextOccurrence } from "@/lib/recurrence";
 import * as cd from "@/lib/countdown";
 import { reminderForTimer, remindersForEvent, remindersForTask } from "@/lib/reminders";
 import { activeSession, openPause } from "@/lib/work";
-import { freeFrom, planBulk, planDisplaced, planMerges, planQueueOrder, planRipple, planUnfinished, queueUnits, sortedQueue, type BulkTarget, type Move, type RescheduleSettings, type UnitPlan } from "@/lib/smart/reschedule";
+import { freeFrom, planPullForward, planBulk, planDisplaced, planMerges, planQueueOrder, planRipple, planUnfinished, queueUnits, sortedQueue, type BulkTarget, type Move, type RescheduleSettings, type UnitPlan } from "@/lib/smart/reschedule";
 import { blockClock, currentBlock, unclockedMs } from "@/lib/taskClock";
 import { dayKey, prunePlans, workHours, type DayPlan } from "@/lib/workPlan";
 import { closeStraySessions } from "@/lib/work";
@@ -866,9 +866,39 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           return;
         }
         if (cur.status === "done") return; // already completed: nothing to do twice
+        const before = get().events;
         await saveTask({ ...cur, status: "done", completedAt: ts, updatedAt: ts });
-        // Time still reserved for it is no longer needed. A block already under way or over stays as a record.
-        for (const e of blocksOf(taskId)) if (!e.deletedAt && !e.recurrence && e.startAt > ts) await removeBlock(e, "task-done");
+        // Time still reserved for it is no longer needed. A block under way ends now; one that is over stays as a record.
+        let savedMs = 0;
+        let freedAt = Infinity;
+        for (const e of blocksOf(taskId)) {
+          if (e.deletedAt || e.recurrence) continue;
+          if (e.startAt > ts) {
+            await removeBlock(e, "task-done");
+            if (flexibleBlock(e)) {
+              savedMs += e.endAt - e.startAt;
+              freedAt = Math.min(freedAt, e.startAt);
+            }
+          } else if (e.endAt > ts && flexibleBlock(e)) {
+            // finished early: the block shows the time really used
+            const end = Math.max(ts, e.startAt + 60_000);
+            savedMs += e.endAt - end;
+            freedAt = Math.min(freedAt, end);
+            const history = [...(e.sched?.history ?? []), { at: ts, from: [e.startAt, e.endAt] as [number, number], to: [e.startAt, end] as [number, number], reason: "saved" as const }].slice(-20);
+            await saveEvent({ ...e, endAt: end, sched: { ...(e.sched ?? {}), history, attention: null }, updatedAt: ts });
+          }
+        }
+        // The time saved goes to what was next: the tasks that follow come forward, in the same order.
+        if (savedMs >= 60_000 && get().settings.smartEnabled) {
+          const moves = planPullForward(get().tasks, get().events, ts, get().slotSettings(), freedAt);
+          for (const m of moves) {
+            const e = get().events.find((x) => x.id === m.eventId);
+            if (!e || !m.to) continue;
+            const history = [...(e.sched?.history ?? []), { at: ts, from: [e.startAt, e.endAt] as [number, number], to: [m.to.start, m.to.end] as [number, number], reason: "saved" as const }].slice(-20);
+            await saveEvent({ ...e, startAt: m.to.start, endAt: m.to.end, sched: { ...(e.sched ?? {}), history, attention: null }, updatedAt: ts });
+          }
+          if (moves.length) announce(`${humanDuration(savedMs)} saved`, before, `“${cur.title}” is done early, so what was next comes forward.`);
+        }
         get().log(
           "task_completed",
           cur.title,

@@ -114,10 +114,11 @@ export interface SchedMove {
   to: [number, number];
   /**
    * "unfinished": its time passed without the task being completed. "conflict": a fixed appointment took its place.
+   * "saved": a task was finished early and what followed was brought forward.
    * "pushed": an unfinished task took its place. "bulk": the user moved every task at once.
    * "queue": the user moved it up or down the queue.
    */
-  reason: "unfinished" | "conflict" | "pushed" | "bulk" | "queue";
+  reason: "unfinished" | "conflict" | "pushed" | "bulk" | "queue" | "saved";
 }
 
 export interface SchedMeta {

@@ -38,7 +38,7 @@ export interface Move {
   from: Interval;
   /** New time, or null when NEXUS will not move it by itself. */
   to: Interval | null;
-  reason: "unfinished" | "conflict" | "pushed" | "bulk" | "queue";
+  reason: "unfinished" | "conflict" | "pushed" | "bulk" | "queue" | "saved";
   /** Why it was not moved: it would miss its deadline, it has been moved too often, nothing is free, or its planned time was clocked in full. */
   problem?: "deadline" | "limit" | "nofit" | "worked";
   /** Time clocked on the task so far and the total it was given (unfinished blocks only). */
@@ -484,6 +484,41 @@ export function planRipple(tasks: Task[], events: CalendarEvent[], now: number, 
     moves.push({ eventId: e.id, taskId: e.taskId, title: e.title, from, to: fit, reason: "pushed" });
     take(fit);
     cursor = fit.end;
+  }
+  return moves;
+}
+
+/** How far ahead finishing early reaches: the tasks of the day ahead come forward, later days stay as planned. */
+export const PULL_AHEAD_MS = 18 * 60 * MIN;
+
+/**
+ * Time was freed at `from` (a task was finished early, or finished before its
+ * block began): the flexible blocks that follow come forward to use it, in the
+ * same order, one straight after the other. Nothing is ever moved later, and
+ * fixed appointments, personal time and working hours are respected.
+ */
+export function planPullForward(tasks: Task[], events: CalendarEvent[], now: number, s: RescheduleSettings, from: number): Move[] {
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  const start = Math.max(from, now);
+  const after = events
+    .filter((e) => !e.deletedAt && !e.fixed && !e.recurrence && !!e.taskId && openTask(byId.get(e.taskId)) && e.startAt > start && e.startAt < start + PULL_AHEAD_MS)
+    .sort((a, b) => a.startAt - b.startAt);
+  if (!after.length) return [];
+  // What is already over cannot be in the way, and needs no gap after it: the next task starts the moment the time is free.
+  const moving = new Set([...after.map((e) => e.id), ...events.filter((e) => e.endAt <= start).map((e) => e.id)]);
+  const busy = busyIntervals(events, now, start + 2 * HORIZON, Math.max(0, s.bufferMin) * MIN, moving, s.routine);
+  const horizon = Math.max(...after.map((e) => e.endAt)) + MIN;
+  const wins = mergeWins([...workingWindows(now, horizon, s), ...after.map((e) => ({ start: e.startAt, end: e.endAt }))]);
+  const moves: Move[] = [];
+  let cursor = start;
+  for (const e of after) {
+    const from = { start: e.startAt, end: e.endAt };
+    const fit = fitExact(wins, busy, e.endAt - e.startAt, cursor);
+    const to = fit && fit.start < e.startAt ? fit : from;
+    if (to !== from) moves.push({ eventId: e.id, taskId: e.taskId, title: e.title, from, to, reason: "saved" });
+    busy.push({ ...to });
+    busy.sort((a, b) => a.start - b.start);
+    cursor = to.end;
   }
   return moves;
 }

@@ -11,6 +11,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.8",
+    date: "2026-11-24",
+    title: "Time saved goes to what is next",
+    changes: [
+      "Marking a task complete early ends its block on the calendar at that moment; the unused time is removed.",
+      "The tasks that follow come forward to use the time saved, in the same order, one straight after the other.",
+      "A notice shows how much was saved and each task's old and new time, with Undo.",
+      "Fixed appointments, personal time and tasks planned for later days are not moved.",
+    ],
+  },
+  {
     version: "1.1.7",
     date: "2026-11-24",
     title: "Accounts: managed accounts, taskers and money",
