@@ -2,6 +2,14 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.9 (24 November 2026)
+
+**A rescheduled task is no longer overdue**
+- **Fixed:** an overdue task that you dragged to a later time kept its old due time, so it stayed in Overdue (and in the red count on Tasks) even though it had a new plan.
+- When you give an overdue task a new time that is still ahead, its due time now moves to the end of that new time. It leaves Overdue in the task list, the dashboard, the calendar and the pop-up, and its reminders follow the new time. A short notice confirms it.
+- This applies however you move it: dragging or resizing on the calendar, editing the time, reordering the queue, Start now, the +15 min to +2 h buttons, and "reschedule all".
+- Not changed: a deadline that has not passed yet stays exactly as you set it when you move the task, and a task moved to another time that is also in the past stays overdue. Moves NEXUS makes by itself do not change due times.
+
 ## v1.1.8 (24 November 2026)
 
 **Time saved goes to what is next**

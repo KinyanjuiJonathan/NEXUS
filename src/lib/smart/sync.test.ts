@@ -247,6 +247,32 @@ describe("finishing a task early", () => {
   });
 });
 
+describe("giving an overdue task a new time", () => {
+  it("dragging its block into the future makes it due then, and no longer overdue", async () => {
+    const { main, clock } = await setup();
+    const task = await main.getState().addTask({ title: "File taxes", dueAt: at("2026-11-18T09:00") }, { autoPlace: false });
+    const block = await main.getState().addEvent({ title: "File taxes", startAt: at("2026-11-18T08:00"), endAt: at("2026-11-18T09:00"), taskId: task.id, fixed: false });
+    const other = await main.getState().addTask({ title: "Send invoice", dueAt: at("2026-11-21T09:00") }, { autoPlace: false });
+    const otherBlock = await main.getState().addEvent({ title: "Send invoice", startAt: at("2026-11-18T11:00"), endAt: at("2026-11-18T12:00"), taskId: other.id, fixed: false });
+    const due = (id: string) => main.getState().tasks.find((t) => t.id === id)!.dueAt;
+    expect(due(task.id)! < clock.now).toBe(true); // overdue at 10:00
+    await main.getState().updateEvent(block.id, { startAt: at("2026-11-19T14:00"), endAt: at("2026-11-19T15:00") });
+    expect(due(task.id)).toBe(at("2026-11-19T15:00"));
+    expect(main.getState().toasts.at(-1)!.title).toBe("No longer overdue");
+    // a deadline that has not passed stays as it is when its block moves
+    await main.getState().updateEvent(otherBlock.id, { startAt: at("2026-11-19T16:00"), endAt: at("2026-11-19T17:00") });
+    expect(due(other.id)).toBe(at("2026-11-21T09:00"));
+  });
+
+  it("moving it to another time that is also past leaves it overdue", async () => {
+    const { main } = await setup();
+    const task = await main.getState().addTask({ title: "File taxes", dueAt: at("2026-11-18T09:00") }, { autoPlace: false });
+    const block = await main.getState().addEvent({ title: "File taxes", startAt: at("2026-11-18T08:00"), endAt: at("2026-11-18T09:00"), taskId: task.id, fixed: false });
+    await main.getState().updateEvent(block.id, { startAt: at("2026-11-18T07:00"), endAt: at("2026-11-18T08:00") });
+    expect(main.getState().tasks.find((t) => t.id === task.id)!.dueAt).toBe(at("2026-11-18T09:00"));
+  });
+});
+
 describe("the pop-up's schedule list", () => {
   it("is chronological, tells fixed from flexible, and highlights what is now, next and overdue", async () => {
     const { main, say, clock } = await setup();

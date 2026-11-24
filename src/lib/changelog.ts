@@ -11,6 +11,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.9",
+    date: "2026-11-24",
+    title: "A rescheduled task is no longer overdue",
+    changes: [
+      "Moving an overdue task to a time that is still ahead updates its due time to match, so it stops showing as overdue everywhere.",
+      "This applies to dragging on the calendar, reordering the queue, Start now, the +time buttons and rescheduling all tasks.",
+      "A deadline that has not passed yet is never changed by moving the task.",
+    ],
+  },
+  {
     version: "1.1.8",
     date: "2026-11-24",
     title: "Time saved goes to what is next",

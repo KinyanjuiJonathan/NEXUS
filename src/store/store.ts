@@ -633,6 +633,26 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
 
     const flexibleBlock = (e: CalendarEvent) => !e.fixed && !e.recurrence && !!e.taskId && !e.deletedAt;
 
+    /**
+     * The user gave an overdue task a new time that is still ahead: that is its
+     * plan now, so its due time moves to the end of the new time and it stops
+     * counting as overdue. A deadline that has not passed is never changed.
+     */
+    const liftOverdue = async (taskId: string | null | undefined, quiet = false) => {
+      const t = get().tasks.find((x) => x.id === taskId);
+      const ts = now();
+      if (!t || t.deletedAt || t.status === "done" || t.dueAt == null || t.dueAt >= ts) return false;
+      const ahead = blocksOf(t.id).filter((e) => !e.deletedAt && !e.recurrence && e.endAt > ts);
+      if (!ahead.length) return false;
+      const dueAt = Math.max(...ahead.map((e) => e.endAt));
+      await saveTask({ ...t, dueAt, updatedAt: ts });
+      const s = get().settings;
+      const when = formatWithZone(dueAt, t.dueTz ?? s.homeZone, s.hour12);
+      get().log("task_rescheduled", t.title, `No longer overdue · due ${when}`, t.id);
+      if (!quiet) get().toast({ kind: "info", title: "No longer overdue", body: `“${t.title}” has a new time, so it is now due ${when}.`, ttl: 7000 });
+      return true;
+    };
+
     /** "A: 10:00 → 11:00" for every block whose time differs from `before`, for the notice after a change. */
     const describeChanges = (before: CalendarEvent[]) => {
       const s = get().settings;
@@ -723,6 +743,8 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
             changed++;
           }
         }
+        // put there by the user: an overdue task with a new time ahead is no longer overdue
+        if (reason === "queue") await liftOverdue(p.taskId, true);
       }
       return changed;
     };
@@ -1049,6 +1071,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         if (retimed || (next.fixed && !cur.fixed)) await makeRoomFor(next);
         // A task that now takes longer, or starts later, pushes the tasks after it along.
         if (retimed) await ripple(cur, next, before);
+        if (retimed) await liftOverdue(cur.taskId);
         return next;
       },
 
@@ -1081,6 +1104,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           const moved = { ...ev, startAt: ev.startAt + shift, endAt: ev.startAt + shift + dur, updatedAt: now() };
           await saveEvent(moved);
           await ripple(ev, moved, before);
+          await liftOverdue(ev.taskId);
           if (shift) get().log("event_moved", ev.title, `→ ${formatWithZone(newStart, ev.tz, get().settings.hour12)}`, ev.id);
           return;
         }
@@ -1455,6 +1479,7 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           first = first == null ? m.to.start : Math.min(first, m.to.start);
         }
         await get().mergeSplitTasks();
+        for (const id of new Set(moves.filter((m) => m.to).map((m) => m.taskId))) await liftOverdue(id, true);
         const n = before.length;
         const stuck = moves.filter((m) => !m.to).length;
         if (n) {
