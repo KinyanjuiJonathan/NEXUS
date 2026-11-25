@@ -11,6 +11,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.14",
+    date: "2026-11-25",
+    title: "New tasks are scheduled automatically",
+    changes: [
+      "A new task with no start time is put on the calendar at the soonest free time, before its deadline.",
+      "A task without an estimate gets one hour. Before, only tasks with an estimate were scheduled.",
+      "If working hours have no room before the deadline, the soonest free time at any hour is used.",
+    ],
+  },
+  {
     version: "1.1.13",
     date: "2026-11-25",
     title: "One-click updates; more time for overdue tasks",

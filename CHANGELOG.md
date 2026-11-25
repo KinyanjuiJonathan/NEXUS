@@ -2,6 +2,14 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.14 (25 November 2026)
+
+**New tasks are scheduled automatically**
+- **Every new task gets a time.** When you add a task without giving it a start time, NEXUS reserves the soonest free time in your working hours for it, before its deadline. Before, this only happened for tasks that had an estimated duration; a task without one now gets one hour.
+- **The deadline comes first.** If your working hours have no room before the deadline, the soonest free time at any hour is used instead (still around fixed appointments and your personal time), and the notice says so. Only when there is no free time at all before the deadline is the task placed after it, with a warning.
+- The notice shows the time chosen and has **Undo**. Existing tasks and appointments are never moved to make room. Long tasks are still split into blocks as before.
+- The setting is now called "Schedule new tasks automatically" (Settings → Smart scheduling) and can be turned off.
+
 ## v1.1.13 (25 November 2026)
 
 **One-click updates; more time for overdue tasks**

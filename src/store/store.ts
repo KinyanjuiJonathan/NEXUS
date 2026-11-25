@@ -855,16 +855,27 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         }
         await syncTask(t);
         get().log("task_created", t.title, t.dueAt ? `Due ${formatWithZone(t.dueAt, t.dueTz ?? s.homeZone, s.hour12)}` : "", t.id);
-        // Auto-placement: reserve time in the best free working slot(s).
-        if ((opts?.autoPlace ?? true) && s.autoPlaceNewTasks && t.estimateMin && t.status !== "done") {
-          const plan = get().autoPlan({ onlyTaskIds: [t.id] });
-          if (plan.blocks.length) {
+        // No start time given: NEXUS reserves the soonest free time for it, before its deadline.
+        // A task without an estimate gets an hour.
+        if ((opts?.autoPlace ?? true) && s.autoPlaceNewTasks && t.status !== "done") {
+          const DEFAULT_MIN = 60;
+          const plan = get().autoPlan({ onlyTaskIds: [t.id], defaultEstimateMin: DEFAULT_MIN });
+          const when = (ms: number) => formatWithZone(ms, s.homeZone, s.hour12);
+          const undo = (created: CalendarEvent[]) => ({ label: "Undo", run: () => created.forEach((e) => void get().deleteEvent(e.id)) });
+          // Working hours cannot meet the deadline: the soonest free time at any hour is used instead, when that does.
+          const lateInHours = plan.lateTaskIds.length > 0 || (plan.unplaced.length > 0 && t.dueAt != null);
+          const dur = (t.estimateMin ?? DEFAULT_MIN) * 60_000;
+          const anyHour = lateInHours && t.dueAt != null && t.dueAt > ts ? freeFrom(get().events, ts, get().slotSettings(), Math.ceil(ts / 300_000) * 300_000, dur, new Set()) : null;
+          if (anyHour && anyHour.end <= t.dueAt!) {
+            const created = await get().applyPlan([{ taskId: t.id, title: t.title, start: anyHour.start, end: anyHour.end, part: 1, parts: 1, late: false }]);
+            get().toast({ kind: "info", title: "Scheduled before its deadline", body: `${t.title}: ${when(anyHour.start)}. Your working hours had no room before the deadline, so the soonest free time was used.`, action: undo(created), ttl: 9000 });
+          } else if (plan.blocks.length) {
             const created = await get().applyPlan(plan.blocks);
             get().toast({
               kind: plan.lateTaskIds.length ? "warning" : "info",
-              title: plan.lateTaskIds.length ? "Placed, but it ends after the deadline" : "Time reserved automatically",
-              body: `${t.title}: ${plan.blocks.map((b) => formatWithZone(b.start, s.homeZone, s.hour12)).join(", ")}`,
-              action: { label: "Undo", run: () => created.forEach((e) => void get().deleteEvent(e.id)) },
+              title: plan.lateTaskIds.length ? "Scheduled, but it ends after the deadline" : "Scheduled at the soonest free time",
+              body: `${t.title}: ${plan.blocks.map((b) => when(b.start)).join(", ")}${plan.lateTaskIds.length ? ". There is no free time before the deadline." : ""}`,
+              action: undo(created),
               ttl: 8000,
             });
           } else if (plan.unplaced.length) {

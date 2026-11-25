@@ -202,7 +202,7 @@ describe("voice commands end-to-end", () => {
 
     r = await executeIntent(parseCommand("Move my meeting to Friday at 3 PM Texas time", ctx()).intent, deps);
     expect(r.message).toContain("Moved");
-    const ev = store.getState().events[0];
+    const ev = store.getState().events.find((e) => !e.taskId)!; // the meeting, not the time reserved for the new task
     expect(DateTime.fromMillis(ev.startAt, { zone: "America/Chicago" }).toFormat("ccc HH:mm")).toBe("Fri 15:00");
 
     r = await executeIntent(parseCommand("Start a 25-minute focus session", ctx()).intent, deps);
@@ -599,10 +599,38 @@ describe("auto-placement in the store", () => {
     expect(blocks).toHaveLength(1);
     expect(DateTime.fromMillis(blocks[0].startAt, { zone: NBO }).toFormat("HH:mm")).toBe("10:00");
     expect(blocks[0].endAt - blocks[0].startAt).toBe(90 * 60_000);
-    const toast = store.getState().toasts.find((x) => x.title === "Time reserved automatically")!;
+    const toast = store.getState().toasts.find((x) => x.title === "Scheduled at the soonest free time")!;
     toast.action!.run();
     await new Promise((r) => setTimeout(r, 0));
     expect(store.getState().events.filter((e) => e.taskId === t.id && !e.deletedAt)).toHaveLength(0);
+  });
+
+  it("a task with no estimate and no start still gets the soonest free hour", async () => {
+    const store = makeStore();
+    await store.getState().init();
+    await store.getState().setSetting("homeZone", NBO);
+    await store.getState().setSetting("routine", { ...store.getState().settings.routine, enabled: false });
+    await store.getState().addEvent({ title: "Stand-up", startAt: at("2026-11-17T10:00"), endAt: at("2026-11-17T10:30") });
+    const t = await store.getState().addTask({ title: "Call the bank" });
+    const [block] = store.getState().events.filter((e) => e.taskId === t.id);
+    // right after the meeting and its 10-minute gap
+    expect(DateTime.fromMillis(block.startAt, { zone: NBO }).toFormat("HH:mm")).toBe("10:40");
+    expect(block.endAt - block.startAt).toBe(60 * 60_000);
+    expect(block.fixed).toBe(false);
+  });
+
+  it("when working hours cannot meet the deadline, the soonest free time at any hour is used", async () => {
+    const store = makeStore();
+    await store.getState().init();
+    await store.getState().setSetting("homeZone", NBO);
+    await store.getState().setSetting("routine", { ...store.getState().settings.routine, enabled: false });
+    // the rest of the working day is taken; the task is due tonight
+    await store.getState().addEvent({ title: "Workshop", startAt: at("2026-11-17T10:00"), endAt: at("2026-11-17T17:00") });
+    const t = await store.getState().addTask({ title: "Send the form", estimateMin: 30, dueAt: at("2026-11-17T20:00") });
+    const [block] = store.getState().events.filter((e) => e.taskId === t.id);
+    expect(DateTime.fromMillis(block.startAt, { zone: NBO }).toFormat("HH:mm")).toBe("17:00");
+    expect(block.endAt).toBeLessThanOrEqual(at("2026-11-17T20:00"));
+    expect(store.getState().toasts.at(-1)!.title).toBe("Scheduled before its deadline");
   });
 
   it("can be turned off, and Auto-plan fits several tasks without overlaps", async () => {

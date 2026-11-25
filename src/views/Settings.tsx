@@ -327,7 +327,7 @@ export default function SettingsView() {
       </Section>
 
       <Section id="planning" title="Auto-placement" icon={<Wand2 size={16} />}>
-        <Toggle checked={settings.autoPlaceNewTasks} onChange={(v) => set("autoPlaceNewTasks", v)} label="Automatically reserve time for new tasks with an estimate" description="Finds the best free slot(s) in your working hours before the deadline. Every placement can be undone, and existing appointments are never moved." />
+        <Toggle checked={settings.autoPlaceNewTasks} onChange={(v) => set("autoPlaceNewTasks", v)} label="Schedule new tasks automatically" description="A new task with no start time gets the soonest free time in your working hours, before its deadline (an hour when it has no estimate). If your working hours have no room before the deadline, the soonest free time at any hour is used. Every placement can be undone, and existing appointments are never moved." />
         <div className="grid sm:grid-cols-2 gap-3">
           <Field label="Buffer around blocks (minutes)"><Input type="number" min={0} max={60} value={settings.planBufferMin} onChange={(e) => set("planBufferMin", Math.max(0, Math.min(60, Number(e.target.value) || 0)))} /></Field>
           <Field label="Longest single block (minutes)" hint="Longer tasks are split across several blocks."><Input type="number" min={30} max={480} value={settings.planChunkMaxMin} onChange={(e) => set("planChunkMaxMin", Math.max(30, Math.min(480, Number(e.target.value) || 120)))} /></Field>
