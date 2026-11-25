@@ -260,6 +260,20 @@ export function usePerf(enabled: boolean, fps: boolean | null = null): PerfSnaps
   return enabled ? snap : null;
 }
 
+/**
+ * Keep sampling while `enabled`, without showing anything: the main window
+ * holds this for as long as it is open, so the Dashboard graph carries on from
+ * its history when you come back to it instead of starting empty.
+ */
+export function usePerfKeepAlive(enabled: boolean): void {
+  useEffect(() => {
+    if (!enabled) return;
+    const id = Symbol("perf-keep");
+    join(id, null);
+    return () => leave(id);
+  }, [enabled]);
+}
+
 /** The last minute of samples (oldest first); empty until `usePerf` is active somewhere in this window. */
 export function usePerfHistory(): PerfSnapshot[] {
   return useSyncExternalStore(subscribe, () => state.history);

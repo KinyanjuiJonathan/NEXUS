@@ -206,8 +206,10 @@ interface DragState {
 const STATUS_LABEL: Record<OccStatus, string> = { done: "Completed", overdue: "Overdue", worked: "Time clocked, not marked complete", now: "Under way", past: "Past", upcoming: "Upcoming" };
 
 function TimeGrid({
-  days, zone, occ, tasks, allTasks, now, hour12, texasZone, match, onStep, wh, routine, zoom, onZoom, onShiftDays, categories,
+  days, zone, occ, tasks, allTasks, now, hour12, texasZone, match, onStep, wh, routine, zoom, onZoom, onShiftDays, categories, toNow,
 }: {
+  /** Raised to bring the current time back into view ("Today"). */
+  toNow: number;
   routine: Routine;
   /** Height of one hour in pixels, or null to size the hours so the whole waking day is visible without scrolling. */
   zoom: number | null;
@@ -271,10 +273,15 @@ function TimeGrid({
     const leavingFit = wasFit.current && !fit;
     wasFit.current = fit;
     if (leavingFit) return;
-    const h = fit ? span.from : Math.max(0, Math.min(DateTime.fromMillis(now, { zone }).hour, 8) - 1);
+    // Today on screen: open at the current time, a third of the way down, so what is under way and what comes next are both in view.
+    const t = DateTime.fromMillis(now, { zone });
+    const today = days.includes(t.startOf("day").toMillis());
+    const nowH = t.hour + t.minute / 60;
+    const visible = (scrollRef.current?.clientHeight ?? viewH) / HOUR_PX;
+    const h = today && !(fit && nowH >= span.from && nowH <= span.to) ? Math.max(0, nowH - visible / 3) : fit ? span.from : Math.max(0, Math.min(t.hour, 8) - 1);
     scrollRef.current?.scrollTo({ top: h * HOUR_PX });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [days[0], zone, fit, fit ? HOUR_PX : 0, span.from]);
+  }, [days[0], zone, fit, fit ? HOUR_PX : 0, span.from, toNow]);
 
   // ---- zoom: Ctrl + wheel (or pinch) zooms around the pointer, so the time under it stays put
   const zoomAnchor = useRef<{ hours: number; offset: number } | null>(null);
@@ -901,6 +908,7 @@ export default function Calendar() {
   const { events, tasks, settings } = useNexus((s) => ({ events: s.events, tasks: s.tasks, settings: s.settings }));
   const [mode, setMode] = useState<Mode>("week");
   const [anchor, setAnchor] = useState(() => Date.now());
+  const [toNow, setToNow] = useState(0);
   const [q, setQ] = useState("");
   const [kind, setKind] = useState<Kind>("all");
   /** Week view normally shows Monday to Sunday; after sliding sideways it shows seven days from the anchor. */
@@ -988,6 +996,7 @@ export default function Calendar() {
       if (e.key.toLowerCase() === "t") {
         setRolling(false);
         setAnchor(Date.now());
+        setToNow((n) => n + 1);
       }
       if (e.key.toLowerCase() === "d") setMode("day");
       if (e.key.toLowerCase() === "w") setMode("week");
@@ -1008,7 +1017,7 @@ export default function Calendar() {
         <h1 className="font-display text-2xl font-semibold">Calendar</h1>
         <div className="flex items-center gap-1">
           <Button size="sm" variant="ghost" onClick={() => step(-1)} aria-label="Previous"><ChevronLeft size={16} /></Button>
-          <Button size="sm" variant="soft" onClick={() => { setRolling(false); setAnchor(Date.now()); }}>Today</Button>
+          <Button size="sm" variant="soft" onClick={() => { setRolling(false); setAnchor(Date.now()); setToNow((n) => n + 1); }} title="Back to today and the current time (T)">Today</Button>
           <Button size="sm" variant="ghost" onClick={() => step(1)} aria-label="Next"><ChevronRight size={16} /></Button>
         </div>
         <DateTimePicker value={anchor} zone={zone} hour12={settings.hour12} withTime={false} onChange={(ms) => ms != null && setAnchor(ms)} ariaLabel="Go to a date" className="!h-8 !border-transparent !bg-transparent hover:!bg-hover font-medium" format={() => label} />
@@ -1069,7 +1078,7 @@ export default function Calendar() {
       ) : mode === "agenda" ? (
         <AgendaList from={anchor} zone={zone} events={events} tasks={shownTasks} allTasks={tasks} now={now} hour12={settings.hour12} match={match} matchTask={matchTask} />
       ) : (
-        <TimeGrid days={days} zone={zone} occ={occ} tasks={shownTasks} allTasks={tasks} now={now} hour12={settings.hour12} texasZone={settings.texasZone} match={match} onStep={step} wh={wh} routine={settings.routine} zoom={zoom} onZoom={setZoom} onShiftDays={shiftDays} categories={categories} />
+        <TimeGrid days={days} zone={zone} occ={occ} tasks={shownTasks} allTasks={tasks} now={now} hour12={settings.hour12} texasZone={settings.texasZone} match={match} onStep={step} wh={wh} routine={settings.routine} zoom={zoom} onZoom={setZoom} onShiftDays={shiftDays} categories={categories} toNow={toNow} />
       )}
       </motion.div>
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1">

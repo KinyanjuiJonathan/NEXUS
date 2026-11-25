@@ -2,6 +2,12 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.12 (25 November 2026)
+
+**Calendar opens at now; continuous system graph**
+- **Calendar goes to the current time by default.** Opening the Calendar shows today with the current-time line in view, about a third of the way down, so what is under way and what comes next are both visible. Before, a zoomed-in calendar opened in the early morning. **Today** (or the T key) returns to today and the current time from anywhere.
+- **The System Monitor graph is continuous.** It used to stop recording when you left the Dashboard and start empty when you came back. It now keeps recording on every page while NEXUS is open, so the graph continues from its history (the last minute, as before). Recording still pauses while the window is hidden, and the "Show system monitor" setting still turns it off completely.
+
 ## v1.1.11 (25 November 2026)
 
 **Deadline glow removed**

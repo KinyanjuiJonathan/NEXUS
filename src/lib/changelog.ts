@@ -11,6 +11,15 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.12",
+    date: "2026-11-25",
+    title: "Calendar opens at now; continuous system graph",
+    changes: [
+      "The Calendar opens on today with the current time in view, and the Today button (or T) brings it back there.",
+      "The System Monitor graph keeps recording while you are on other pages, so it continues from its history instead of starting empty.",
+    ],
+  },
+  {
     version: "1.1.11",
     date: "2026-11-25",
     title: "Deadline glow removed",

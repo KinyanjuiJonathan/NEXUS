@@ -24,6 +24,8 @@ import { activeSession, openPause } from "@/lib/work";
 import { dayKey, isoWeekday } from "@/lib/workPlan";
 import { AiSchedulerPanel } from "@/components/AiScheduler";
 import { useTheme } from "@/lib/useTheme";
+import { usePerfKeepAlive } from "@/lib/perf";
+import { native } from "@/lib/platform";
 import { onTick } from "@/lib/ticker";
 import { activityConfigure, activityState, idleSeconds, listenTo, playChime, signalReady } from "@/lib/platform";
 import { initTyper } from "@/lib/typer/controller";
@@ -70,6 +72,8 @@ export default function App() {
   const { theme, reducedMotion, error, idleMinutes, ready } = useNexus((s) => ({ theme: s.settings.theme, reducedMotion: s.settings.reducedMotion, error: s.error, idleMinutes: s.settings.idleMinutes, ready: s.ready }));
   const view = useUI((s) => s.view);
   const ambient = useAmbient();
+  // The system monitor keeps recording on every page, so its graph is continuous.
+  usePerfKeepAlive(useNexus((s) => s.settings.dashboardPerf) && ready && (native || import.meta.env.DEV));
   useTheme(theme, reducedMotion);
 
   // Reveal the native window once the first frame is ready.
