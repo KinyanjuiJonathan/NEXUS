@@ -315,6 +315,15 @@ export interface ReleaseInfo {
   notes: string;
   url: string;
   publishedAt: string;
+  /** The Windows installer and its published SHA-256; empty when the release has none. */
+  installerUrl: string;
+  installerSha256: string;
+  installerSize: number;
+}
+
+/** Download the release's installer, verify it, and run it without its wizard. NEXUS closes and comes back updated. */
+export async function installUpdate(rel: ReleaseInfo): Promise<void> {
+  await invokeSafe("update_install", { url: rel.installerUrl, sha256: rel.installerSha256 });
 }
 
 /** The latest published release, or null when none exists. Throws when the server cannot be reached. */

@@ -252,6 +252,11 @@ export interface NexusState {
    * pushing what follows. "free": in the next free working time, moving nothing. A finished task is repeated as a new copy.
    */
   repeatTask(taskId: string, mode: "after" | "free"): Promise<CalendarEvent | null>;
+  /**
+   * More time for a task that ran out of it and is overdue: its last block is extended from now by this much
+   * (a task with no block gets one starting now). It stops being overdue and what follows moves along.
+   */
+  giveMoreTime(taskId: string, byMs: number): Promise<boolean>;
   /** Start this queued task now. The task under way gives up its place: what is left of it follows straight after. */
   startTaskNow(taskId: string): Promise<boolean>;
   /** Reorganise the queue by a scheduling order (the one in Settings when none is given). */
@@ -1567,7 +1572,10 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         const clash = byMs > 0 ? get().events.find((x) => x.id !== e.id && x.fixed && !x.deletedAt && !x.recurrence && x.startAt < end && x.endAt > Math.max(e.endAt, ts)) : undefined;
         const before = get().events;
         const shown = new Set(get().toasts.map((x) => x.id));
-        await get().updateEvent(e.id, { endAt: end });
+        // The planned total grows by the time added. For a block that had run out, what is left to do is exactly the extension.
+        const c = blockClock(e, get().workSessions, ts);
+        const targetMs = e.endAt <= ts ? c.workedMs + (end - ts) : c.targetMs + (end - e.endAt);
+        await get().updateEvent(e.id, { endAt: end, sched: { ...(e.sched ?? {}), origin: "user", moves: 0, attention: null, workedMs: c.workedMs, targetMs, creditedTo: null } });
         // one notice for the whole change, not one for the task and another for what moved
         for (const x of get().toasts) if (!shown.has(x.id) && /later tasks? moved along/.test(x.title)) get().dismissToast(x.id);
         const moved = describeChanges(before).filter((l) => !l.startsWith(`${e.title}:`));
@@ -1587,6 +1595,26 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
           },
           ttl: 12_000,
         });
+        return true;
+      },
+
+      async giveMoreTime(taskId, byMs) {
+        const task = get().tasks.find((t) => t.id === taskId && !t.deletedAt && t.status !== "done");
+        if (!task || byMs <= 0) return false;
+        const ts = now();
+        const last = blocksOf(taskId).filter((e) => !e.deletedAt && !e.recurrence).sort((a, b) => b.endAt - a.endAt)[0];
+        if (last) return get().extendTask(last.id, byMs);
+        // an overdue task that never had time reserved: it gets its time now
+        const s = get().settings;
+        const before = get().events;
+        const queue = new Set(get().events.filter(flexibleBlock).map((x) => x.id));
+        const to = freeFrom(get().events, ts, get().slotSettings(), ts, byMs, queue);
+        const ev = await get().addEvent({ title: task.title, startAt: to.start, endAt: to.end, taskId, fixed: false, reminders: [], sched: { origin: "user", moves: 0 } });
+        await ripple(ev, ev, before, true);
+        await liftOverdue(taskId, true);
+        const moved = describeChanges(before);
+        get().log("task_rescheduled", task.title, `Given ${humanDuration(byMs)} from ${formatWithZone(to.start, s.homeZone, s.hour12)}`, taskId);
+        get().toast({ kind: "success", title: `${humanDuration(byMs)} reserved from now`, body: `“${task.title}” runs until ${formatTime(to.end, s.homeZone, s.hour12)} and is no longer overdue.${moved.length ? `\n${moved.length} later task${moved.length === 1 ? "" : "s"} moved along.` : ""}`, ttl: 9000 });
         return true;
       },
 

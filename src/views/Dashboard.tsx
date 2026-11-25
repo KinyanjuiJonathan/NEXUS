@@ -11,6 +11,8 @@ import { suggestNext, openTasks, scoreTask } from "@/lib/assistant";
 import { eventStatus, formatClock, humanDuration, progress, remainingMs, elapsedMs } from "@/lib/countdown";
 import { formatTime, formatWithZone, KENYA_ZONE, zoneAbbr } from "@/lib/time";
 import { DualClock } from "@/components/DualClock";
+import { askMoreTime } from "@/components/taskActions";
+import { TimerReset } from "lucide-react";
 import { GettingStarted } from "@/components/GettingStarted";
 import { WorkClockCard } from "@/components/WorkClock";
 import { SystemMonitor } from "@/components/SystemMonitor";
@@ -250,7 +252,7 @@ export default function Dashboard() {
 
       {missed.length > 0 && (
         <Card>
-          <CardHeader title="Missed — Smart Reschedule" icon={<Wand2 size={16} />} subtitle="Pick a new time. Nothing moves without your OK." />
+          <CardHeader title="Missed — Smart Reschedule" icon={<Wand2 size={16} />} subtitle="Extend gives it more time from now. Reschedule picks a new time." />
           <div className="px-4 pb-4 grid sm:grid-cols-2 gap-2">
             {missed.map((m) => (
               <div key={m.kind + m.id} className="flex items-center gap-3 rounded-xl border border-line px-3 py-2.5">
@@ -259,6 +261,7 @@ export default function Dashboard() {
                   <p className="text-sm font-medium truncate">{m.title}</p>
                   <p className="text-[11px] text-muted">Was due {formatWithZone(m.at, zone, settings.hour12)}</p>
                 </div>
+                {m.taskId && <Button size="sm" variant="primary" icon={<TimerReset size={13} />} onClick={() => void askMoreTime(m.taskId!, m.title)} title="Ran out of time? Give it more, starting now">Extend</Button>}
                 <Button size="sm" variant="soft" onClick={() => ui.openReschedule(m)}>Reschedule</Button>
               </div>
             ))}

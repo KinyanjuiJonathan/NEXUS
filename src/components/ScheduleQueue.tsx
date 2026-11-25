@@ -4,7 +4,7 @@ import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, us
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { ArrowDownUp, CalendarClock, Check, ChevronDown, ChevronRight, ChevronUp, Flag, GripVertical, ListChecks, Lock, ListTodo, Play, CopyPlus, TimerReset } from "lucide-react";
-import { askExtend, askRepeat } from "./taskActions";
+import { askExtend, askMoreTime, askRepeat } from "./taskActions";
 import type { SchedOrder, Task } from "@/data/types";
 import { useNexus, nexus } from "@/store";
 import { useUI } from "@/store/ui";
@@ -74,6 +74,11 @@ function QueueRow({ row, n, total, now, zone, hour12, task, open: expanded, onTo
         <button type="button" onClick={onToggle} aria-expanded={expanded} title={subs.length ? `${doneSubs} of ${subs.length} subtasks done · show checklist and actions` : "Show actions"} className={cx("shrink-0 h-6 px-1.5 rounded-lg flex items-center gap-1 text-[11px] tabular transition", expanded ? "text-accent bg-[color-mix(in_oklab,var(--accent)_12%,transparent)]" : "text-muted hover:text-fg hover:bg-hover")}>
           {subs.length > 0 && <><ListChecks size={12} />{doneSubs}/{subs.length}</>}
           <ChevronRight size={12} className={cx("transition-transform", expanded && "rotate-90")} />
+        </button>
+      )}
+      {task && i.status === "overdue" && (
+        <button type="button" onClick={() => void askMoreTime(task.id, task.title)} title="Ran out of time? Give it more, starting now. It stops being overdue." className="shrink-0 h-7 px-2 rounded-lg flex items-center gap-1 text-[11px] font-semibold text-danger bg-[color-mix(in_oklab,var(--danger)_12%,transparent)] hover:bg-danger hover:text-white transition">
+          <TimerReset size={12} />Extend
         </button>
       )}
       {task && (unit || i.kind === "deadline") && i.status !== "now" && i.start - now > 90_000 && (

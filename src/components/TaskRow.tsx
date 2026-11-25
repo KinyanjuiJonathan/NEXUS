@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { motion } from "framer-motion";
-import { Archive, ArchiveRestore, CalendarCheck, Check, Clock, CopyPlus, GripVertical, ListChecks, Lock, Pause, Play, Repeat, RotateCcw, Trash2, TriangleAlert, Undo2 } from "lucide-react";
+import { Archive, ArchiveRestore, CalendarCheck, Check, Clock, CopyPlus, TimerReset, GripVertical, ListChecks, Lock, Pause, Play, Repeat, RotateCcw, Trash2, TriangleAlert, Undo2 } from "lucide-react";
 import type { Category, Task } from "@/data/types";
 import { deadlineInfo, spentVsEstimate, humanDuration } from "@/lib/countdown";
 import { formatWithZone, KENYA_ZONE, formatTime, zoneAbbr } from "@/lib/time";
@@ -11,7 +11,7 @@ import { Badge, IconButton, ProgressBar, cx } from "./ui";
 import { CategoryIcon, PRIORITY_META, URGENCY_COLOR, categoryOf } from "./meta";
 import { choose } from "./Confirm";
 import { confirmComplete } from "./complete";
-import { askRepeat } from "./taskActions";
+import { askMoreTime, askRepeat } from "./taskActions";
 
 /** The time reserved on the calendar for a task, and whether NEXUS has moved it. */
 function PlannedTime({ taskId, now, hour12 }: { taskId: string; now: number; hour12: boolean }) {
@@ -139,6 +139,9 @@ export const TaskRow = memo(function TaskRow({ task: t, categories, now, hour12,
             <IconButton label={done ? "Repeat: do this task again" : "Repeat: add one more session"} onClick={() => void askRepeat(t.id, t.title, done)}><CopyPlus size={15} /></IconButton>
             {done && !t.archivedAt && <IconButton label="Archive" onClick={() => void s.archiveTask(t.id, true)}><Archive size={15} /></IconButton>}
             {t.archivedAt && <IconButton label="Unarchive" onClick={() => void s.archiveTask(t.id, false)}><ArchiveRestore size={15} /></IconButton>}
+            {!done && dl.urgency === "overdue" && (
+              <IconButton label="Extend: give it more time, starting now" onClick={() => void askMoreTime(t.id, t.title)}><TimerReset size={15} /></IconButton>
+            )}
             {!done && dl.urgency === "overdue" && (
               <IconButton label="Smart Reschedule" onClick={() => useUI.getState().openReschedule({ kind: "task", id: t.id, title: t.title, at: t.dueAt!, durationMs: (t.estimateMin ?? 30) * 60_000, important: t.priority === "critical", taskId: t.id })}>
                 <RotateCcw size={15} />

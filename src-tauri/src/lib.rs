@@ -224,6 +224,7 @@ pub fn run() {
             screen::region_pick,
             screen::region_done,
             updates::update_check,
+            updates::update_install,
             updates::open_external,
             speech::speech_available,
             speech::speech_listen,

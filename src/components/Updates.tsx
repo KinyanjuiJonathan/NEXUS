@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Download, MessageSquarePlus, RefreshCw } from "lucide-react";
 import { useNexus, nexus } from "@/store";
-import { latestRelease, native, openExternal, type ReleaseInfo } from "@/lib/platform";
+import { installUpdate, latestRelease, native, openExternal, type ReleaseInfo } from "@/lib/platform";
 import { CHANGELOG, versionLabel } from "@/lib/changelog";
 import { REPO_URL, feedbackBody, feedbackTitle, feedbackUrl, isNewer, type FeedbackKind } from "@/lib/updates";
 import { Button, Select, Toggle, cx } from "./ui";
@@ -14,11 +14,24 @@ export async function checkForUpdate(report: boolean): Promise<ReleaseInfo | nul
   try {
     const rel = await latestRelease();
     if (rel && isNewer(rel.version, __APP_VERSION__)) {
+      const page = () => void openExternal(rel.url || `${REPO_URL}/releases/latest`).catch(() => {});
+      const name = `NEXUS ${rel.version.replace(/^v/i, "")}`;
+      // One click when the release carries a verifiable installer; otherwise the download page.
+      const direct = !!rel.installerUrl && rel.installerSha256.length === 64;
+      const install = async () => {
+        const wait = s.toast({ kind: "info", title: `Downloading ${name}…`, body: "NEXUS will close, update and open again by itself. There is nothing to click.", ttl: 0 });
+        try {
+          await installUpdate(rel);
+        } catch (e) {
+          s.dismissToast(wait);
+          s.toast({ kind: "warning", title: "The update could not be installed automatically", body: `${e instanceof Error ? e.message : String(e)} You can still install it from the download page.`, action: { label: "Open download page", run: page }, ttl: 0 });
+        }
+      };
       s.toast({
         kind: "info",
-        title: `NEXUS ${rel.version.replace(/^v/i, "")} is available`,
-        body: `You have ${__APP_VERSION__}. Installing the new version over this one keeps your tasks, history and settings.`,
-        action: { label: "Open download page", run: () => void openExternal(rel.url || `${REPO_URL}/releases/latest`).catch(() => {}) },
+        title: `${name} is available`,
+        body: `You have ${__APP_VERSION__}. ${direct ? "Install now downloads it, checks it and updates NEXUS without the installer's questions." : "Installing the new version over this one keeps your data."} Your tasks, history and settings are kept.`,
+        action: direct ? { label: "Install now", run: () => void install() } : { label: "Open download page", run: page },
         ttl: 0,
       });
       return rel;
@@ -94,7 +107,7 @@ export function UpdatesAndFeedback() {
         <Button size="sm" variant="outline" icon={<RefreshCw size={14} className={cx(checking && "animate-spin")} />} disabled={checking || !native} onClick={async () => { setChecking(true); await checkForUpdate(true); setChecking(false); }}>Check for updates</Button>
         <Button size="sm" variant="ghost" icon={<Download size={14} />} onClick={() => void openExternal(`${REPO_URL}/releases`).catch(() => {})}>All versions</Button>
       </div>
-      <Toggle checked={auto} onChange={(v) => void s.setSetting("updateAuto", v)} label="Check for updates automatically" description="Once a day NEXUS asks whether a newer version has been published and tells you when there is one. You install it by running the new installer; your tasks, history and settings are kept." />
+      <Toggle checked={auto} onChange={(v) => void s.setSetting("updateAuto", v)} label="Check for updates automatically" description="Once a day NEXUS asks whether a newer version has been published and tells you when there is one. “Install now” then updates NEXUS in one click, without the installer’s pages; your tasks, history and settings are kept." />
       <div className="rounded-xl border border-line p-3 flex flex-col gap-3">
         <div className="text-sm font-medium">What changed in each version</div>
         {CHANGELOG.map((r) => (

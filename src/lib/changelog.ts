@@ -11,6 +11,15 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.13",
+    date: "2026-11-25",
+    title: "One-click updates; more time for overdue tasks",
+    changes: [
+      "Install now: when a new version is out, one click downloads it, checks it and updates NEXUS without the installer's pages. NEXUS reopens by itself.",
+      "Extend an overdue task: a task that ran out of time can be given 15 minutes to 3 hours more, starting now. It stops being overdue and later tasks move along.",
+    ],
+  },
+  {
     version: "1.1.12",
     date: "2026-11-25",
     title: "Calendar opens at now; continuous system graph",

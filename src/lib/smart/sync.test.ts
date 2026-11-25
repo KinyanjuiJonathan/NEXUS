@@ -301,6 +301,28 @@ describe("extending and repeating a task", () => {
     expect(ev(main, a.event.id).endAt).toBe(at("2026-11-18T11:00"));
   });
 
+  it("an overdue task that ran out of time gets more from now, and is no longer overdue", async () => {
+    const { main, clock } = await setup();
+    const task = await main.getState().addTask({ title: "Write report", estimateMin: 60, dueAt: at("2026-11-18T09:00") }, { autoPlace: false });
+    const block = await main.getState().addEvent({ title: "Write report", startAt: at("2026-11-18T08:00"), endAt: at("2026-11-18T09:00"), taskId: task.id, fixed: false });
+    const next = await plan(main, "Review budget", "2026-11-18T10:15", "2026-11-18T11:15");
+    clock.now = at("2026-11-18T10:00");
+    expect(await main.getState().giveMoreTime(task.id, 60 * MIN)).toBe(true);
+    expect(ev(main, block.id)).toMatchObject({ startAt: at("2026-11-18T08:00"), endAt: at("2026-11-18T11:00") });
+    expect(ev(main, block.id).sched).toMatchObject({ targetMs: 60 * MIN, attention: null }); // nothing was clocked: the hour added is what is left to do
+    expect(main.getState().tasks.find((t) => t.id === task.id)!.dueAt).toBe(at("2026-11-18T11:00"));
+    expect(ev(main, next.event.id)).toMatchObject({ startAt: at("2026-11-18T11:00"), endAt: at("2026-11-18T12:00") });
+  });
+
+  it("an overdue task with no time reserved gets a block starting now", async () => {
+    const { main } = await setup();
+    const task = await main.getState().addTask({ title: "Renew licence", dueAt: at("2026-11-18T09:00") }, { autoPlace: false });
+    expect(await main.getState().giveMoreTime(task.id, 30 * MIN)).toBe(true);
+    const block = main.getState().events.find((e) => e.taskId === task.id && !e.deletedAt)!;
+    expect(block).toMatchObject({ startAt: at("2026-11-18T10:00"), endAt: at("2026-11-18T10:30"), fixed: false });
+    expect(main.getState().tasks.find((t) => t.id === task.id)!.dueAt).toBe(at("2026-11-18T10:30"));
+  });
+
   it("repeating an open task adds one more session straight after it and moves the rest along", async () => {
     const { main } = await setup();
     const a = await plan(main, "Write report", "2026-11-18T10:00", "2026-11-18T11:00");

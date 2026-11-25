@@ -2,6 +2,14 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.13 (25 November 2026)
+
+**One-click updates; more time for overdue tasks**
+- **Fewer pop-ups when updating.** The "new version is available" notice now has **Install now**. NEXUS downloads the installer from its own releases page, checks it against the checksum published for it, and runs it in passive mode: a progress bar and nothing to click (no welcome, folder or finish pages, no "close NEXUS first" question). NEXUS closes, updates and opens again by itself, with your data kept. If the download or the check fails, nothing is installed and the notice offers the download page instead.
+- This starts working for the update *after* this one: you still install v1.1.13 the usual way, and later versions can be installed with one click. Running the installer by hand still shows its normal pages.
+- **Extend a task that ran out of time.** Overdue tasks get an **Extend** button (the queue, the task list, and "Missed" on the Dashboard): +15 min, +30 min, +1 hour, +2 hours or +3 hours, counted from now. The task's block is extended to then, it stops being overdue, and the tasks after it move along in the same order. An overdue task that never had time reserved gets a block starting now.
+- Extending now keeps the work clock honest: time already clocked stays, and the time added is what is left to do.
+
 ## v1.1.12 (25 November 2026)
 
 **Calendar opens at now; continuous system graph**
