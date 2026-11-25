@@ -488,6 +488,12 @@ export function planRipple(tasks: Task[], events: CalendarEvent[], now: number, 
   return moves;
 }
 
+/** The first free working time of `dur` from now on: for one more session of a task. */
+export function nextFree(events: CalendarEvent[], now: number, s: RescheduleSettings, dur: number): Interval | null {
+  const to = now + 2 * HORIZON;
+  return firstFit(workingWindows(now, to, s), busyIntervals(events, now, to, Math.max(0, s.bufferMin) * MIN, undefined, s.routine), dur, now);
+}
+
 /** How far ahead finishing early reaches: the tasks of the day ahead come forward, later days stay as planned. */
 export const PULL_AHEAD_MS = 18 * 60 * MIN;
 

@@ -1,6 +1,7 @@
 import type { TyperOptions } from "@/lib/typer/engine";
 import type { WorkPlans, WorkWeek } from "@/lib/workPlan";
 import type { Routine } from "@/lib/routine";
+import type { AmbientSettings } from "@/lib/ambient";
 
 /** fifo: in the order tasks were added. priority: critical first. shortest: quickest first. deadline: nearest deadline first. */
 export type SchedOrder = "fifo" | "priority" | "shortest" | "deadline";
@@ -279,6 +280,8 @@ export interface Settings {
   workWeek: WorkWeek;
   /** Look for a newer version once a day and say when there is one. */
   updateAuto: boolean;
+  /** Ambient mode: drift between overview pages when the app is left alone. */
+  ambient: AmbientSettings;
   /** The version that ran last time, to notice an update. */
   lastVersion: string | null;
   /** The version in use before the current one. */

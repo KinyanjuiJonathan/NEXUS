@@ -3,7 +3,10 @@ import { DateTime } from "luxon";
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ArrowDownUp, CalendarClock, Check, ChevronDown, ChevronRight, ChevronUp, Flag, GripVertical, ListChecks, Lock, ListTodo, Play } from "lucide-react";
+import { ArrowDownUp, CalendarClock, Check, ChevronDown, ChevronRight, ChevronUp, Flag, GripVertical, ListChecks, Lock, ListTodo, Play, CopyPlus, TimerReset } from "lucide-react";
+import { askExtend, askRepeat } from "./taskActions";
+import { HEAT_CLASS, deadlineHeat } from "@/lib/deadline";
+import { HeatChip, HeatFuse } from "./Deadline";
 import type { SchedOrder, Task } from "@/data/types";
 import { useNexus, nexus } from "@/store";
 import { useUI } from "@/store/ui";
@@ -40,11 +43,12 @@ function QueueRow({ row, n, total, now, zone, hour12, task, open: expanded, onTo
   // A task opens as the task (title, notes, subtasks and checklist); a fixed appointment opens as the appointment.
   const open = () => (i.taskId ? useUI.getState().openTask(i.taskId) : i.eventId ? useUI.getState().openEvent(i.eventId) : undefined);
   const canExpand = !!task && (subs.length > 0 || !!unit);
+  const heat = deadlineHeat(task, now, end);
   return (
     <li
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition, zIndex: isDragging ? 20 : undefined }}
-      className={cx("rounded-xl border border-line bg-[var(--bg-2)] min-w-0 transition-[border-color,box-shadow]", "hover:border-[color-mix(in_oklab,var(--accent)_45%,var(--border))]", i.status === "now" && "bg-[color-mix(in_oklab,var(--success)_8%,var(--bg-2))]", isDragging && "border-accent shadow-[0_8px_30px_rgba(0,0,0,0.45),0_0_0_1px_var(--accent)]")}
+      className={cx("relative rounded-xl border border-line bg-[var(--bg-2)] min-w-0 transition-[border-color,box-shadow]", !isDragging && HEAT_CLASS[heat.heat], "hover:border-[color-mix(in_oklab,var(--accent)_45%,var(--border))]", i.status === "now" && "bg-[color-mix(in_oklab,var(--success)_8%,var(--bg-2))]", isDragging && "border-accent shadow-[0_8px_30px_rgba(0,0,0,0.45),0_0_0_1px_var(--accent)]")}
     >
     <div
       className={cx(
@@ -69,6 +73,7 @@ function QueueRow({ row, n, total, now, zone, hour12, task, open: expanded, onTo
           {unit && unit.blocks.length > 1 ? ` · ${unit.blocks.length} parts, ${hoursMinutes(unit.durationMs)}` : ""} · <span style={{ color: i.status === "upcoming" ? undefined : color }}>{untilLabel(i, now)}</span>
         </div>
       </button>
+      <HeatChip info={heat} className="shrink-0" />
       {canExpand && (
         <button type="button" onClick={onToggle} aria-expanded={expanded} title={subs.length ? `${doneSubs} of ${subs.length} subtasks done · show checklist and actions` : "Show actions"} className={cx("shrink-0 h-6 px-1.5 rounded-lg flex items-center gap-1 text-[11px] tabular transition", expanded ? "text-accent bg-[color-mix(in_oklab,var(--accent)_12%,transparent)]" : "text-muted hover:text-fg hover:bg-hover")}>
           {subs.length > 0 && <><ListChecks size={12} />{doneSubs}/{subs.length}</>}
@@ -116,10 +121,13 @@ function QueueRow({ row, n, total, now, zone, hour12, task, open: expanded, onTo
             {SHIFTS.map(([label, ms]) => (
               <button key={label} type="button" onClick={() => void nexus().shiftTask(unit.blocks[0].id, ms)} title={`Move it exactly ${label.replace(/^[+−]/, "")} ${ms > 0 ? "later" : "earlier"}; the tasks after it follow`} className="h-6 px-2 rounded-lg border border-line text-[11px] font-medium text-fg-2 hover:text-accent hover:border-accent transition tabular">{label}</button>
             ))}
+            <button type="button" onClick={() => void askExtend(unit.blocks[unit.blocks.length - 1].id, task.title)} title="Give this task more time; the tasks after it move along" className="h-6 px-2 rounded-lg border border-line text-[11px] font-medium text-fg-2 hover:text-accent hover:border-accent transition flex items-center gap-1"><TimerReset size={11} />Extend</button>
+            <button type="button" onClick={() => void askRepeat(task.id, task.title, false)} title="Add one more session of this task" className="h-6 px-2 rounded-lg border border-line text-[11px] font-medium text-fg-2 hover:text-accent hover:border-accent transition flex items-center gap-1"><CopyPlus size={11} />Repeat</button>
           </div>
         )}
       </div>
     )}
+    <HeatFuse info={heat} />
     </li>
   );
 }

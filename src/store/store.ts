@@ -25,10 +25,11 @@ import { nextOccurrence } from "@/lib/recurrence";
 import * as cd from "@/lib/countdown";
 import { reminderForTimer, remindersForEvent, remindersForTask } from "@/lib/reminders";
 import { activeSession, openPause } from "@/lib/work";
-import { freeFrom, planPullForward, planBulk, planDisplaced, planMerges, planQueueOrder, planRipple, planUnfinished, queueUnits, sortedQueue, type BulkTarget, type Move, type RescheduleSettings, type UnitPlan } from "@/lib/smart/reschedule";
+import { freeFrom, nextFree, planPullForward, planBulk, planDisplaced, planMerges, planQueueOrder, planRipple, planUnfinished, queueUnits, sortedQueue, type BulkTarget, type Move, type RescheduleSettings, type UnitPlan } from "@/lib/smart/reschedule";
 import { blockClock, currentBlock, unclockedMs } from "@/lib/taskClock";
 import { dayKey, prunePlans, workHours, type DayPlan } from "@/lib/workPlan";
 import { closeStraySessions } from "@/lib/work";
+import { DEFAULT_AMBIENT, normalizeAmbient } from "@/lib/ambient";
 import { DEFAULT_ROUTINE, SLEEP_CHECK_MS, countAsSleep, isAdminTask, nextSleep, normalizeRoutine, postponeSleep } from "@/lib/routine";
 import type { ScheduleRequest } from "@/lib/smart/parse";
 import type { Interval } from "@/lib/schedule";
@@ -49,6 +50,7 @@ export const DEFAULT_SETTINGS: Settings = {
   workPlans: {},
   workWeek: {},
   updateAuto: true,
+  ambient: DEFAULT_AMBIENT,
   lastVersion: null,
   previousVersion: null,
   routine: DEFAULT_ROUTINE,
@@ -243,6 +245,13 @@ export interface NexusState {
   countAway(eventId: string): Promise<number>;
   /** Move a task's block later (or earlier) by exactly this much; the tasks after it are pushed along in order. */
   shiftTask(eventId: string, byMs: number): Promise<boolean>;
+  /** Give a task's block more time (or less, with a negative amount). The tasks after it move along in the same order. */
+  extendTask(eventId: string, byMs: number): Promise<boolean>;
+  /**
+   * One more session of a task, as long as its last one. "after": straight after its current time (or now),
+   * pushing what follows. "free": in the next free working time, moving nothing. A finished task is repeated as a new copy.
+   */
+  repeatTask(taskId: string, mode: "after" | "free"): Promise<CalendarEvent | null>;
   /** Start this queued task now. The task under way gives up its place: what is left of it follows straight after. */
   startTaskNow(taskId: string): Promise<boolean>;
   /** Reorganise the queue by a scheduling order (the one in Settings when none is given). */
@@ -278,6 +287,7 @@ function mergeSettings(raw: Partial<Settings>): Settings {
   if (s.texasZone !== "America/Chicago" && s.texasZone !== "America/Denver") s.texasZone = TEXAS_CENTRAL;
   s.homeZone = normalizeZone(s.homeZone, localZone());
   s.routine = normalizeRoutine(raw.routine);
+  s.ambient = normalizeAmbient(raw.ambient);
   return s;
 }
 
@@ -1543,6 +1553,80 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
         get().log("task_rescheduled", e.title, `${byMs > 0 ? "Pushed" : "Pulled"} ${humanDuration(Math.abs(byMs))}: ${formatWithZone(e.startAt, s.homeZone, s.hour12)} → ${formatWithZone(to.start, s.homeZone, s.hour12)}`, e.taskId);
         announce(`Moved ${humanDuration(Math.abs(byMs))} ${byMs > 0 ? "later" : "earlier"}`, before, to.start !== want ? "Something fixed was in the way, so it starts right after it." : "");
         return true;
+      },
+
+      async extendTask(eventId, byMs) {
+        const e = get().events.find((x) => x.id === eventId);
+        if (!e || e.deletedAt || e.recurrence || !e.taskId || !byMs) return false;
+        const ts = now();
+        const s = get().settings;
+        // a block whose time has passed is extended from now: the extra time is ahead, not in the past
+        const end = byMs > 0 ? Math.max(e.endAt, ts) + byMs : Math.max(e.startAt + 5 * 60_000, e.endAt + byMs);
+        if (end === e.endAt) return false;
+        const task = get().tasks.find((t) => t.id === e.taskId);
+        const clash = byMs > 0 ? get().events.find((x) => x.id !== e.id && x.fixed && !x.deletedAt && !x.recurrence && x.startAt < end && x.endAt > Math.max(e.endAt, ts)) : undefined;
+        const before = get().events;
+        const shown = new Set(get().toasts.map((x) => x.id));
+        await get().updateEvent(e.id, { endAt: end });
+        // one notice for the whole change, not one for the task and another for what moved
+        for (const x of get().toasts) if (!shown.has(x.id) && /later tasks? moved along/.test(x.title)) get().dismissToast(x.id);
+        const moved = describeChanges(before).filter((l) => !l.startsWith(`${e.title}:`));
+        if (task && task.estimateMin != null) await saveTask({ ...get().tasks.find((t) => t.id === task.id)!, estimateMin: Math.max(5, task.estimateMin + Math.round((end - e.endAt) / 60_000)), updatedAt: now() });
+        get().log("task_rescheduled", e.title, `${byMs > 0 ? "Extended" : "Shortened"} by ${humanDuration(Math.abs(end - e.endAt))} · now ends ${formatWithZone(end, s.homeZone, s.hour12)}`, e.taskId);
+        get().toast({
+          kind: clash ? "warning" : "success",
+          title: `${byMs > 0 ? "Extended" : "Shortened"} by ${humanDuration(Math.abs(end - e.endAt))}`,
+          body: `“${e.title}” now ends at ${formatTime(end, s.homeZone, s.hour12)}.${clash ? ` It now runs into “${clash.title}”, which is fixed and was not moved.` : ""}${moved.length ? `\n${moved.length} later task${moved.length === 1 ? "" : "s"} moved along:\n${moved.slice(0, 3).join("\n")}${moved.length > 3 ? `\n+ ${moved.length - 3} more` : ""}` : ""}`,
+          action: {
+            label: "Undo",
+            run: () => void (async () => {
+              await restoreEvents(before);
+              const t = get().tasks.find((x) => x.id === e.taskId);
+              if (t && task) await saveTask({ ...t, estimateMin: task.estimateMin, updatedAt: now() });
+            })(),
+          },
+          ttl: 12_000,
+        });
+        return true;
+      },
+
+      async repeatTask(taskId, mode) {
+        const src = get().tasks.find((t) => t.id === taskId && !t.deletedAt);
+        if (!src) return null;
+        const ts = now();
+        const s = get().settings;
+        const all = blocksOf(taskId).filter((e) => !e.recurrence).sort((a, b) => a.endAt - b.endAt);
+        const last = all.at(-1);
+        const dur = Math.max(15 * 60_000, last ? last.endAt - last.startAt : (src.estimateMin ?? 60) * 60_000);
+        // a finished task is done again as a new task; an open one simply gets one more session
+        const task = src.status === "done"
+          ? await get().addTask({ title: src.title, notes: src.notes, priority: src.priority, categoryId: src.categoryId, estimateMin: Math.round(dur / 60_000), subtasks: src.subtasks.map((x) => ({ ...x, done: false })), reminders: [] }, { autoPlace: false })
+          : src;
+        const before = get().events;
+        const live = blocksOf(task.id).filter((e) => !e.deletedAt && !e.recurrence && e.endAt > ts);
+        const from = Math.max(ts, ...live.map((e) => e.endAt));
+        const queue = new Set(get().events.filter(flexibleBlock).map((x) => x.id));
+        const to = mode === "free" ? nextFree(get().events, from, get().slotSettings(), dur) ?? freeFrom(get().events, ts, get().slotSettings(), from, dur, new Set()) : freeFrom(get().events, ts, get().slotSettings(), from, dur, queue);
+        const ev = await get().addEvent({ title: task.title, startAt: to.start, endAt: to.end, taskId: task.id, fixed: false, reminders: [], sched: { origin: "user", moves: 0 } });
+        if (mode === "after") await ripple(ev, ev, before, true);
+        if (task.id === src.id && task.estimateMin != null) await saveTask({ ...get().tasks.find((t) => t.id === task.id)!, estimateMin: task.estimateMin + Math.round(dur / 60_000), updatedAt: now() });
+        get().log("task_rescheduled", task.title, `Repeated · ${formatWithZone(to.start, s.homeZone, s.hour12)} for ${humanDuration(dur)}`, task.id);
+        const moved = describeChanges(before);
+        get().toast({
+          kind: "success",
+          title: src.status === "done" ? "Task repeated" : "One more session added",
+          body: `“${task.title}” · ${formatWithZone(to.start, s.homeZone, s.hour12)} for ${humanDuration(dur)}.${moved.length ? `\n${moved.length} later task${moved.length === 1 ? "" : "s"} moved along:\n${moved.slice(0, 3).join("\n")}` : ""}`,
+          action: {
+            label: "Undo",
+            run: () => void (async () => {
+              await saveEvent({ ...ev, deletedAt: now(), updatedAt: now() });
+              await restoreEvents(before);
+              if (task.id !== src.id) await get().deleteTask(task.id);
+            })(),
+          },
+          ttl: 10_000,
+        });
+        return ev;
       },
 
       async startTaskNow(taskId) {

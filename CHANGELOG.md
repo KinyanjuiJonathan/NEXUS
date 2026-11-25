@@ -2,6 +2,16 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.10 (25 November 2026)
+
+**Extend, repeat, deadline glow and ambient mode**
+- **Extend a task.** The task under way (Dashboard), any task in the queue (open its row), gets an **Extend** button: +15 min, +30 min, +1 hour, +2 hours or +3 hours. Its block grows by that much and the tasks after it move along in the same order. One notice lists what moved, with Undo. A block whose time has already passed is extended from now. Fixed appointments are never moved; you are told if the extension runs into one.
+- **Repeat a task.** The **Repeat** button (task rows, the queue, the current task) adds one more session as long as the last one. *Right after* puts it straight after the task's current time, or now, and moves later tasks along. *Next free time* finds a gap and moves nothing. A finished task is repeated as a new open task with the same details and an unticked checklist. Undo removes it again.
+- **Deadline glow.** A task heats up as its deadline comes closer: amber and slow within a day, orange and quicker within two hours, red and fast once late. It is also orange when the time reserved for it ends after its deadline. The same glow, running light and flame icon appear on task rows, the queue, calendar blocks, the calendar's task chips and the agenda. A thin line along the bottom of a row fills as the last day runs out.
+- **Deadline radar.** A strip on the Dashboard and above the Calendar lists the tasks that are running out, most urgent first, each with a ring that empties as time goes. It is hidden when nothing is close.
+- **Ambient mode.** After 3 minutes without mouse or keyboard, NEXUS moves between Dashboard, Calendar, Tasks, World Clocks and Insights every 30 seconds, with slow, varied transitions and soft moving light behind the page. Moving the mouse or pressing a key returns you to the page you were on. It never starts with a dialog open, while a field has the cursor, or from Accounts, the Auto Typer, the Assistant or Settings. Settings → Appearance: turn it off, choose the idle time, the time per page and the pages, or preview it.
+- With "Reduce motion" on, deadline levels are shown as a steady coloured outline and ambient transitions are plain.
+
 ## v1.1.9 (24 November 2026)
 
 **A rescheduled task is no longer overdue**

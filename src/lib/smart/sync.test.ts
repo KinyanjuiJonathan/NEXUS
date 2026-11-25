@@ -273,6 +273,60 @@ describe("giving an overdue task a new time", () => {
   });
 });
 
+describe("extending and repeating a task", () => {
+  const plan = async (main: Awaited<ReturnType<typeof setup>>["main"], title: string, from: string, to: string) => {
+    const task = await main.getState().addTask({ title, estimateMin: 60 }, { autoPlace: false });
+    const event = await main.getState().addEvent({ title, startAt: at(from), endAt: at(to), taskId: task.id, fixed: false });
+    return { task, event };
+  };
+  const ev = (main: Awaited<ReturnType<typeof setup>>["main"], id: string) => main.getState().events.find((e) => e.id === id)!;
+
+  it("extending gives the block more time and pushes what follows by the same amount", async () => {
+    const { main, clock } = await setup();
+    const a = await plan(main, "Write report", "2026-11-18T10:00", "2026-11-18T11:00");
+    const b = await plan(main, "Review budget", "2026-11-18T11:00", "2026-11-18T12:00");
+    clock.now = at("2026-11-18T10:30");
+    expect(await main.getState().extendTask(a.event.id, 30 * MIN)).toBe(true);
+    expect(ev(main, a.event.id)).toMatchObject({ startAt: at("2026-11-18T10:00"), endAt: at("2026-11-18T11:30") });
+    expect(ev(main, b.event.id)).toMatchObject({ startAt: at("2026-11-18T11:30"), endAt: at("2026-11-18T12:30") });
+    expect(main.getState().tasks.find((t) => t.id === a.task.id)!.estimateMin).toBe(90);
+    expect(main.getState().toasts.at(-1)!.title).toBe("Extended by 30 min");
+  });
+
+  it("a block whose time has passed is extended from now", async () => {
+    const { main, clock } = await setup();
+    const a = await plan(main, "Write report", "2026-11-18T08:00", "2026-11-18T09:00");
+    clock.now = at("2026-11-18T10:00");
+    await main.getState().extendTask(a.event.id, 60 * MIN);
+    expect(ev(main, a.event.id).endAt).toBe(at("2026-11-18T11:00"));
+  });
+
+  it("repeating an open task adds one more session straight after it and moves the rest along", async () => {
+    const { main } = await setup();
+    const a = await plan(main, "Write report", "2026-11-18T10:00", "2026-11-18T11:00");
+    const b = await plan(main, "Review budget", "2026-11-18T11:00", "2026-11-18T12:00");
+    const again = (await main.getState().repeatTask(a.task.id, "after"))!;
+    expect(again).toMatchObject({ taskId: a.task.id, startAt: at("2026-11-18T11:00"), endAt: at("2026-11-18T12:00"), fixed: false });
+    expect(ev(main, b.event.id)).toMatchObject({ startAt: at("2026-11-18T12:00"), endAt: at("2026-11-18T13:00") });
+    expect(main.getState().tasks.filter((t) => !t.deletedAt)).toHaveLength(2);
+  });
+
+  it("repeating a finished task makes a new open copy in the next free time, and moves nothing", async () => {
+    const { main, clock } = await setup();
+    const a = await plan(main, "Write report", "2026-11-18T10:00", "2026-11-18T11:00");
+    const b = await plan(main, "Review budget", "2026-11-18T11:00", "2026-11-18T12:00");
+    clock.now = at("2026-11-18T11:00");
+    await main.getState().setTaskDone(a.task.id, true);
+    const again = (await main.getState().repeatTask(a.task.id, "free"))!;
+    const copy = main.getState().tasks.find((t) => t.id === again.taskId)!;
+    expect(copy.id).not.toBe(a.task.id);
+    expect(copy).toMatchObject({ title: "Write report", status: "todo" });
+    expect(again.endAt - again.startAt).toBe(60 * MIN);
+    expect(again.startAt).toBeGreaterThanOrEqual(at("2026-11-18T12:00")); // after what is already planned
+    expect(ev(main, b.event.id)).toMatchObject({ startAt: at("2026-11-18T11:00") });
+  });
+});
+
 describe("the pop-up's schedule list", () => {
   it("is chronological, tells fixed from flexible, and highlights what is now, next and overdue", async () => {
     const { main, say, clock } = await setup();

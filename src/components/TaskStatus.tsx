@@ -1,4 +1,5 @@
-import { CheckCircle2, LogIn, Play, Repeat2 } from "lucide-react";
+import { CheckCircle2, CopyPlus, LogIn, Play, Repeat2, TimerReset } from "lucide-react";
+import { askExtend, askRepeat } from "./taskActions";
 import { queueUnits } from "@/lib/smart/reschedule";
 import { choose } from "./Confirm";
 import type { CalendarEvent, Task } from "@/data/types";
@@ -75,6 +76,8 @@ export function CurrentTaskStatus({ event, task, now, compact }: { event: Calend
           </Button>
         )}
         <Button size="sm" variant="outline" icon={<CheckCircle2 size={13} />} onClick={() => void confirmComplete(task.id)}>Complete</Button>
+        <Button size="sm" variant="ghost" icon={<TimerReset size={13} />} onClick={() => void askExtend(event.id, task.title)} title="Extend: give this task more time; the tasks after it move along" aria-label="Extend this task" className="!px-2">{compact ? null : "Extend"}</Button>
+        <Button size="sm" variant="ghost" icon={<CopyPlus size={13} />} onClick={() => void askRepeat(task.id, task.title, false)} title="Repeat: add one more session of this task" aria-label="Repeat this task" className="!px-2" />
         {next.length > 0 && (
           <Button size="sm" variant="ghost" icon={<Repeat2 size={13} />} onClick={() => void switchTask()} title="Switch: work on another task from the queue now; this one continues afterwards" aria-label="Switch to another task" className="!px-2" />
         )}

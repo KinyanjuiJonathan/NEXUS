@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect } from "react";
 import { useUpdates } from "@/components/Updates";
+import { AmbientLayer, pageMotion, useAmbient } from "@/components/Ambient";
 import { formatTime } from "@/lib/time";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { useNexus, nexus, getBackend } from "@/store";
@@ -68,6 +69,7 @@ export default function App() {
   useUpdates();
   const { theme, reducedMotion, error, idleMinutes, ready } = useNexus((s) => ({ theme: s.settings.theme, reducedMotion: s.settings.reducedMotion, error: s.error, idleMinutes: s.settings.idleMinutes, ready: s.ready }));
   const view = useUI((s) => s.view);
+  const ambient = useAmbient();
   useTheme(theme, reducedMotion);
 
   // Reveal the native window once the first frame is ready.
@@ -226,7 +228,8 @@ export default function App() {
   const Current = VIEWS[view];
   return (
     <MotionConfig reducedMotion={reducedMotion ? "always" : "user"}>
-      <div className="app-bg h-full flex flex-col text-fg">
+      <div className={`app-bg h-full flex flex-col text-fg${ambient.active ? " ambient-on" : ""}`}>
+        <AmbientLayer state={ambient} />
         <div className="pointer-events-none fixed inset-0 grid-bg opacity-60" />
         <TitleBar />
         {error ? (
@@ -242,9 +245,9 @@ export default function App() {
         ) : (
         <div className="relative flex-1 flex min-h-0">
           <Sidebar />
-          <main className="flex-1 min-w-0 scroll-y" id="main">
+          <main className="flex-1 min-w-0 scroll-y" id="main" style={ambient.active ? { perspective: 1400 } : undefined}>
             <AnimatePresence mode="wait">
-              <motion.div key={view} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18 }} className="p-5 lg:p-7 max-w-[1500px] mx-auto">
+              <motion.div key={view} {...pageMotion(ambient)} className="p-5 lg:p-7 max-w-[1500px] mx-auto">
                 <Suspense fallback={<div className="h-40 rounded-2xl shimmer" />}>
                   <Current />
                 </Suspense>

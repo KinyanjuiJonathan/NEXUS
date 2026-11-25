@@ -15,6 +15,7 @@ import { voiceSupported, webSpeechAvailable } from "@/lib/voice/engine";
 import { clampOpacity } from "@/lib/overlayGeometry";
 import { Button, Card, CardHeader, Field, Input, Kbd, Segmented, Select, Toggle, cx } from "@/components/ui";
 import { useUI } from "@/store/ui";
+import { AMBIENT_PAGES } from "@/lib/ambient";
 import { UpdatesAndFeedback } from "@/components/Updates";
 import { ReminderPicker } from "@/components/ReminderPicker";
 import { confirm } from "@/components/Confirm";
@@ -138,6 +139,34 @@ export default function SettingsView() {
           <Segmented value={settings.hour12 ? "12" : "24"} onChange={(v) => set("hour12", v === "12")} options={[{ value: "12", label: "12-hour" }, { value: "24", label: "24-hour" }]} />
         </div>
         <Toggle checked={settings.reducedMotion} onChange={(v) => set("reducedMotion", v)} label="Reduce motion" description="Minimise animations (also follows Windows' animation setting)." />
+        <Toggle checked={settings.ambient.enabled} onChange={(v) => set("ambient", { ...settings.ambient, enabled: v })} label="Ambient mode" description="When NEXUS is left alone, it drifts from page to page like a live wallpaper. Moving the mouse or pressing a key brings you straight back to the page you were on. It never starts with a dialog open, while you are typing, or from Accounts, the Auto Typer, the Assistant or Settings." />
+        {settings.ambient.enabled && (
+          <div className="flex flex-col gap-3 pl-1">
+            <div className="flex flex-wrap items-end gap-3">
+              <Field label="Start after">
+                <Select className="!w-36" value={settings.ambient.idleMin} onChange={(e) => set("ambient", { ...settings.ambient, idleMin: Number(e.target.value) })}>
+                  {[1, 2, 3, 5, 10, 15, 30].map((m) => <option key={m} value={m}>{m} min idle</option>)}
+                </Select>
+              </Field>
+              <Field label="Stay on each page">
+                <Select className="!w-36" value={settings.ambient.everySec} onChange={(e) => set("ambient", { ...settings.ambient, everySec: Number(e.target.value) })}>
+                  {[15, 20, 30, 45, 60, 120, 300].map((x) => <option key={x} value={x}>{x < 60 ? `${x} seconds` : `${x / 60} min`}</option>)}
+                </Select>
+              </Field>
+              <Button variant="soft" onClick={() => useUI.getState().previewAmbient()}>Preview now</Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-muted mr-1">Pages:</span>
+              {AMBIENT_PAGES.map((p) => {
+                const on = settings.ambient.pages.includes(p.view);
+                const pages = on ? settings.ambient.pages.filter((v) => v !== p.view) : AMBIENT_PAGES.map((x) => x.view).filter((v) => v === p.view || settings.ambient.pages.includes(v));
+                return (
+                  <button key={p.view} type="button" aria-pressed={on} disabled={on && settings.ambient.pages.length <= 2} onClick={() => set("ambient", { ...settings.ambient, pages })} className={cx("h-7 px-2.5 rounded-lg border text-xs font-medium transition disabled:opacity-60", on ? "border-accent text-accent bg-[color-mix(in_oklab,var(--accent)_10%,transparent)]" : "border-line text-muted hover:text-fg")}>{p.label}</button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </Section>
 
       <Section id="zones" title="Time zones & working hours" icon={<Globe size={16} />}>

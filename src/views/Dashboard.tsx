@@ -11,6 +11,7 @@ import { suggestNext, openTasks, scoreTask } from "@/lib/assistant";
 import { eventStatus, formatClock, humanDuration, progress, remainingMs, elapsedMs } from "@/lib/countdown";
 import { formatTime, formatWithZone, KENYA_ZONE, zoneAbbr } from "@/lib/time";
 import { DualClock } from "@/components/DualClock";
+import { DeadlineRadar } from "@/components/Deadline";
 import { GettingStarted } from "@/components/GettingStarted";
 import { WorkClockCard } from "@/components/WorkClock";
 import { SystemMonitor } from "@/components/SystemMonitor";
@@ -79,6 +80,9 @@ export default function Dashboard() {
 
       {/* Level 2: Kenya and Texas time. */}
       <DualClock hour12={settings.hour12} texasZone={settings.texasZone} />
+
+      {/* Tasks close to their deadline, when there are any. */}
+      <DeadlineRadar now={now} />
 
       {/* Level 3: work clock, next appointment and today's progress on one line. */}
       <div className="grid gap-4 md:grid-cols-3">

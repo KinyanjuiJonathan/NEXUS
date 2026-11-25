@@ -286,6 +286,19 @@ Everything is configurable under *Settings → Smart Scheduling*: on/off, auto-r
 
 The overlay's **Schedule** section (Expanded mode) lists what is under way, coming up and overdue in time order, with the start time and the time remaining, a lock for fixed appointments, and a note when nothing is scheduled.
 
+### Extend and repeat
+
+- **Extend** (current task on the Dashboard, or a task's row in the queue): give it 15 minutes to 3 hours more. The tasks after it move along in the same order; fixed appointments stay.
+- **Repeat** (task rows, the queue, the current task): one more session as long as the last, either right after it or in the next free time. A finished task is repeated as a new task.
+
+### Deadline glow
+
+Tasks glow as their deadline approaches: amber within a day, orange within two hours (or when their planned time ends after the deadline), red once late. The glow is the same on task rows, the queue and the calendar, and the **Deadline radar** on the Dashboard and Calendar lists them, most urgent first.
+
+### Ambient mode
+
+Left alone for a few minutes, NEXUS drifts between its overview pages like a live wallpaper; any mouse movement or key press returns you to your page. Change or turn it off in Settings → Appearance.
+
 ## Completing tasks
 
 Marking a task complete always asks first: *Are you sure you want to mark "Repair Mineh's Phone" as completed?* with **Confirm Completion** and **Cancel**. This is the same in the To-Do list, the Dashboard, the Calendar and the floating overlay; voice and typed commands show what they will do and wait for confirmation too. Cancel changes nothing. After confirming, the completion time is recorded, every view updates, and the notification offers **Undo**. NEXUS never completes a task by itself.

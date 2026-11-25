@@ -32,6 +32,9 @@ interface UIState {
   openRescheduleAll(open: boolean): void;
   openAutoPlan(open: boolean): void;
   setView(v: View): void;
+  /** Raised to start ambient mode now (the preview button in Settings). */
+  ambientPreview: number;
+  previewAmbient(): void;
   openTask(taskId: string | null, defaults?: UIState["taskEditor"]["defaults"]): void;
   closeTask(): void;
   openEvent(eventId: string | null, draft?: EventDraft, occurrenceStart?: number): void;
@@ -60,6 +63,8 @@ export const useUI = create<UIState>((set) => ({
   snoozeWorkPlan: (workPlanSnooze) => set({ workPlanSnooze }),
   openRescheduleAll: (rescheduleAll) => set({ rescheduleAll }),
   setView: (view) => set({ view }),
+  ambientPreview: 0,
+  previewAmbient: () => set((s) => ({ ambientPreview: s.ambientPreview + 1 })),
   openTask: (taskId, defaults) => set({ taskEditor: { open: true, taskId, defaults } }),
   closeTask: () => set((s) => ({ taskEditor: { ...s.taskEditor, open: false } })),
   openEvent: (eventId, draft, occurrenceStart) => set({ eventEditor: { open: true, eventId, draft, occurrenceStart } }),

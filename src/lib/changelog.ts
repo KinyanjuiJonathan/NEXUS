@@ -11,6 +11,18 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.10",
+    date: "2026-11-25",
+    title: "Extend, repeat, deadline glow and ambient mode",
+    changes: [
+      "Extend: give a task 15 minutes to 3 hours more; the tasks after it move along in the same order.",
+      "Repeat: add one more session of a task, right after it or in the next free time. A finished task is repeated as a new one.",
+      "Tasks close to their deadline glow: amber within a day, orange within two hours, red once late, on the lists and on the calendar.",
+      "Deadline radar on the Dashboard and Calendar shows what is running out, most urgent first.",
+      "Ambient mode: left alone, NEXUS drifts between pages with smooth transitions; any input returns you to where you were.",
+    ],
+  },
+  {
     version: "1.1.9",
     date: "2026-11-24",
     title: "A rescheduled task is no longer overdue",
