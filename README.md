@@ -291,10 +291,6 @@ The overlay's **Schedule** section (Expanded mode) lists what is under way, comi
 - **Extend** (current task on the Dashboard, or a task's row in the queue): give it 15 minutes to 3 hours more. The tasks after it move along in the same order; fixed appointments stay.
 - **Repeat** (task rows, the queue, the current task): one more session as long as the last, either right after it or in the next free time. A finished task is repeated as a new task.
 
-### Deadline glow
-
-Tasks glow as their deadline approaches: amber within a day, orange within two hours (or when their planned time ends after the deadline), red once late. The glow is the same on task rows, the queue and the calendar, and the **Deadline radar** on the Dashboard and Calendar lists them, most urgent first.
-
 ### Ambient mode
 
 Left alone for a few minutes, NEXUS drifts between its overview pages like a live wallpaper; any mouse movement or key press returns you to your page. Change or turn it off in Settings → Appearance.

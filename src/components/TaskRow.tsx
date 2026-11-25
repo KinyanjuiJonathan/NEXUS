@@ -12,8 +12,6 @@ import { CategoryIcon, PRIORITY_META, URGENCY_COLOR, categoryOf } from "./meta";
 import { choose } from "./Confirm";
 import { confirmComplete } from "./complete";
 import { askRepeat } from "./taskActions";
-import { HEAT_CLASS, deadlineHeat } from "@/lib/deadline";
-import { HeatFuse, HeatIcon } from "./Deadline";
 
 /** The time reserved on the calendar for a task, and whether NEXUS has moved it. */
 function PlannedTime({ taskId, now, hour12 }: { taskId: string; now: number; hour12: boolean }) {
@@ -58,8 +56,6 @@ export const TaskRow = memo(function TaskRow({ task: t, categories, now, hour12,
   const cat = categoryOf(categories, t.categoryId);
   const dl = deadlineInfo(t.dueAt, now, warnMin);
   const subDone = t.subtasks.filter((x) => x.done).length;
-  const plannedEnd = useNexus((st) => st.events.reduce((m, e) => (e.taskId === t.id && !e.deletedAt && !e.recurrence ? Math.max(m, e.endAt) : m), 0)) || null;
-  const heat = deadlineHeat(t, now, plannedEnd);
   const sve = spentVsEstimate(t.spentMs, t.estimateMin);
   const openTask = useUI.getState().openTask;
 
@@ -73,10 +69,8 @@ export const TaskRow = memo(function TaskRow({ task: t, categories, now, hour12,
         "group relative flex items-start gap-3 rounded-xl border px-3 py-2.5 transition-colors",
         active ? "border-accent bg-[color-mix(in_oklab,var(--accent)_8%,transparent)]" : "border-line bg-surface hover:border-line-strong",
         t.deletedAt && "opacity-70",
-        HEAT_CLASS[heat.heat],
       )}
     >
-      <HeatFuse info={heat} />
       <span className="absolute left-0 top-3 bottom-3 w-[3px] rounded-full" style={{ background: PRIORITY_META[t.priority].color }} />
       {dragHandle && (
         <button {...dragHandle} aria-label="Drag to reorder" className="mt-1 -ml-1 cursor-grab active:cursor-grabbing text-muted opacity-0 group-hover:opacity-60 hover:!opacity-100 touch-none">
@@ -110,7 +104,7 @@ export const TaskRow = memo(function TaskRow({ task: t, categories, now, hour12,
                 style={{ color: done ? undefined : URGENCY_COLOR[dl.urgency] }}
                 title={`${formatWithZone(t.dueAt, t.dueTz ?? KENYA_ZONE, hour12)} · KE ${formatTime(t.dueAt, KENYA_ZONE, hour12)} · TX ${formatTime(t.dueAt, texasZone, hour12)} ${zoneAbbr(texasZone, t.dueAt)}`}
               >
-                {done || heat.heat === "none" ? <Clock size={11} /> : <HeatIcon heat={heat.heat} />}
+                <Clock size={11} />
                 {done ? formatWithZone(t.dueAt, t.dueTz ?? KENYA_ZONE, hour12) : dl.label}
               </span>
             )}

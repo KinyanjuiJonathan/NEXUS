@@ -2,6 +2,13 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.11 (25 November 2026)
+
+**Deadline glow removed**
+- Removed the deadline visual effects added in v1.1.10: the amber/orange/red glow and moving light on task rows, the queue and calendar blocks, the flame icons and "time left" chips, the line along the bottom of rows, and the Deadline radar strip on the Dashboard and Calendar.
+- Unchanged: overdue tasks are still shown in red with the warning icon, and due times still show "Due in …" as before. Extend, Repeat and ambient mode stay.
+- The installer is still published as both `NEXUS_x.y.z_x64-setup.exe` (the usual one) and `.msi`.
+
 ## v1.1.10 (25 November 2026)
 
 **Extend, repeat, deadline glow and ambient mode**

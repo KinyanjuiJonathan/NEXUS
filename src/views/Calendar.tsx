@@ -2,9 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DateTime } from "luxon";
 import { hoursMinutes } from "@/lib/countdown";
 import { motion } from "framer-motion";
-import { ZoomIn, ZoomOut, Flame } from "lucide-react";
-import { HEAT_CLASS, HEAT_COLOR, deadlineHeat } from "@/lib/deadline";
-import { DeadlineRadar, HeatChip, HeatIcon } from "@/components/Deadline";
+import { ZoomIn, ZoomOut } from "lucide-react";
 import { CalendarClock, Check, ChevronLeft, ChevronRight, Flag, Globe2, Lock, Plus, Repeat, RotateCcw, Search, Star, TriangleAlert, Wand2 } from "lucide-react";
 import type { CalendarEvent, Category, Occurrence, Task } from "@/data/types";
 import { useNexus, nexus } from "@/store";
@@ -94,7 +92,6 @@ function TaskChip({ task, now, zone, hour12 }: { task: Task; now: number; zone: 
   const high = isHighPriority(task);
   const color = state === "done" ? "var(--muted)" : state === "overdue" ? "var(--danger)" : PRIORITY_META[task.priority].color;
   const label = state === "done" ? "Completed" : state === "overdue" ? "Overdue" : "Pending";
-  const heat = deadlineHeat(task, now);
   const toggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (state === "done") await nexus().setTaskDone(task.id, false);
@@ -108,7 +105,7 @@ function TaskChip({ task, now, zone, hour12 }: { task: Task; now: number; zone: 
         e.dataTransfer.effectAllowed = "move";
       }}
       onDoubleClick={(e) => e.stopPropagation()}
-      className={cx("group relative overflow-hidden flex items-center gap-1 rounded pl-1 pr-1.5 py-0.5 text-[11px] leading-tight min-w-0 shrink-0", state !== "done" && "cursor-grab", HEAT_CLASS[heat.heat])}
+      className={cx("group flex items-center gap-1 rounded pl-1 pr-1.5 py-0.5 text-[11px] leading-tight min-w-0 shrink-0", state !== "done" && "cursor-grab")}
       style={{ background: `color-mix(in oklab, ${color} ${state === "done" ? 8 : high || state === "overdue" ? 22 : 13}%, transparent)`, borderLeft: `2px solid ${color}` }}
       title={`${label}${high ? ` · ${PRIORITY_META[task.priority].label} priority` : ""} · due ${formatTime(task.dueAt!, zone, hour12)}\n${task.title}\nClick to open · tick to ${state === "done" ? "reopen" : "complete"} · drag to another day to reschedule`}
     >
@@ -122,7 +119,7 @@ function TaskChip({ task, now, zone, hour12 }: { task: Task; now: number; zone: 
         <Check size={9} strokeWidth={3.5} className={cx(state !== "done" && "opacity-0 group-hover:opacity-100")} />
       </button>
       <button type="button" onClick={() => useUI.getState().openTask(task.id)} className="flex items-center gap-1 min-w-0 flex-1 text-left hover:brightness-125" aria-label={`${task.title}, ${label.toLowerCase()}, due ${formatTime(task.dueAt!, zone, hour12)}. Open task`}>
-        {state === "overdue" ? <TriangleAlert size={10} className="heat-icon shrink-0 text-danger" aria-hidden /> : <HeatIcon heat={heat.heat} size={10} />}
+        {state === "overdue" && <TriangleAlert size={10} className="shrink-0 text-danger" aria-hidden />}
         {high && state !== "done" && <Flag size={10} className="shrink-0" style={{ color: PRIORITY_META[task.priority].color }} fill="currentColor" aria-hidden />}
         <span className="tabular shrink-0 text-muted">{formatTime(task.dueAt!, zone, hour12)}</span>
         <span className={cx("truncate", state === "done" ? "line-through text-muted" : state === "overdue" ? "text-danger font-medium" : "text-fg", high && state !== "done" && "font-semibold")}>{task.title}</span>
@@ -146,7 +143,6 @@ function Legend() {
       {item(<Lock size={11} className="text-fg-2" />, "fixed appointment")}
       {item(<span className="h-3 w-4 rounded-sm border border-dashed border-accent" />, "flexible")}
       {item(<RotateCcw size={11} className="text-warning" />, "auto-rescheduled")}
-      {item(<Flame size={11} style={{ color: HEAT_COLOR.close }} />, "glowing: deadline close (amber within a day, orange within 2 h, red late)")}
     </div>
   );
 }
@@ -631,8 +627,6 @@ function TimeGrid({
                     const badge = autoBadge(ev);
                     const history = moveHistory(ev, hour12);
                     const dim = !match(p.occ);
-                    // heating up: its task's deadline is near, or this block runs past it
-                    const heat = status === "upcoming" || status === "now" ? deadlineHeat(task, now, p.occ.end) : deadlineHeat(undefined, now);
                     return (
                       <div
                         key={ev.id + p.occ.start}
@@ -645,9 +639,8 @@ function TimeGrid({
                           "cal-block group/blk absolute rounded-lg border px-1.5 overflow-hidden cursor-grab select-none text-[11px] leading-tight touch-none z-10 hover:z-20",
                           tight ? "py-px" : "py-1",
                           fixed ? "cal-fixed" : "cal-flex",
-                          status === "now" && heat.heat === "none" && "cal-live",
+                          status === "now" && "cal-live",
                           (status === "done" || status === "past") && "cal-flat",
-                          !isDrag && HEAT_CLASS[heat.heat],
                           isDrag && "!opacity-30",
                           dim && "!opacity-20 saturate-50",
                         )}
@@ -660,13 +653,12 @@ function TimeGrid({
                           ["--c" as string]: color,
                           ["--m" as string]: `${status === "done" || status === "past" ? 8 : fixed ? 26 : 16}%`,
                         }}
-                        title={`${ev.title}\n${STATUS_LABEL[status]} · ${fixed ? "Fixed appointment — never moved automatically" : "Flexible — NEXUS may re-plan it"}\n${formatWithZone(p.occ.start, KENYA_ZONE, hour12)}\n${formatWithZone(p.occ.start, texasZone, hour12)}\nOriginal zone: ${ev.tz}${badge ? `\n${badge.text}${history.length ? `:\n${history.join("\n")}` : ""}` : ""}${heat.heat !== "none" ? `\nDeadline: ${heat.label}` : ""}\nDrag to move (hold Alt for exact minutes) · drag an edge to change its length`}
+                        title={`${ev.title}\n${STATUS_LABEL[status]} · ${fixed ? "Fixed appointment — never moved automatically" : "Flexible — NEXUS may re-plan it"}\n${formatWithZone(p.occ.start, KENYA_ZONE, hour12)}\n${formatWithZone(p.occ.start, texasZone, hour12)}\nOriginal zone: ${ev.tz}${badge ? `\n${badge.text}${history.length ? `:\n${history.join("\n")}` : ""}` : ""}\nDrag to move (hold Alt for exact minutes) · drag an edge to change its length`}
                       >
                         <div onPointerDown={(e) => onPointerDown(e, p.occ, "resize-start")} className="absolute left-0 right-0 top-0 h-1.5 cursor-ns-resize" aria-hidden />
                         <div className={cx("font-semibold truncate flex items-center gap-1", status === "done" ? "text-muted line-through" : status === "overdue" ? "text-danger" : "text-fg")}>
                           {status === "done" && <Check size={10} className="shrink-0 text-success" strokeWidth={3.5} aria-label="Completed" />}
                           {status === "overdue" && <TriangleAlert size={10} className="shrink-0 text-danger" aria-label="Overdue" />}
-                          <HeatIcon heat={heat.heat} size={10} />
                           {fixed && <Lock size={10} className="shrink-0 text-fg-2" aria-label="Fixed appointment" />}
                           {badge && status !== "done" && (badge.attention ? <TriangleAlert size={10} className="shrink-0 text-danger" aria-label={badge.text} /> : <RotateCcw size={10} className="shrink-0 text-warning" aria-label={badge.text} />)}
                           {ev.important && <Star size={10} className="text-warning shrink-0" fill="currentColor" />}
@@ -676,7 +668,7 @@ function TimeGrid({
                           {/* a short block still says when: the time sits beside the title */}
                           {tight && <span className="ml-auto pl-1 shrink-0 font-normal text-fg-2 tabular">{formatTime(p.occ.start, zone, hour12)}</span>}
                         </div>
-                        {!tight && <div className="text-fg-2 tabular truncate">{range(p.occ.start, p.occ.end)}{heat.heat !== "none" && <span className="ml-1 font-semibold" style={{ color: HEAT_COLOR[heat.heat] }}>· {heat.label}</span>}</div>}
+                        {!tight && <div className="text-fg-2 tabular truncate">{range(p.occ.start, p.occ.end)}</div>}
                         {p.height > 58 && (
                           <div className="text-muted tabular truncate">
                             KE {formatTime(p.occ.start, KENYA_ZONE, hour12)} · TX {formatTime(p.occ.start, texasZone, hour12)}
@@ -793,7 +785,6 @@ function AgendaList({ from, zone, events, tasks, allTasks, now, hour12, match, m
                       <span className="w-[124px] shrink-0 text-[11px] tabular text-fg-2">{formatTime(o.start, zone, hour12)} – {formatTime(o.end, zone, hour12)}</span>
                       {o.event.fixed ? <Lock size={12} className="shrink-0 text-fg-2" aria-label="Fixed appointment" /> : <CalendarClock size={12} className="shrink-0 text-accent" aria-label="Flexible task" />}
                       <button type="button" className={cx("min-w-0 flex-1 text-left text-sm font-medium truncate hover:text-accent", status === "done" && "line-through text-muted")} onClick={() => ui.openEvent(o.event.id, undefined, o.seriesStart)}>{o.event.title}</button>
-                      {(status === "upcoming" || status === "now") && <HeatChip info={deadlineHeat(task, now, o.end)} className="shrink-0" />}
                       {pill(status)}
                       {task && task.status !== "done" && (
                         <button type="button" onClick={() => void confirmComplete(task.id)} title="Mark the task complete" aria-label={`Mark “${task.title}” complete`} className="h-6 w-6 shrink-0 rounded-lg flex items-center justify-center text-muted hover:text-success hover:bg-hover opacity-0 group-hover:opacity-100 focus:opacity-100 transition"><Check size={14} /></button>
@@ -1013,7 +1004,6 @@ export default function Calendar() {
 
   return (
     <div className="flex flex-col gap-3">
-      <DeadlineRadar now={now} />
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <h1 className="font-display text-2xl font-semibold">Calendar</h1>
         <div className="flex items-center gap-1">

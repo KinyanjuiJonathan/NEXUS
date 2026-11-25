@@ -11,6 +11,15 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.11",
+    date: "2026-11-25",
+    title: "Deadline glow removed",
+    changes: [
+      "Removed the glowing deadline effects and the Deadline radar from the Dashboard, task lists, queue and Calendar.",
+      "Overdue tasks are still marked in red as before. Extend, Repeat and ambient mode are unchanged.",
+    ],
+  },
+  {
     version: "1.1.10",
     date: "2026-11-25",
     title: "Extend, repeat, deadline glow and ambient mode",

@@ -355,38 +355,6 @@ html.overlay body {
 @keyframes live-flow { 0%, 100% { transform: translateX(-3px); opacity: 0.5; } 50% { transform: translateX(3px); opacity: 1; } }
 @keyframes live-blink { 50% { opacity: 0; } }
 
-/* ------------------------------------------------------------------ deadline heat */
-/* One language everywhere: amber and slow when a deadline is within a day, orange and
-   quicker within two hours (or when the planned time runs past it), red and fast once late.
-   --h is the level's colour. Only box-shadow, opacity and transform are animated. */
-.heat { --h: var(--warning); --heat-speed: 3.4s; border-color: color-mix(in oklab, var(--h) 55%, var(--border)) !important; animation: heat-glow var(--heat-speed) ease-in-out infinite; }
-.heat-close { --h: #fb7a2c; --heat-speed: 1.9s; }
-.heat-late { --h: var(--danger); --heat-speed: 1.15s; }
-/* a light that runs along the top edge, like a scanner */
-.heat::after { content: ""; position: absolute; left: 0; top: 0; height: 2px; width: 38%; border-radius: 2px; background: linear-gradient(90deg, transparent, var(--h), transparent); animation: heat-sweep calc(var(--heat-speed) * 1.6) linear infinite; pointer-events: none; will-change: transform; }
-.cal-block.heat { animation: cal-pop 0.32s both, heat-glow var(--heat-speed) ease-in-out 0.35s infinite; }
-.heat-icon { animation: heat-flicker 1.4s ease-in-out infinite; transform-origin: 50% 90%; }
-.heat-chip.heat-late, .heat-chip.heat-close { animation: heat-beat var(--heat-speed, 1.4s) ease-in-out infinite; }
-.heat-chip.heat-close { --heat-speed: 1.9s; }
-.heat-chip.heat-late { --heat-speed: 1.15s; }
-.heat-fuse { box-shadow: 0 0 8px currentColor; transition: width 1s linear; }
-
-@keyframes heat-glow {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--h) 0%, transparent), 0 0 6px color-mix(in oklab, var(--h) 14%, transparent); }
-  50% { box-shadow: 0 0 0 1.5px color-mix(in oklab, var(--h) 38%, transparent), 0 0 20px color-mix(in oklab, var(--h) 50%, transparent); }
-}
-@keyframes heat-sweep { from { transform: translateX(-110%); } to { transform: translateX(290%); } }
-@keyframes heat-flicker { 0%, 100% { transform: scale(1) rotate(0); opacity: 1; } 35% { transform: scale(1.14) rotate(-4deg); opacity: 0.85; } 70% { transform: scale(0.94) rotate(3deg); opacity: 1; } }
-@keyframes heat-beat { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
-
-/* without motion the level is still shown: a steady outline in its colour */
-.reduce-motion .heat { box-shadow: 0 0 0 1px color-mix(in oklab, var(--h) 60%, transparent); }
-.reduce-motion .heat::after { display: none; }
-@media (prefers-reduced-motion: reduce) {
-  .heat { box-shadow: 0 0 0 1px color-mix(in oklab, var(--h) 60%, transparent); }
-  .heat::after { display: none; }
-}
-
 /* ------------------------------------------------------------------ ambient mode */
 /* Left alone, NEXUS drifts between its pages like a live wallpaper: slow coloured light
    moves behind the page, and a small note says how to get back. */
