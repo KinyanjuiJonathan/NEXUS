@@ -374,13 +374,30 @@ export async function screenRead(region: ScreenRegion): Promise<{ text: string; 
   return invokeSafe("screen_read", { region });
 }
 /**
- * Outline the region being read, on the screen itself (null removes the outline). Clicks pass through it.
- * `note`: "reading", "found" (new text was just taken) or "paused". Never throws: the outline is a help, not a requirement.
+ * Open the reading region on the screen: a frame the user can drag and resize. Nothing is read until
+ * they right-click inside it. `on` hears about captures, moves and the region being closed.
+ * Resolves with a function that stops listening.
  */
-export async function regionFrame(region: ScreenRegion | null, note?: "reading" | "found" | "paused"): Promise<void> {
-  if (!native) return;
-  await invokeSafe("region_frame", { region, note: note ?? null }).catch(() => {});
+export async function openRegion(region: ScreenRegion, on: { capture(region: ScreenRegion): void; changed(region: ScreenRegion): void; closed(): void }): Promise<() => void> {
+  if (!native) throw new Error("The reading region runs in the NEXUS desktop app for Windows.");
+  const offs = await Promise.all([
+    listenTo<ScreenRegion>("nexus://region-capture", on.capture),
+    listenTo<ScreenRegion>("nexus://region-changed", on.changed),
+    listenTo<null>("nexus://region-closed", () => on.closed()),
+  ]);
+  const off = () => offs.forEach((o) => o());
+  try {
+    await invokeSafe("region_open", { region });
+  } catch (e) {
+    off();
+    throw e;
+  }
+  return off;
 }
+/** Close the reading region: the frame goes away and nothing more can be captured. */
+export const closeRegion = () => invokeSafe<void>("region_close").catch(() => {});
+/** Tell the frame what the last capture did ("found:3", "none", "error"), to show for a moment. */
+export const regionNote = (note: string) => invokeSafe<void>("region_note", { note }).catch(() => {});
 /** Open the full-screen picker; resolves with the region the user marks, or null when they cancel. */
 export async function pickRegion(): Promise<ScreenRegion | null> {
   if (!native) throw new Error("Selecting a region of the screen runs in the NEXUS desktop app for Windows.");

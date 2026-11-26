@@ -44,8 +44,9 @@ export const lineKey = (text: string) => text.replace(/\s+/g, " ").trim().toLowe
  * row joined, indentation as spaces, a gap flag where a paragraph break is,
  * and a heading flag on larger text.
  */
-export function layout(lines: OcrLine[]): DocLine[] {
-  const clean = lines.map((l) => ({ ...l, text: l.text.replace(/\s+/g, " ").trim() })).filter((l) => l.text);
+export function layout(lines: OcrLine[], opts: { /** Height of the region read: lines cut off by its top or bottom edge are left out. */ height?: number } = {}): DocLine[] {
+  const cut = (l: OcrLine) => opts.height != null && l.h > 0 && (l.y <= 1 || l.y + l.h >= opts.height - 1);
+  const clean = lines.filter((l) => !cut(l)).map((l) => ({ ...l, text: l.text.replace(/\s+/g, " ").trim() })).filter((l) => l.text);
   if (!clean.length) return [];
   const boxed = clean.some((l) => l.h > 0 && l.w > 0);
   if (!boxed) return clean.map((l) => ({ text: l.text, key: lineKey(l.text), gap: false, heading: false, seen: 1 }));
@@ -117,6 +118,8 @@ export interface StitchResult {
   added: number;
   /** The reading was lined up with what had been read before. */
   aligned: boolean;
+  /** How many of the added lines went in front of the document (text from above where it began). */
+  prepended: number;
 }
 
 /**
@@ -132,12 +135,18 @@ export interface StitchResult {
 export class Stitcher {
   lines: DocLine[] = [];
 
+  /**
+   * `frozen`: what has been captured is never changed. New text is only added,
+   * after the document or, when it comes from above its beginning, before it.
+   */
+  constructor(private readonly frozen = false) {}
+
   feed(reading: DocLine[]): StitchResult {
     const fresh = reading.map(() => false);
-    if (!reading.length) return { fresh, added: 0, aligned: true };
+    if (!reading.length) return { fresh, added: 0, aligned: true, prepended: 0 };
     if (!this.lines.length) {
       this.lines = reading.map((l) => ({ ...l }));
-      return { fresh: reading.map(() => true), added: reading.length, aligned: true };
+      return { fresh: reading.map(() => true), added: reading.length, aligned: true, prepended: 0 };
     }
     const doc = this.lines;
     const from = Math.max(0, doc.length - 600);
@@ -175,10 +184,20 @@ export class Stitcher {
     if (best) {
       const o = best.o;
       const lastBefore = doc.length - 1;
+      const head: DocLine[] = [];
       reading.forEach((l, r) => {
         const di = r + o;
-        if (di < 0) return; // above where the extraction began
+        if (di < 0) {
+          // above where the document begins: kept only when nothing captured may change, as text that goes in front
+          if (this.frozen) {
+            head.push({ ...l });
+            fresh[r] = true;
+            added++;
+          }
+          return;
+        }
         if (di < doc.length) {
+          if (this.frozen) return; // already captured: left exactly as it is
           const cur = doc[di];
           if (sameLine(cur.key, l.key)) {
             cur.seen++;
@@ -194,7 +213,8 @@ export class Stitcher {
         fresh[r] = true;
         added++;
       });
-      return { fresh, added, aligned };
+      if (head.length) doc.unshift(...head);
+      return { fresh, added, aligned, prepended: head.length };
     }
     // Nothing in common: add what has not been read before.
     const known = new Set(doc.slice(-600).map((l) => l.key));
@@ -204,7 +224,7 @@ export class Stitcher {
       fresh[r] = true;
       added++;
     });
-    return { fresh, added, aligned };
+    return { fresh, added, aligned, prepended: 0 };
   }
 
   reset() {
@@ -228,4 +248,20 @@ export function render(lines: DocLine[], marks: boolean): string {
     else out += escapeMarks(l.text).replace(/^(\s*)#(?=[ \t])/, "$1\\#");
   });
   return out;
+}
+
+/**
+ * Put a capture into the pad without touching what is already there.
+ * `before` is the captured document as it was written last time, `after` as it
+ * is now, `tail` only the lines this capture added at the end. While the pad
+ * still holds `before` as it was written, it is exchanged for `after` (which
+ * is the same text with the additions around it), so text from above lands
+ * above. If the user has edited that text since, nothing of theirs is
+ * replaced: the new lines are simply added at the end.
+ */
+export function mergeIntoPad(pad: string, before: string, after: string, tail: string): string {
+  if (!before) return pad.trim() ? `${pad.replace(/\s+$/, "")}\n\n${after}` : after;
+  const at = pad.lastIndexOf(before);
+  if (at >= 0) return pad.slice(0, at) + after + pad.slice(at + before.length);
+  return tail ? `${pad.replace(/\s+$/, "")}\n${tail}` : pad;
 }

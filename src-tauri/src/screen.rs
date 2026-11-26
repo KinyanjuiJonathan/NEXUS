@@ -58,55 +58,166 @@ fn read(_r: Region) -> CmdResult<Vec<ScreenLine>> {
 }
 
 const FRAME: &str = "frame";
+/// Sent to the frame: what just happened ("ready", "found:3", "none").
 pub const FRAME_NOTE: &str = "nexus://frame";
-/// The outline is drawn in a margin around the region, never over it, so it is not read as text.
-const FRAME_MARGIN: f64 = 6.0;
-const FRAME_LABEL: f64 = 26.0;
+/// Sent to NEXUS: the user right-clicked inside the region (payload: the region to read).
+pub const CAPTURE: &str = "nexus://region-capture";
+/// Sent to NEXUS: the region was moved or resized (payload: the new region).
+pub const CHANGED: &str = "nexus://region-changed";
+/// Sent to NEXUS: the region was closed.
+pub const CLOSED: &str = "nexus://region-closed";
+/// The frame's border and handles sit in a margin around the region, and its bar above it,
+/// never over the region itself, so they are not read as text. CSS pixels.
+const FRAME_MARGIN: f64 = 8.0;
+const FRAME_BAR: f64 = 28.0;
 
-/// Show an outline around the region being read (or hide it with `None`). The outline is a
-/// see-through window that lets every click through, so it never gets in the way of scrolling.
-/// `note` is passed to it: "reading", "found" (new text was just taken) or "paused".
+/// The region as it is now (the inside of the frame). None while no region is open.
+static CURRENT: std::sync::Mutex<Option<Region>> = std::sync::Mutex::new(None);
+
+fn current() -> Option<Region> {
+    CURRENT.lock().ok().and_then(|g| *g)
+}
+
+fn set_current(r: Option<Region>) {
+    if let Ok(mut g) = CURRENT.lock() {
+        *g = r;
+    }
+}
+
+/// Margin and bar height in physical pixels at the frame's scale.
+fn chrome(frame: &WebviewWindow) -> (i32, i32) {
+    let scale = frame.scale_factor().unwrap_or(1.0);
+    ((FRAME_MARGIN * scale).round() as i32, (FRAME_BAR * scale).round() as i32)
+}
+
+/// The inside of the frame window: the part of the screen that is read.
+fn inside_of(frame: &WebviewWindow) -> Option<Region> {
+    let pos = frame.outer_position().ok()?;
+    let size = frame.outer_size().ok()?;
+    let (margin, bar) = chrome(frame);
+    let region = Region { x: pos.x + margin, y: pos.y + margin + bar, w: size.width as i32 - 2 * margin, h: size.height as i32 - 2 * margin - bar };
+    (region.w >= 8 && region.h >= 8).then_some(region)
+}
+
+/// Open the reading region: a see-through frame the user can drag by its bar and resize by its
+/// edges and corners. Nothing is read until the user right-clicks inside it; that is announced as
+/// `nexus://region-capture`. Inside the region the mouse reaches the app underneath as usual.
 #[tauri::command]
-pub async fn region_frame(app: AppHandle, region: Option<Region>, note: Option<String>) -> CmdResult<()> {
-    let Some(r) = region else {
-        if let Some(w) = app.get_webview_window(FRAME) {
-            let _ = w.close();
-        }
-        return Ok(());
-    };
+pub async fn region_open(app: AppHandle, region: Region) -> CmdResult<()> {
     let frame = match app.get_webview_window(FRAME) {
         Some(w) => w,
-        None => {
-            let w = WebviewWindowBuilder::new(&app, FRAME, WebviewUrl::App("index.html?window=frame".into()))
-                .title("NEXUS: reading this area")
-                .decorations(false)
-                .transparent(true)
-                .always_on_top(true)
-                .skip_taskbar(true)
-                .resizable(false)
-                .shadow(false)
-                .focused(false)
-                .visible(false)
-                .build()
-                .map_err(friendly)?;
-            let _ = w.set_ignore_cursor_events(true);
-            w
-        }
+        None => WebviewWindowBuilder::new(&app, FRAME, WebviewUrl::App("index.html?window=frame".into()))
+            .title("NEXUS reading region")
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(true)
+            .shadow(false)
+            .focused(false)
+            .visible(false)
+            .min_inner_size(160.0, 110.0)
+            .build()
+            .map_err(friendly)?,
     };
     // onto the region's monitor first, so the margin is measured at that monitor's scale
-    let _ = frame.set_position(PhysicalPosition::new(r.x, r.y));
-    let scale = frame.scale_factor().unwrap_or(1.0);
-    let margin = (FRAME_MARGIN * scale).round() as i32;
-    let label = (FRAME_LABEL * scale).round() as i32;
-    let _ = frame.set_size(PhysicalSize::new((r.w + 2 * margin).max(1) as u32, (r.h + 2 * margin + label).max(1) as u32));
-    let _ = frame.set_position(PhysicalPosition::new(r.x - margin, r.y - margin - label));
-    let _ = frame.set_ignore_cursor_events(true);
+    let _ = frame.set_position(PhysicalPosition::new(region.x, region.y));
+    let (margin, bar) = chrome(&frame);
+    let _ = frame.set_size(PhysicalSize::new((region.w + 2 * margin).max(1) as u32, (region.h + 2 * margin + bar).max(1) as u32));
+    let _ = frame.set_position(PhysicalPosition::new(region.x - margin, region.y - margin - bar));
+    let _ = frame.set_ignore_cursor_events(false);
     let _ = frame.show();
-    if let Some(note) = note {
-        let _ = app.emit(FRAME_NOTE, note);
+    let inside = inside_of(&frame).unwrap_or(region);
+    set_current(Some(inside));
+    watch(&app, inside);
+    let _ = app.emit(CHANGED, inside);
+    Ok(())
+}
+
+/// Close the reading region: the frame disappears, the mouse watcher stops, nothing more can be captured.
+#[tauri::command]
+pub fn region_close(app: AppHandle) -> CmdResult<()> {
+    shut(&app);
+    if let Some(w) = app.get_webview_window(FRAME) {
+        let _ = w.close();
     }
     Ok(())
 }
+
+/// Tell the frame what the last capture did, so it can show it for a moment.
+#[tauri::command]
+pub fn region_note(app: AppHandle, note: String) -> CmdResult<()> {
+    app.emit(FRAME_NOTE, note).map_err(friendly)
+}
+
+/// Everything that must end with the region, whichever way it was closed.
+fn shut(app: &AppHandle) {
+    unwatch();
+    if current().is_some() {
+        set_current(None);
+        let _ = app.emit(CLOSED, ());
+    }
+}
+
+/// The frame was moved, resized or closed.
+pub fn frame_event(window: &tauri::Window, event: &tauri::WindowEvent) {
+    if window.label() != FRAME {
+        return;
+    }
+    let app = window.app_handle();
+    match event {
+        tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. } => {
+            if current().is_none() {
+                return;
+            }
+            let Some(frame) = app.get_webview_window(FRAME) else { return };
+            if let Some(inside) = inside_of(&frame) {
+                set_current(Some(inside));
+                rewatch(inside);
+                let _ = app.emit(CHANGED, inside);
+            }
+        }
+        tauri::WindowEvent::Destroyed => shut(app),
+        _ => {}
+    }
+}
+
+#[cfg(windows)]
+fn watch(app: &AppHandle, r: Region) {
+    let app = app.clone();
+    crate::win_region::start(r.x, r.y, r.w, r.h, move |signal| match signal {
+        // inside the region the frame lets the mouse through; on its border and bar it takes it
+        crate::win_region::Signal::Inside(inside) => {
+            if let Some(frame) = app.get_webview_window(FRAME) {
+                let _ = frame.set_ignore_cursor_events(inside);
+            }
+        }
+        crate::win_region::Signal::Capture => {
+            if let Some(region) = current() {
+                let _ = app.emit(CAPTURE, region);
+            }
+        }
+    });
+}
+
+#[cfg(windows)]
+fn rewatch(r: Region) {
+    crate::win_region::set_region(r.x, r.y, r.w, r.h);
+}
+
+#[cfg(windows)]
+fn unwatch() {
+    crate::win_region::stop();
+}
+
+#[cfg(not(windows))]
+fn watch(_app: &AppHandle, _r: Region) {}
+
+#[cfg(not(windows))]
+fn rewatch(_r: Region) {}
+
+#[cfg(not(windows))]
+fn unwatch() {}
 
 fn pickers(app: &AppHandle) -> Vec<WebviewWindow> {
     app.webview_windows().into_iter().filter(|(label, _)| label.starts_with(PICKER)).map(|(_, w)| w).collect()

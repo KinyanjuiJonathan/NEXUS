@@ -386,13 +386,25 @@ html.overlay body {
 @keyframes extract-new { from { background: color-mix(in oklab, var(--success) 30%, transparent); transform: translateX(4px); } to { background: transparent; transform: none; } }
 .extract-next { border-color: color-mix(in oklab, var(--success) 45%, transparent); background: color-mix(in oklab, var(--success) 7%, transparent); animation: cal-menu-in 0.2s ease-out both; }
 
-/* the outline window on the screen itself: 26px label strip above, 6px margin around the region */
-.frame-root { position: fixed; inset: 0; pointer-events: none; font-family: "Segoe UI", system-ui, sans-serif; }
-.frame-tab { position: absolute; left: 0; top: 2px; height: 22px; padding: 0 9px 0 7px; display: flex; align-items: center; gap: 6px; border-radius: 6px 6px 0 0; font-size: 11px; font-weight: 600; color: #04121a; background: #22d3ee; white-space: nowrap; transition: background-color 0.2s; }
-.frame-tab.frame-found { background: #34d399; }
-.frame-dot { width: 6px; height: 6px; border-radius: 50%; background: #04121a; animation: live-blink 1s steps(2) infinite; }
-.frame-box { position: absolute; left: 0; right: 0; top: 26px; bottom: 0; border: 3px solid #22d3ee; border-radius: 4px; box-shadow: 0 0 0 1px rgba(4, 18, 26, 0.6); animation: frame-pulse 1.6s ease-in-out infinite; }
-.frame-box.frame-found { border-color: #34d399; }
-.frame-flash { animation: frame-flash 0.6s ease-out, frame-pulse 1.6s ease-in-out 0.6s infinite; }
-@keyframes frame-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
-@keyframes frame-flash { from { box-shadow: 0 0 0 1px rgba(4, 18, 26, 0.6), 0 0 18px 4px #34d399; opacity: 1; } to { box-shadow: 0 0 0 1px rgba(4, 18, 26, 0.6); opacity: 1; } }
+/* The reading region on the screen: a 28px bar above, an 8px margin around the region.
+   Everything is drawn in the bar and the margin; the region itself stays empty. */
+.frame-root { position: fixed; inset: 0; font-family: "Segoe UI", system-ui, sans-serif; user-select: none; overflow: hidden; }
+.frame-bar { position: absolute; left: 5px; top: 4px; height: 24px; max-width: calc(100% - 10px); padding: 0 2px 0 6px; display: flex; align-items: center; gap: 6px; border-radius: 7px 7px 0 0; font-size: 11px; font-weight: 600; color: #04121a; background: #22d3ee; white-space: nowrap; cursor: move; transition: background-color 0.2s; }
+.frame-bar.frame-ok { background: #34d399; }
+.frame-grip { opacity: 0.6; font-size: 12px; line-height: 1; }
+.frame-text { overflow: hidden; text-overflow: ellipsis; }
+.frame-x { width: 20px; height: 20px; border: 0; border-radius: 5px; background: transparent; color: #04121a; font-size: 16px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.frame-x:hover { background: #ef4444; color: #fff; }
+.frame-box { position: absolute; left: 5px; right: 5px; top: 33px; bottom: 5px; border: 3px solid #22d3ee; border-radius: 3px; box-shadow: 0 0 0 1px rgba(4, 18, 26, 0.55); pointer-events: none; }
+.frame-flash { animation: frame-flash 0.7s ease-out; }
+@keyframes frame-flash { from { border-color: #34d399; box-shadow: 0 0 0 1px rgba(4, 18, 26, 0.55), 0 0 16px 3px #34d399; } }
+/* resize handles: the margin itself, and a little more at the corners */
+.frame-h { position: absolute; }
+.frame-n { left: 16px; right: 16px; top: 28px; height: 8px; cursor: ns-resize; }
+.frame-s { left: 16px; right: 16px; bottom: 0; height: 8px; cursor: ns-resize; }
+.frame-w { left: 0; top: 44px; bottom: 16px; width: 8px; cursor: ew-resize; }
+.frame-e { right: 0; top: 44px; bottom: 16px; width: 8px; cursor: ew-resize; }
+.frame-nw { left: 0; top: 28px; width: 16px; height: 16px; cursor: nwse-resize; }
+.frame-ne { right: 0; top: 28px; width: 16px; height: 16px; cursor: nesw-resize; }
+.frame-sw { left: 0; bottom: 0; width: 16px; height: 16px; cursor: nesw-resize; }
+.frame-se { right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; }

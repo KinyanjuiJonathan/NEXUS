@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, Copy, Crosshair } from "lucide-react";
+import { Check, Copy } from "lucide-react";
 import { Bold, Eraser, Heading, Italic, Keyboard, Lock, Mic, Play, Redo2, RemoveFormatting, ScanText, Square, Undo2 } from "lucide-react";
 import { useNexus, nexus } from "@/store";
 import { idleSeconds, native, typerShortcut } from "@/lib/platform";
@@ -140,22 +140,18 @@ function Editor({ value, onChange, literal, disabled, follow }: { value: string;
 }
 
 /**
- * Extraction from the screen, as one row above the editing pad. Press Extract,
- * scroll the other window, press Stop: the text read off the screen is written
- * into the pad below, where it can be edited, copied, or typed elsewhere with
- * Start. The part of the screen being read is outlined on the screen itself.
+ * Capturing text from the screen, as one row above the editing pad.
+ *
+ * "Reading region" puts a frame on the screen that can be dragged and resized.
+ * Nothing is read until you right-click inside it; each right-click captures
+ * what the region shows and adds what is new to the pad, in reading order,
+ * without changing what is already there. "Close region" takes the frame away.
  */
 function ExtractBar({ text, literal, busy }: { text: string; literal: boolean; busy: boolean }) {
   const live = useLive();
-  const running = live.running && live.source === "screen";
-  const other = live.running && !running;
+  const open = live.regionOpen;
   const x = live.extract;
   const [copied, setCopied] = useState(false);
-  const extract = async () => {
-    // the first time, the region is chosen on the way
-    if (!useLive.getState().region) await live.chooseRegion();
-    if (useLive.getState().region) await useLive.getState().startScreen(false);
-  };
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(literal ? text : prepareText(text, "strip").text);
@@ -166,31 +162,34 @@ function ExtractBar({ text, literal, busy }: { text: string; literal: boolean; b
     }
   };
   return (
-    <div className={cx("extract-bar rounded-xl border px-2.5 py-2 mb-2 flex flex-wrap items-center gap-2", running ? "extract-on" : "border-line")}>
-      {running ? (
-        <Button size="sm" variant="danger" icon={<Square size={13} />} onClick={() => void live.stop()} title="Stop extracting. The text stays in the box below.">Stop</Button>
+    <div className={cx("extract-bar rounded-xl border px-2.5 py-2 mb-2 flex flex-wrap items-center gap-2", open ? "extract-on" : "border-line")}>
+      {open ? (
+        <Button size="sm" variant="danger" icon={<Square size={13} />} onClick={() => void live.closeRegion()} title="Take the reading region off the screen. Nothing more is captured.">Close region</Button>
       ) : (
-        <Button size="sm" variant="soft" icon={<ScanText size={14} />} disabled={busy || other || !native} onClick={() => void extract()} title={native ? "Read text off a part of the screen into the box below. Keeps reading while you scroll, until you press Stop." : "Extracting from the screen runs in the NEXUS desktop app for Windows."}>
-          Extract from screen
+        <Button size="sm" variant="soft" icon={<ScanText size={14} />} disabled={busy || !native} onClick={() => void live.openRegion()} title={native ? "Put a reading region on the screen. Drag it, resize it, and right-click inside it to capture the text it shows." : "The reading region runs in the NEXUS desktop app for Windows."}>
+          Reading region
         </Button>
       )}
-      {!running && live.region && (
-        <Button size="sm" variant="ghost" icon={<Crosshair size={13} />} disabled={busy || other} onClick={() => void live.chooseRegion()} title={`Region: ${live.region.w} × ${live.region.h} px. Click to mark a different part of the screen.`}>Change region</Button>
-      )}
-      <span role="status" aria-live="polite" className={cx("text-xs tabular min-w-0 truncate", running ? (x.added ? "text-success font-medium" : "text-accent font-medium") : "text-muted")}>
-        {running ? (
+      <span role="status" aria-live="polite" className={cx("text-xs tabular min-w-0 truncate", live.error ? "text-danger" : open ? (x.added ? "text-success font-medium" : "text-accent font-medium") : "text-muted")}>
+        {live.error ? (
+          live.error
+        ) : open ? (
           <>
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-current animate-pulse mr-1.5 align-middle" />
-            {x.added ? `+${x.added} new line${x.added === 1 ? "" : "s"}` : "Extracting… scroll the other window"} · {x.lines} line{x.lines === 1 ? "" : "s"} so far
+            <span className={cx("inline-block h-1.5 w-1.5 rounded-full bg-current mr-1.5 align-middle", live.capturing && "animate-pulse")} />
+            {live.capturing
+              ? "Reading…"
+              : x.readings === 0
+                ? "Region is on screen. Right-click inside it to capture."
+                : x.added
+                  ? `+${x.added} line${x.added === 1 ? "" : "s"} added · ${x.lines} captured`
+                  : `Nothing new in that capture · ${x.lines} captured`}
           </>
-        ) : live.error ? (
-          <span className="text-danger">{live.error}</span>
         ) : x.done ? (
-          `Extracted ${x.lines} line${x.lines === 1 ? "" : "s"}. Edit, copy, or press Start to type it.`
+          `Captured ${x.lines} line${x.lines === 1 ? "" : "s"}. Edit, copy, or press Start to type it.`
         ) : native ? (
-          "Reads the marked part of the screen as you scroll, without repeating text, until you press Stop. Keep NEXUS off that part."
+          "Capture text from the screen: open the region, then right-click inside it. Nothing is read otherwise."
         ) : (
-          "Extracting from the screen runs in the Windows desktop app."
+          "Capturing from the screen runs in the Windows desktop app."
         )}
       </span>
       <Button size="sm" variant="ghost" className="ml-auto" icon={copied ? <Check size={13} /> : <Copy size={13} />} disabled={!text.trim()} onClick={() => void copy()} title="Copy all the text in the box">{copied ? "Copied" : "Copy"}</Button>
@@ -217,7 +216,7 @@ export default function TyperView() {
   const busy = isBusy(status) || starting;
   const set = <K extends keyof TyperOptions>(k: K, v: TyperOptions[K]) => void nexus().setSetting("typer", { ...nexus().settings.typer, [k]: v });
   const literal = options.format === "literal";
-  const extracting = useLive((s) => s.running && s.source === "screen");
+  const capturing = useLive((s) => s.regionOpen);
 
   // The start/stop key is only taken from other apps while this screen is open.
   useEffect(() => {
@@ -335,7 +334,7 @@ export default function TyperView() {
             {source === "text" ? (
               <>
                 <ExtractBar text={text} literal={literal} busy={busy} />
-                <Editor value={text} onChange={setText} literal={literal} disabled={busy || extracting} follow={extracting} />
+                <Editor value={text} onChange={setText} literal={literal} disabled={busy} follow={capturing} />
               </>
             ) : (
               <LiveTyper source="voice" />
@@ -352,7 +351,7 @@ export default function TyperView() {
                 {busy ? (
                   <Button variant="danger" size="lg" icon={<Square size={15} />} onClick={() => void stop()} disabled={status.locked} title={status.locked ? "Clicks are blocked while locked: use the keyboard to stop" : undefined}>Stop</Button>
                 ) : (
-                  <Button variant="primary" size="lg" icon={<Play size={16} />} onClick={() => void start()} disabled={!text.trim() || extracting} title={extracting ? "Stop the extraction first" : undefined}>Start</Button>
+                  <Button variant="primary" size="lg" icon={<Play size={16} />} onClick={() => void start()} disabled={!text.trim()}>Start</Button>
                 )}
                 <div className="min-w-0">
                   <p className="font-semibold text-fg flex items-center gap-1.5" role="status" aria-live="polite">

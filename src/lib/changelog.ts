@@ -11,6 +11,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.19",
+    date: "2026-11-26",
+    title: "Reading region: move, resize, right-click to capture",
+    changes: [
+      "The reading region is a frame on the screen you can drag by its bar and resize by its edges and corners.",
+      "Text is captured only when you right-click inside the region. Nothing is read automatically.",
+      "Each capture is added in reading order, without repeats and without changing text already captured or edited.",
+      "Close the region with × on the frame or Close region in NEXUS; the frame disappears and all capturing stops.",
+    ],
+  },
+  {
     version: "1.1.18",
     date: "2026-11-26",
     title: "Screen extraction inside the Text box",

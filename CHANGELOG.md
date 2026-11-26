@@ -2,6 +2,19 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.19 (26 November 2026)
+
+**Reading region: move, resize, right-click to capture**
+- **A region you place yourself.** Auto Typer → Text → **Reading region** puts a thin frame on the screen, where it was last time. Drag its small bar to move it anywhere, on any monitor. Drag an edge or a corner to resize it. Its place and size are remembered.
+- **Right-click to capture, and only then.** Nothing is scanned, read or extracted while the region is simply open, moved or resized. Text is read once each time you right-click inside the region. That right-click is taken by NEXUS, so the app underneath does not show its own menu.
+- **The window underneath stays usable.** Inside the region, ordinary clicks and scrolling go straight through to the app below, so you can scroll to the next section and right-click again.
+- **Close it when you are done.** Press **×** on the frame's bar, or **Close region** in NEXUS. The frame disappears and the mouse watcher stops; nothing can be captured until you open the region again.
+- **Captured text is never changed.** Each capture is lined up with what was captured before, and only the new lines are added: after the earlier text, or in front of it when the new section comes from above. Lines already captured are left exactly as they are, even when they are read slightly differently a second time, and nothing is added twice. Capturing the same place again adds nothing.
+- **Your edits are kept.** If you change the captured text in the box between captures, your changes are not overwritten: the new lines are added at the end. Text you had in the box before starting stays where it is.
+- **Layout is kept** as before: indentation, paragraph gaps, text on the same row, and larger text as headings. Lines cut in half by the top or bottom edge of the region are left out of that capture and picked up whole by the next one.
+- The frame says what each capture did ("+3 lines captured", "Nothing new here", "No text found"), and so does the row above the text box in NEXUS.
+- Replaces the automatic "Extract from screen… Stop" reading of v1.1.17 and v1.1.18.
+
 ## v1.1.18 (26 November 2026)
 
 **Screen extraction inside the Text box**

@@ -20,6 +20,8 @@ mod win_input;
 mod win_session;
 mod screen;
 #[cfg(windows)]
+mod win_region;
+#[cfg(windows)]
 mod win_screen;
 #[cfg(windows)]
 mod win_dictation;
@@ -155,6 +157,7 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            screen::frame_event(window, event);
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let app = window.app_handle();
                 if app.state::<AppState>().quitting.load(Ordering::SeqCst) {
@@ -223,7 +226,9 @@ pub fn run() {
             screen::screen_read,
             screen::region_pick,
             screen::region_done,
-            screen::region_frame,
+            screen::region_open,
+            screen::region_close,
+            screen::region_note,
             updates::update_check,
             updates::update_install,
             updates::open_external,

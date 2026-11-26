@@ -1,11 +1,11 @@
 import { create } from "zustand";
 import { nexus } from "@/store";
-import { native, pickRegion, regionFrame, screenRead, startDictation, typerStart, typerStop, type ScreenRegion } from "@/lib/platform";
+import { closeRegion, native, openRegion, pickRegion, regionNote, screenRead, startDictation, typerStart, typerStop, type ScreenRegion } from "@/lib/platform";
 import { listen } from "@/lib/voice/engine";
 import { buildPlan } from "./engine";
 import { isBusy, useTyper } from "./controller";
 import { NEW_DICTATION, backspaceEvents, dictate, type DictationState } from "./live";
-import { Stitcher, layout, render } from "./extract";
+import { Stitcher, layout, mergeIntoPad, render } from "./extract";
 
 export type LiveSource = "voice" | "screen";
 export type LivePhase = "idle" | "listening" | "reading" | "typing";
@@ -18,8 +18,16 @@ interface LiveStore {
   input: string[];
   /** For each line of the latest screen reading: was it new text (true) or already extracted? */
   fresh: boolean[];
-  /** Extraction from the screen: lines taken so far, how many the last reading added, readings made, and whether the text is ready to be typed. */
+  /** Capturing from the screen: lines taken so far, how many the last capture added, captures made, and whether any text has been taken. */
   extract: { lines: number; added: number; readings: number; aligned: boolean; done: boolean };
+  /** The reading region is open on the screen. Text is only read when the user right-clicks inside it. */
+  regionOpen: boolean;
+  /** A capture is being read right now. */
+  capturing: boolean;
+  /** Put the reading region on the screen (where it was last time). */
+  openRegion(): Promise<void>;
+  /** Take the region off the screen. Nothing can be captured after this. */
+  closeRegion(): Promise<void>;
   /** Everything typed so far in this session. */
   output: string;
   /** Text waiting to be typed. */
@@ -42,8 +50,6 @@ interface LiveStore {
   chooseRegion(): Promise<void>;
   readOnce(): Promise<void>;
   startVoice(): Promise<void>;
-  /** Start extracting from the region into the editing pad. `resume` carries on with the text already extracted. */
-  startScreen(resume?: boolean): Promise<void>;
   stop(): Promise<void>;
   clear(): void;
 }
@@ -62,10 +68,10 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 /** Bumped by every start and stop, so a loop from an earlier session ends itself. */
 let session = 0;
 let queue: Promise<void> = Promise.resolve();
-/** The document being extracted from the screen, kept between Stop and Continue. */
-const stitcher = new Stitcher();
-/** What was in the pad before the extraction began. */
-let padBase = "";
+/** What has been captured from the screen while the region is open. Captured text is never changed, only added to. */
+const stitcher = new Stitcher(true);
+/** Stops listening to the reading region. */
+let stopRegion: (() => void) | null = null;
 /** Ends the native dictation session, when one is open. */
 let stopListening: (() => void) | null = null;
 
@@ -127,6 +133,8 @@ export const useLive = create<LiveStore>((set, get) => {
     input: [],
     fresh: [],
     extract: { lines: 0, added: 0, readings: 0, aligned: true, done: false },
+    regionOpen: false,
+    capturing: false,
     output: "",
     waiting: 0,
     interim: "",
@@ -232,58 +240,75 @@ export const useLive = create<LiveStore>((set, get) => {
       finish(mine);
     },
 
-    startScreen: async (resume = false) => {
-      if (get().running) return;
-      const region = get().region;
-      if (!region) {
-        set({ error: "Select the part of the screen to extract from first." });
-        return;
-      }
-      const mine = ++session;
-      const pad = useTyper.getState();
-      const marks = nexus().settings.typer.format !== "literal";
-      if (!resume || !stitcher.lines.length) {
-        stitcher.reset();
-        // what is already in the pad stays; the extraction is written after it
-        padBase = pad.text.trimEnd();
-      }
-      let written = "";
-      const write = () => {
-        const text = render(stitcher.lines, marks);
-        if (text === written) return;
-        written = text;
-        useTyper.getState().setText(padBase && text ? `${padBase}\n\n${text}` : padBase || text);
-      };
-      set((s) => ({ running: true, source: "screen", phase: "reading", error: null, waiting: 0, extract: { ...s.extract, lines: stitcher.lines.length, added: 0, done: false } }));
-      void regionFrame(region, "reading");
-      let failures = 0;
-      while (mine === session) {
+    openRegion: async () => {
+      if (get().regionOpen) return;
+      // where it was last time, or a comfortable size near the top left of the main screen
+      const start = get().region ?? { x: 160, y: 160, w: 900, h: 520 };
+      const remember = (region: ScreenRegion) => {
+        set({ region });
         try {
-          const seen = layout(await screenRead(region));
-          if (mine !== session) break;
-          failures = 0;
-          const r = stitcher.feed(seen);
-          write();
-          set((s) => ({ input: seen.map((l) => l.text), fresh: r.fresh, phase: r.added ? "typing" : "reading", extract: { lines: stitcher.lines.length, added: r.added, readings: s.extract.readings + 1, aligned: r.aligned, done: false } }));
-          void regionFrame(region, r.added ? "found" : "reading");
-        } catch (e) {
-          if (mine !== session) break;
-          if (++failures >= 3) {
-            void regionFrame(null);
-            return finish(mine, e instanceof Error ? e.message : String(e));
-          }
+          localStorage.setItem(REGION_KEY, JSON.stringify(region));
+        } catch {
+          /* kept for this session only */
         }
-        await sleep(Math.max(0.3, get().interval) * 1000);
+      };
+      // One capture: read the region as it is now, and add what is new to the pad. Runs only on a right-click inside the region.
+      const capture = async (region: ScreenRegion) => {
+        if (!get().regionOpen || get().capturing) return;
+        set({ capturing: true, error: null });
+        try {
+          const marks = nexus().settings.typer.format !== "literal";
+          const pad = useTyper.getState().text;
+          // an emptied pad means a fresh start: nothing earlier to line up with
+          if (!pad.trim()) stitcher.reset();
+          const before = render(stitcher.lines, marks);
+          const count = stitcher.lines.length;
+          const seen = layout(await screenRead(region), { height: region.h });
+          if (!get().regionOpen) return; // closed while reading: nothing is added
+          const r = stitcher.feed(seen);
+          if (r.added) {
+            const tail = r.added - r.prepended > 0 ? render(stitcher.lines.slice(count + r.prepended), marks) : "";
+            useTyper.getState().setText(mergeIntoPad(pad, before, render(stitcher.lines, marks), tail));
+          }
+          set((s) => ({ input: seen.map((l) => l.text), fresh: r.fresh, extract: { lines: stitcher.lines.length, added: r.added, readings: s.extract.readings + 1, aligned: r.aligned, done: stitcher.lines.length > 0 } }));
+          void regionNote(seen.length ? (r.added ? `found:${r.added}` : "none") : "empty");
+        } catch (e) {
+          set({ error: e instanceof Error ? e.message : String(e) });
+          void regionNote("error");
+        } finally {
+          set({ capturing: false });
+        }
+      };
+      try {
+        // each time the region is opened is a new piece of work on whatever is in the pad
+        stitcher.reset();
+        set({ regionOpen: true, error: null, extract: { lines: 0, added: 0, readings: 0, aligned: true, done: false } });
+        stopRegion = await openRegion(start, {
+          capture: (region) => void capture(region),
+          changed: remember,
+          closed: () => {
+            stopRegion?.();
+            stopRegion = null;
+            set({ regionOpen: false, capturing: false });
+          },
+        });
+      } catch (e) {
+        set({ regionOpen: false, error: e instanceof Error ? e.message : String(e) });
       }
     },
 
+    closeRegion: async () => {
+      set({ regionOpen: false, capturing: false });
+      await closeRegion();
+      stopRegion?.();
+      stopRegion = null;
+    },
+
     stop: async () => {
-      const wasScreen = get().source === "screen";
       session += 1;
       stopListening?.();
       stopListening = null;
-      if (wasScreen) void regionFrame(null);
-      set((s) => ({ running: false, phase: "idle", source: null, interim: "", extract: wasScreen ? { ...s.extract, added: 0, done: stitcher.lines.length > 0 } : s.extract }));
+      set({ running: false, phase: "idle", source: null, interim: "" });
       if (native && isBusy(useTyper.getState().status)) await typerStop().catch(() => {});
     },
   };

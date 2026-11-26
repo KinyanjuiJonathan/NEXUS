@@ -38,7 +38,7 @@ export function LiveTyper({ source }: { source: LiveSource }) {
   const other = live.running && live.source !== source;
   const voice = source === "voice";
   const canVoice = voiceSupported(engine === "keyboard" ? "auto" : engine);
-  const start = () => void (voice ? live.startVoice() : live.startScreen());
+  const start = () => void live.startVoice();
   const r = live.region;
 
   return (

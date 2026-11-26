@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Stitcher, layout, render, sameLine, type OcrLine } from "./extract";
+import { Stitcher, layout, mergeIntoPad, render, sameLine, type OcrLine } from "./extract";
 
 /** A page of text; a reading is a window of consecutive lines, as a scrolled region shows. */
 const PAGE = [
@@ -105,5 +105,54 @@ describe("keeping the layout", () => {
     ]);
     expect(doc.map((l) => l.text)).toEqual(["Total    5 * 3 = 15", "snake_case_name"]);
     expect(render(doc, true)).toBe("Total    5 \\* 3 = 15\nsnake\\_case\\_name");
+  });
+});
+
+describe("capturing section by section", () => {
+  const capture = (s: Stitcher, pad: string, lines: OcrLine[]) => {
+    const before = render(s.lines, true);
+    const count = s.lines.length;
+    const r = s.feed(layout(lines));
+    const tail = render(s.lines.slice(count + r.prepended), true);
+    return { pad: mergeIntoPad(pad, before, render(s.lines, true), r.added - r.prepended > 0 ? tail : ""), r };
+  };
+
+  it("each capture adds after the last, and what was captured is never changed", () => {
+    const s = new Stitcher(true);
+    let pad = "";
+    ({ pad } = capture(s, pad, view(0, 4)));
+    const first = pad;
+    // the same lines read slightly differently the second time: the earlier text stays as it was
+    const again = view(2, 4).map((l, i) => (i === 0 ? { ...l, text: l.text.replace("Read", "Rcad") } : l));
+    ({ pad } = capture(s, pad, again));
+    expect(pad.startsWith(first)).toBe(true);
+    expect(pad.split("\n")).toEqual(PAGE.slice(0, 6));
+    // capturing the same place again changes nothing
+    expect(capture(s, pad, again).pad).toBe(pad);
+  });
+
+  it("a section from above the first capture goes in front, in reading order", () => {
+    const s = new Stitcher(true);
+    let pad = "";
+    ({ pad } = capture(s, pad, view(3, 4)));
+    ({ pad } = capture(s, pad, view(1, 4)));
+    expect(pad.split("\n")).toEqual(PAGE.slice(1, 7));
+  });
+
+  it("text the user wrote or edited in the pad is kept", () => {
+    const s = new Stitcher(true);
+    let pad = "My notes:";
+    ({ pad } = capture(s, pad, view(0, 3)));
+    expect(pad).toBe(`My notes:\n\n${PAGE.slice(0, 3).join("\n")}`);
+    // the user corrects a word in the captured text, then captures the next section
+    pad = pad.replace("getting started", "GETTING STARTED");
+    ({ pad } = capture(s, pad, view(2, 3)));
+    expect(pad).toBe(`My notes:\n\n${[PAGE[0].replace("getting started", "GETTING STARTED"), ...PAGE.slice(1, 5)].join("\n")}`);
+  });
+
+  it("lines cut off by the edge of the region are left for the next capture", () => {
+    const lines = view(0, 4).map((l) => ({ ...l, y: l.y + 6 }));
+    lines[3] = { ...lines[3], y: 100 - 12 }; // runs past the bottom edge of a 100 px region
+    expect(layout(lines, { height: 100 }).map((l) => l.text)).toEqual(PAGE.slice(0, 3));
   });
 });
