@@ -11,6 +11,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.15",
+    date: "2026-11-26",
+    title: "Wallpaper effect: easy to turn off or re-time",
+    changes: [
+      "The wallpaper effect (ambient mode) has its own section in Settings, with an on/off switch.",
+      "Set exactly when it starts (1 to 240 minutes) and how long it stays on a page (10 seconds to an hour), or pick a quick choice.",
+      "The first time it runs in a session, a notice offers Turn off and says where the settings are.",
+    ],
+  },
+  {
     version: "1.1.14",
     date: "2026-11-25",
     title: "New tasks are scheduled automatically",

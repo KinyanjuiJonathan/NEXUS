@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Sparkles } from "lucide-react";
-import { useNexus } from "@/store";
+import { useNexus, nexus } from "@/store";
 import { useUI, type View } from "@/store/ui";
 import { ambientMove, canStartAmbient, nextAmbientView, type AmbientMove } from "@/lib/ambient";
 
@@ -25,7 +25,7 @@ export function useAmbient(): AmbientState {
   const [state, setState] = useState<AmbientState>({ active: false, step: 0 });
   const cfgRef = useRef(cfg);
   cfgRef.current = cfg;
-  const r = useRef({ last: Date.now(), home: null as View | null, active: false, switched: 0, step: 0, grace: 0, x: -1, y: -1 }).current;
+  const r = useRef({ last: Date.now(), home: null as View | null, active: false, switched: 0, step: 0, grace: 0, x: -1, y: -1, told: false }).current;
 
   const advance = () => {
     r.step++;
@@ -45,6 +45,18 @@ export function useAmbient(): AmbientState {
     r.home = null;
     setState({ active: false, step: r.step });
     if (restore && home) useUI.getState().setView(home);
+    // Once per session, say where it is switched off or timed differently.
+    if (!r.told && cfgRef.current.enabled) {
+      r.told = true;
+      const s = nexus();
+      s.toast({
+        kind: "info",
+        title: "That was the wallpaper effect",
+        body: "NEXUS drifts between pages when left alone. Change when it starts and how long it stays on a page in Settings → Wallpaper effect, or turn it off here.",
+        action: { label: "Turn off", run: () => void s.setSetting("ambient", { ...s.settings.ambient, enabled: false }) },
+        ttl: 12_000,
+      });
+    }
   };
 
   useEffect(() => {

@@ -29,8 +29,8 @@ export function normalizeAmbient(raw: Partial<AmbientSettings> | undefined | nul
   const pages = (raw?.pages ?? DEFAULT_AMBIENT.pages).filter((v) => allowed.has(v));
   return {
     enabled: raw?.enabled ?? DEFAULT_AMBIENT.enabled,
-    idleMin: Math.min(60, Math.max(1, Math.round(Number(raw?.idleMin) || DEFAULT_AMBIENT.idleMin))),
-    everySec: Math.min(600, Math.max(10, Math.round(Number(raw?.everySec) || DEFAULT_AMBIENT.everySec))),
+    idleMin: Math.min(240, Math.max(1, Math.round(Number(raw?.idleMin) || DEFAULT_AMBIENT.idleMin))),
+    everySec: Math.min(3600, Math.max(10, Math.round(Number(raw?.everySec) || DEFAULT_AMBIENT.everySec))),
     pages: pages.length ? pages : [...DEFAULT_AMBIENT.pages],
   };
 }

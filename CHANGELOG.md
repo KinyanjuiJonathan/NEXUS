@@ -2,6 +2,14 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.15 (26 November 2026)
+
+**Wallpaper effect: easy to turn off or re-time**
+- The wallpaper effect (ambient mode, where NEXUS drifts between pages when left alone) now has its own section in Settings, **Wallpaper effect (ambient mode)**, right under Appearance, with a clear on/off switch.
+- **Your own timing.** Type the number of minutes without input before it starts (1 to 240) and the seconds it stays on each page (10 to 3600), instead of choosing from a short list. Four quick choices set both at once: Soon · quick, Balanced, Calm and Rarely.
+- **Turn off from where it happens.** The first time the effect runs after NEXUS starts, a notice explains what it was, says where its settings are, and has a **Turn off** button.
+- Choosing the pages and "Preview now" are unchanged.
+
 ## v1.1.14 (25 November 2026)
 
 **New tasks are scheduled automatically**

@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "nexus"
-version = "1.1.14"
+version = "1.1.15"
 description = "NEXUS — futuristic AI productivity & time management command center"
 authors = ["NEXUS contributors"]
 

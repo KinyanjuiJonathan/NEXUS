@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { CalendarCheck, Clock, Wand2, Bell, Brain, Database, Download, Globe, Info, Keyboard, Mic, Monitor, Moon, PanelTop, Power, RefreshCw, Shield, Sun, Target, Upload } from "lucide-react";
+import { CalendarCheck, Clock, Sparkles, Wand2, Bell, Brain, Database, Download, Globe, Info, Keyboard, Mic, Monitor, Moon, PanelTop, Power, RefreshCw, Shield, Sun, Target, Upload } from "lucide-react";
 import { DEFAULT_SHORTCUTS, type PerfMetric, type Settings, type Shortcuts } from "@/data/types";
 import { BrandBlock } from "@/components/Brand";
 import { METRIC_LABEL } from "@/lib/perf";
@@ -139,21 +139,27 @@ export default function SettingsView() {
           <Segmented value={settings.hour12 ? "12" : "24"} onChange={(v) => set("hour12", v === "12")} options={[{ value: "12", label: "12-hour" }, { value: "24", label: "24-hour" }]} />
         </div>
         <Toggle checked={settings.reducedMotion} onChange={(v) => set("reducedMotion", v)} label="Reduce motion" description="Minimise animations (also follows Windows' animation setting)." />
-        <Toggle checked={settings.ambient.enabled} onChange={(v) => set("ambient", { ...settings.ambient, enabled: v })} label="Ambient mode" description="When NEXUS is left alone, it drifts from page to page like a live wallpaper. Moving the mouse or pressing a key brings you straight back to the page you were on. It never starts with a dialog open, while you are typing, or from Accounts, the Auto Typer, the Assistant or Settings." />
+      </Section>
+
+      <Section id="ambient" title="Wallpaper effect (ambient mode)" icon={<Sparkles size={16} />}>
+        <Toggle checked={settings.ambient.enabled} onChange={(v) => set("ambient", { ...settings.ambient, enabled: v })} label="Wallpaper effect on" description="When NEXUS is left alone, it drifts from page to page like a live wallpaper. Moving the mouse or pressing a key brings you straight back to the page you were on. It never starts with a dialog open, while you are typing, or from Accounts, the Auto Typer, the Assistant or Settings." />
         {settings.ambient.enabled && (
           <div className="flex flex-col gap-3 pl-1">
             <div className="flex flex-wrap items-end gap-3">
-              <Field label="Start after">
-                <Select className="!w-36" value={settings.ambient.idleMin} onChange={(e) => set("ambient", { ...settings.ambient, idleMin: Number(e.target.value) })}>
-                  {[1, 2, 3, 5, 10, 15, 30].map((m) => <option key={m} value={m}>{m} min idle</option>)}
-                </Select>
+              <Field label="Start after (minutes without input)" hint="1 to 240 minutes">
+                <Input className="!w-36" type="number" min={1} max={240} step={1} value={settings.ambient.idleMin} onChange={(e) => set("ambient", { ...settings.ambient, idleMin: Math.min(240, Math.max(1, Math.round(Number(e.target.value) || 1))) })} />
               </Field>
-              <Field label="Stay on each page">
-                <Select className="!w-36" value={settings.ambient.everySec} onChange={(e) => set("ambient", { ...settings.ambient, everySec: Number(e.target.value) })}>
-                  {[15, 20, 30, 45, 60, 120, 300].map((x) => <option key={x} value={x}>{x < 60 ? `${x} seconds` : `${x / 60} min`}</option>)}
-                </Select>
+              <Field label="Stay on each page (seconds)" hint="10 to 3600 seconds">
+                <Input className="!w-36" type="number" min={10} max={3600} step={5} value={settings.ambient.everySec} onChange={(e) => set("ambient", { ...settings.ambient, everySec: Math.min(3600, Math.max(10, Math.round(Number(e.target.value) || 10))) })} />
               </Field>
               <Button variant="soft" onClick={() => useUI.getState().previewAmbient()}>Preview now</Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-muted mr-1">Quick choices:</span>
+              {([["Soon · quick", 1, 15], ["Balanced", 3, 30], ["Calm", 10, 60], ["Rarely", 30, 120]] as const).map(([label, idleMin, everySec]) => {
+                const on = settings.ambient.idleMin === idleMin && settings.ambient.everySec === everySec;
+                return <button key={label} type="button" aria-pressed={on} onClick={() => set("ambient", { ...settings.ambient, idleMin, everySec })} title={`Starts after ${idleMin} min, ${everySec} s on each page`} className={cx("h-7 px-2.5 rounded-lg border text-xs font-medium transition", on ? "border-accent text-accent bg-[color-mix(in_oklab,var(--accent)_10%,transparent)]" : "border-line text-muted hover:text-fg")}>{label}</button>;
+              })}
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-xs text-muted mr-1">Pages:</span>
