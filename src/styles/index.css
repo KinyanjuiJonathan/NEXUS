@@ -370,3 +370,7 @@ html.overlay body {
 @keyframes ambient-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 .ambient-on #main { scrollbar-width: none; }
 .ambient-on #main::-webkit-scrollbar { display: none; }
+
+/* calendar toolbar menus */
+.cal-menu { animation: cal-menu-in 0.14s ease-out both; transform-origin: top right; backdrop-filter: blur(14px); }
+@keyframes cal-menu-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } }

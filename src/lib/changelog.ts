@@ -11,6 +11,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.16",
+    date: "2026-11-26",
+    title: "Full-screen calendar with a compact toolbar",
+    changes: [
+      "The Calendar now fills the whole window, edge to edge and down to the bottom, in every view.",
+      "Its two rows of controls are one line: date navigation, the view switch, search, and three menus (Filter, View, Plan).",
+      "Zone, zoom, working hours, routine, the legend and the tips are under View; Auto-plan, Reschedule all and AI Schedule are under Plan.",
+    ],
+  },
+  {
     version: "1.1.15",
     date: "2026-11-26",
     title: "Wallpaper effect: easy to turn off or re-time",

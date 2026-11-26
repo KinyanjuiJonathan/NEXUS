@@ -251,7 +251,7 @@ export default function App() {
           <Sidebar />
           <main className="flex-1 min-w-0 scroll-y" id="main" style={ambient.active ? { perspective: 1400 } : undefined}>
             <AnimatePresence mode="wait">
-              <motion.div key={view} {...pageMotion(ambient)} className="p-5 lg:p-7 max-w-[1500px] mx-auto">
+              <motion.div key={view} {...pageMotion(ambient)} className={view === "calendar" ? "p-3 lg:p-4 h-full" : "p-5 lg:p-7 max-w-[1500px] mx-auto"}>
                 <Suspense fallback={<div className="h-40 rounded-2xl shimmer" />}>
                   <Current />
                 </Suspense>

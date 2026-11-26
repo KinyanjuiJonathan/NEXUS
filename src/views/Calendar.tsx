@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DateTime } from "luxon";
 import { hoursMinutes } from "@/lib/countdown";
 import { motion } from "framer-motion";
-import { ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronDown, ListFilter, SlidersHorizontal, ZoomIn, ZoomOut } from "lucide-react";
 import { CalendarClock, Check, ChevronLeft, ChevronRight, Flag, Globe2, Lock, Plus, Repeat, RotateCcw, Search, Star, TriangleAlert, Wand2 } from "lucide-react";
 import type { CalendarEvent, Category, Occurrence, Task } from "@/data/types";
 import { useNexus, nexus } from "@/store";
@@ -128,12 +128,55 @@ function TaskChip({ task, now, zone, hour12 }: { task: Task; now: number; zone: 
   );
 }
 
+/** A toolbar button that opens a small panel under it. Closes on a click outside or Esc. */
+function ToolMenu({ label, icon, title, active, width = 220, children }: { label: string; icon: React.ReactNode; title?: string; active?: boolean; width?: number; children: (close: () => void) => React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const down = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    const key = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("pointerdown", down, true);
+    window.addEventListener("keydown", key);
+    return () => {
+      window.removeEventListener("pointerdown", down, true);
+      window.removeEventListener("keydown", key);
+    };
+  }, [open]);
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} title={title} className={cx("h-8 pl-2.5 pr-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition", open || active ? "border-accent text-accent bg-[color-mix(in_oklab,var(--accent)_10%,transparent)]" : "border-line text-fg-2 hover:text-fg hover:bg-hover")}>
+        {icon}
+        <span className="hidden md:inline">{label}</span>
+        <ChevronDown size={12} className={cx("transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div role="menu" className="cal-menu absolute right-0 top-full mt-1.5 z-50 rounded-xl border border-line bg-[var(--bg-2)] p-2 flex flex-col gap-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]" style={{ width }}>
+          {children(() => setOpen(false))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MenuItem({ children, onClick, checked, icon, hint }: { children: React.ReactNode; onClick: () => void; checked?: boolean; icon?: React.ReactNode; hint?: string }) {
+  return (
+    <button type="button" role="menuitem" onClick={onClick} title={hint} className={cx("h-8 px-2 rounded-lg text-left text-[13px] flex items-center gap-2 transition", checked ? "text-accent bg-[color-mix(in_oklab,var(--accent)_10%,transparent)]" : "text-fg-2 hover:text-fg hover:bg-hover")}>
+      {icon}
+      <span className="flex-1 truncate">{children}</span>
+      {checked && <Check size={13} />}
+    </button>
+  );
+}
+
+const MenuLabel = ({ children }: { children: React.ReactNode }) => <div className="text-[10px] uppercase tracking-[0.12em] font-semibold text-muted px-1 pt-1.5">{children}</div>;
+
 function Legend() {
   const item = (swatch: React.ReactNode, text: string) => (
     <span className="inline-flex items-center gap-1.5">{swatch}{text}</span>
   );
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted" aria-label="Task colours">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted" aria-label="Task colours">
       <span className="font-medium text-fg-2">Tasks:</span>
       {item(<span className="h-3 w-1 rounded-full" style={{ background: PRIORITY_META.medium.color }} />, "pending (priority colour)")}
       {item(<Flag size={11} style={{ color: PRIORITY_META.high.color }} fill="currentColor" />, "high priority")}
@@ -497,7 +540,7 @@ function TimeGrid({
   const working = useMemo(() => workWindows(days[0], DateTime.fromMillis(days[days.length - 1], { zone }).plus({ days: 1 }).toMillis(), wh), [days, zone, wh]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className={cx("cal-stage glass rounded-2xl overflow-hidden flex flex-col min-h-0", drag?.moved && "select-none")} style={{ height: "calc(100vh - 250px)", minHeight: 420 }} onWheel={onWheel}>
+    <div className={cx("cal-stage glass rounded-2xl overflow-hidden flex flex-col min-h-0", drag?.moved && "select-none")} style={{ height: "100%", minHeight: 320 }} onWheel={onWheel}>
       {/* header */}
       <div className="flex border-b border-line">
         <div className="w-16 shrink-0 flex flex-col items-end justify-between pr-1.5 py-1.5 text-[9px] uppercase tracking-wider text-muted">
@@ -834,13 +877,13 @@ function MonthGrid({ month, zone, events, tasks, now, hour12, onOpenDay }: { mon
   };
 
   return (
-    <div className="glass rounded-2xl overflow-hidden">
-      <div className="grid grid-cols-7 border-b border-line">
+    <div className="glass rounded-2xl overflow-hidden h-full flex flex-col" style={{ minHeight: 360 }}>
+      <div className="grid grid-cols-7 border-b border-line shrink-0">
         {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
           <div key={d} className="px-2 py-2 text-[11px] uppercase tracking-wider text-muted">{d}</div>
         ))}
       </div>
-      <div className="grid grid-cols-7 grid-rows-6" style={{ height: "calc(100vh - 260px)", minHeight: 480 }}>
+      <div className="grid grid-cols-7 grid-rows-6 flex-1 min-h-0">
         {cells.map((day) => {
           const s0 = day.toMillis();
           const e0 = day.plus({ days: 1 }).toMillis();
@@ -909,6 +952,7 @@ export default function Calendar() {
   const [mode, setMode] = useState<Mode>("week");
   const [anchor, setAnchor] = useState(() => Date.now());
   const [toNow, setToNow] = useState(0);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [q, setQ] = useState("");
   const [kind, setKind] = useState<Kind>("all");
   /** Week view normally shows Monday to Sunday; after sliding sideways it shows seven days from the anchor. */
@@ -1011,58 +1055,79 @@ export default function Calendar() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  const kindLabel = KINDS.find((k) => k.id === kind)!.label;
+  const zoneLabel = settings.calendarDisplayZone === "kenya" ? "Kenya EAT" : settings.calendarDisplayZone === "texas" ? `Texas ${zoneAbbr(settings.texasZone, now)}` : settings.homeZone.split("/").pop()!.replace(/_/g, " ");
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h1 className="font-display text-2xl font-semibold">Calendar</h1>
-        <div className="flex items-center gap-1">
-          <Button size="sm" variant="ghost" onClick={() => step(-1)} aria-label="Previous"><ChevronLeft size={16} /></Button>
+    <div className="h-full flex flex-col gap-2 min-h-0">
+      {/* One line: where you are, how you look at it, and three menus for everything else. */}
+      <div className="flex items-center gap-2 min-w-0 shrink-0">
+        <div className="flex items-center gap-0.5 shrink-0">
+          <Button size="sm" variant="ghost" onClick={() => step(-1)} aria-label="Previous" className="!px-1.5"><ChevronLeft size={16} /></Button>
           <Button size="sm" variant="soft" onClick={() => { setRolling(false); setAnchor(Date.now()); setToNow((n) => n + 1); }} title="Back to today and the current time (T)">Today</Button>
-          <Button size="sm" variant="ghost" onClick={() => step(1)} aria-label="Next"><ChevronRight size={16} /></Button>
+          <Button size="sm" variant="ghost" onClick={() => step(1)} aria-label="Next" className="!px-1.5"><ChevronRight size={16} /></Button>
         </div>
-        <DateTimePicker value={anchor} zone={zone} hour12={settings.hour12} withTime={false} onChange={(ms) => ms != null && setAnchor(ms)} ariaLabel="Go to a date" className="!h-8 !border-transparent !bg-transparent hover:!bg-hover font-medium" format={() => label} />
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <Segmented size="sm" value={mode} onChange={(m) => { setDir(0); setMode(m); }} options={[{ value: "day", label: "Day" }, { value: "week", label: "Week" }, { value: "month", label: "Month" }, { value: "agenda", label: "Agenda" }]} />
-          <Button size="sm" variant="outline" icon={<Wand2 size={14} />} onClick={() => useUI.getState().openAutoPlan(true)} title="Fit open tasks into free working time">Auto-plan</Button>
-          <Button size="sm" variant="outline" icon={<CalendarClock size={14} />} onClick={() => useUI.getState().openRescheduleAll(true)} title="Move every open task to a later date or time">Reschedule all</Button>
-          <AiScheduleButton size="sm" />
-          <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={() => useUI.getState().openEvent(null)}>New</Button>
-        </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative w-64">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-          <Input id="cal-search" placeholder="Search the calendar  ( / )" value={q} onChange={(e) => setQ(e.target.value)} className="pl-8 !h-8" aria-label="Search the calendar" />
-        </div>
-        <div className="flex items-center gap-1" role="group" aria-label="Show">
-          {KINDS.map((k) => (
-            <button key={k.id} type="button" aria-pressed={kind === k.id} onClick={() => setKind(k.id)} className={cx("h-8 px-2.5 rounded-lg text-xs font-medium border transition", kind === k.id ? "border-accent text-accent bg-[color-mix(in_oklab,var(--accent)_10%,transparent)]" : "border-line text-muted hover:text-fg")}>
-              {k.label}
-            </button>
-          ))}
-        </div>
-        {filtering && <span className="text-[11px] text-muted tabular">{hits} match{hits === 1 ? "" : "es"} in view</span>}
-        <div className="ml-auto flex items-center gap-2">
-          <Segmented
-            size="sm"
-            value={settings.calendarDisplayZone}
-            onChange={(v) => void nexus().setSetting("calendarDisplayZone", v)}
-            options={[
-              { value: "local", label: settings.homeZone.split("/").pop()!.replace(/_/g, " "), title: `Your scheduling zone: ${settings.homeZone}` },
-              { value: "kenya", label: "Kenya EAT", title: KENYA_ZONE },
-              { value: "texas", label: `Texas ${zoneAbbr(settings.texasZone, now)}`, title: settings.texasZone },
-            ]}
-          />
-          {(mode === "day" || mode === "week") && (
+        <DateTimePicker value={anchor} zone={zone} hour12={settings.hour12} withTime={false} onChange={(ms) => ms != null && setAnchor(ms)} ariaLabel="Go to a date" className="!h-8 !border-transparent !bg-transparent hover:!bg-hover font-display font-semibold !text-base min-w-0" format={() => label} />
+        <Segmented size="sm" value={mode} onChange={(m) => { setDir(0); setMode(m); }} options={[{ value: "day", label: "Day" }, { value: "week", label: "Week" }, { value: "month", label: "Month" }, { value: "agenda", label: "Agenda" }]} />
+        {filtering && <span className="text-[11px] text-muted tabular truncate">{hits} match{hits === 1 ? "" : "es"}</span>}
+        <div className="ml-auto flex items-center gap-1.5 shrink-0">
+          <div className={cx("relative transition-[width] duration-200", q || searchOpen ? "w-52" : "w-8")}>
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+            <Input id="cal-search" placeholder={q || searchOpen ? "Search  ( / )" : ""} value={q} onChange={(e) => setQ(e.target.value)} onFocus={() => setSearchOpen(true)} onBlur={() => setSearchOpen(false)} className={cx("!h-8 pl-8", !(q || searchOpen) && "cursor-pointer !pr-0 !border-transparent !bg-transparent hover:!bg-hover")} aria-label="Search the calendar" title="Search the calendar ( / )" />
+          </div>
+          <ToolMenu label={kind === "all" ? "Filter" : kindLabel} icon={<ListFilter size={14} />} active={kind !== "all"} title="Show only some kinds of entries">
+            {(close) => KINDS.map((k) => (
+              <MenuItem key={k.id} checked={kind === k.id} onClick={() => { setKind(k.id); close(); }}>{k.label}</MenuItem>
+            ))}
+          </ToolMenu>
+          <ToolMenu label="View" icon={<SlidersHorizontal size={14} />} title={`Time zone (${zoneLabel}), zoom, working hours, routine and the legend`} width={300}>
+            {(close) => (
+              <>
+                <MenuLabel>Times shown in</MenuLabel>
+                <Segmented
+                  size="sm"
+                  value={settings.calendarDisplayZone}
+                  onChange={(v) => void nexus().setSetting("calendarDisplayZone", v)}
+                  options={[
+                    { value: "local", label: settings.homeZone.split("/").pop()!.replace(/_/g, " "), title: `Your scheduling zone: ${settings.homeZone}` },
+                    { value: "kenya", label: "Kenya EAT", title: KENYA_ZONE },
+                    { value: "texas", label: `Texas ${zoneAbbr(settings.texasZone, now)}`, title: settings.texasZone },
+                  ]}
+                />
+                {(mode === "day" || mode === "week") && (
+                  <>
+                    <MenuLabel>Zoom</MenuLabel>
             <div className="flex items-center h-8 rounded-lg border border-line overflow-hidden" role="group" aria-label="Zoom">
               <button type="button" onClick={() => setZoom(Math.max(ZOOM_MIN, Math.round((zoom ?? ROOMY_PX) / 1.25)))} aria-label="Zoom out" title="Zoom out ( − )" className="h-full w-8 flex items-center justify-center text-fg-2 hover:text-accent hover:bg-hover"><ZoomOut size={14} /></button>
               <input type="range" min={ZOOM_MIN} max={ZOOM_MAX} step={2} value={zoom ?? ROOMY_PX} onChange={(e) => setZoom(Number(e.target.value))} aria-label="Zoom level" title="Zoom: drag, Ctrl + wheel over the calendar, or + / −" className="cal-zoom w-24 mx-1" />
               <button type="button" onClick={() => setZoom(Math.min(ZOOM_MAX, Math.round((zoom ?? ROOMY_PX) * 1.25)))} aria-label="Zoom in" title="Zoom in ( + )" className="h-full w-8 flex items-center justify-center text-fg-2 hover:text-accent hover:bg-hover"><ZoomIn size={14} /></button>
               <button type="button" onClick={() => setZoom(null)} aria-pressed={zoom == null} title="Fit the whole waking day in the window ( 0 )" className={cx("h-full px-2.5 text-xs font-medium border-l border-line", zoom == null ? "text-accent bg-[color-mix(in_oklab,var(--accent)_10%,transparent)]" : "text-fg-2 hover:text-fg hover:bg-hover")}>{zoom == null ? "Fit day" : `${Math.round((zoom / ROOMY_PX) * 100)}%`}</button>
             </div>
-          )}
-          <Button size="sm" variant="ghost" icon={<Globe2 size={14} />} onClick={() => useUI.getState().openTimeHours(true)} title="Time zone & working hours">Hours</Button>
-          <Button size="sm" variant="ghost" onClick={() => useUI.getState().openRoutine(true)} title="Sleep, morning, work sessions, breaks, lunch and gym">Routine</Button>
+                  </>
+                )}
+                <MenuLabel>Set up</MenuLabel>
+                <MenuItem icon={<Globe2 size={14} />} onClick={() => { close(); useUI.getState().openTimeHours(true); }}>Time zone & working hours</MenuItem>
+                <MenuItem icon={<CalendarClock size={14} />} onClick={() => { close(); useUI.getState().openRoutine(true); }}>Daily routine</MenuItem>
+                <MenuLabel>Legend</MenuLabel>
+                <Legend />
+                <p className="text-[11px] text-muted leading-snug mt-1">Times in <b>{zone}</b>; lit bands are your working hours. Drag a block to move it; drag its top or bottom edge to change its length (hold <b>Alt</b> for exact minutes, Esc cancels). Ctrl + wheel zooms. Keys: T today, D/W/M views, ←/→ step, / search.</p>
+                {unscheduled > 0 && (
+                  <button type="button" onClick={() => useUI.getState().setView("tasks")} className="text-[11px] text-accent hover:underline text-left mt-1">
+                    {unscheduled} task{unscheduled === 1 ? "" : "s"} without a date {unscheduled === 1 ? "is" : "are"} in the To-Do list →
+                  </button>
+                )}
+              </>
+            )}
+          </ToolMenu>
+          <ToolMenu label="Plan" icon={<Wand2 size={14} />} title="Auto-plan, reschedule everything, or describe a schedule to the AI">
+            {(close) => (
+              <>
+                <MenuItem icon={<Wand2 size={14} />} onClick={() => { close(); useUI.getState().openAutoPlan(true); }} hint="Fit open tasks into free working time">Auto-plan</MenuItem>
+                <MenuItem icon={<CalendarClock size={14} />} onClick={() => { close(); useUI.getState().openRescheduleAll(true); }} hint="Move every open task to a later date or time">Reschedule all</MenuItem>
+                <div className="pt-1" onClick={close}><AiScheduleButton size="sm" /></div>
+              </>
+            )}
+          </ToolMenu>
+          <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={() => useUI.getState().openEvent(null)}>New</Button>
         </div>
       </div>
       {/* Changing view tips the new one into place; stepping through time slides it in from the side it came from. */}
@@ -1072,6 +1137,7 @@ export default function Calendar() {
         animate={{ opacity: 1, x: 0, y: 0, rotateX: 0, rotateY: 0, scale: 1 }}
         transition={{ type: "spring", stiffness: 300, damping: 30, mass: 0.7 }}
         style={{ transformPerspective: 1400, transformOrigin: "50% 0%" }}
+        className={cx("flex-1 min-h-0", mode === "agenda" && "overflow-y-auto scroll-y")}
       >
       {mode === "month" ? (
         <MonthGrid month={anchor} zone={zone} events={filtering ? events.filter((e) => expandEvents([e], rangeStart, rangeEnd).some(match)) : events} tasks={shownTasks} now={now} hour12={settings.hour12} onOpenDay={(d) => { setAnchor(d); setMode("day"); }} />
@@ -1081,17 +1147,6 @@ export default function Calendar() {
         <TimeGrid days={days} zone={zone} occ={occ} tasks={shownTasks} allTasks={tasks} now={now} hour12={settings.hour12} texasZone={settings.texasZone} match={match} onStep={step} wh={wh} routine={settings.routine} zoom={zoom} onZoom={setZoom} onShiftDays={shiftDays} categories={categories} toNow={toNow} />
       )}
       </motion.div>
-      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1">
-        <Legend />
-        {unscheduled > 0 && (
-          <button type="button" onClick={() => useUI.getState().setView("tasks")} className="text-[11px] text-accent hover:underline">
-            {unscheduled} task{unscheduled === 1 ? "" : "s"} without a date {unscheduled === 1 ? "is" : "are"} in the To-Do list →
-          </button>
-        )}
-      </div>
-      <p className="text-[11px] text-muted">
-        Times in <b>{zone}</b>; lit bands are your working hours. Drag a block to move it, to another day, or hold it at the left or right edge to carry it to another week. It snaps to neighbouring blocks and quarter hours (hold <b>Alt</b> for exact minutes); drag its top or bottom edge to change its length; Esc cancels. Scroll sideways (or Shift + wheel, or the small arrows by the hours) to slide the days one at a time. Task blocks take their category's colour; a flag marks high priority. Zoom with the slider, Ctrl + wheel over the calendar, or + and − (0 fits the day); zoomed in, blocks show their length, checklist and notes. Click an empty slot to add. Keys: ←/→, T, D/W/M/A, /.
-      </p>
     </div>
   );
 }

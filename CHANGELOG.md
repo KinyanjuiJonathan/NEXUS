@@ -2,6 +2,16 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.16 (26 November 2026)
+
+**Full-screen calendar with a compact toolbar**
+- **The calendar fills the window.** It now uses the full width and runs to the bottom of the window in Day, Week, Month and Agenda, instead of sitting in a narrower column with the page scrolling under it. The page title, the legend row and the paragraph of tips no longer take space around it.
+- **One line of controls instead of two.** Left: previous / Today / next, the date (click it to jump to a date) and Day · Week · Month · Agenda. Right: a search icon that opens when clicked (or press /), then three menus and **New**.
+- **Filter** menu: All, Tasks, Appointments, Overdue, Completed. The button shows the filter in use.
+- **View** menu: the time zone the calendar is shown in, zoom and "Fit day", Time zone & working hours, Daily routine, the legend and the short tips.
+- **Plan** menu: Auto-plan, Reschedule all and AI Schedule.
+- Nothing was removed: every control is still there, and the keyboard shortcuts (T, D, W, M, ←/→, /, + and −) work as before. On a narrow window the menu buttons shrink to icons.
+
 ## v1.1.15 (26 November 2026)
 
 **Wallpaper effect: easy to turn off or re-time**
