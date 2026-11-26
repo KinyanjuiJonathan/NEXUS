@@ -2,6 +2,15 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.18 (26 November 2026)
+
+**Screen extraction inside the Text box**
+- **One text box.** The separate Screen tab, with its reading panel and output area, is gone. Extraction now lives in the Text section of the Auto Typer, as one row above the text box: **Extract from screen**, **Change region** and **Copy**.
+- **Extract first, until you press Stop.** Press Extract from screen (the first time you mark the region on the way), scroll the other window, and press **Stop** when you have everything. Nothing is typed anywhere during extraction; the text is only collected in the box.
+- **Then copy or type.** The extracted text is in the same box you normally type from: edit it, press **Copy**, or press **Start** to have it typed into another app. Start is unavailable while an extraction is running.
+- The row shows what is happening: "Extracting…", how many new lines the last reading added and the total so far. The region is still outlined on the screen while it is read.
+- Unchanged from v1.1.17: text is followed as you scroll, nothing already scanned is taken again, and indentation, paragraph gaps and headings are kept.
+
 ## v1.1.17 (26 November 2026)
 
 **Screen text extraction that follows your scrolling**

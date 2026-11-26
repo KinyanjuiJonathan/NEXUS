@@ -11,6 +11,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.18",
+    date: "2026-11-26",
+    title: "Screen extraction inside the Text box",
+    changes: [
+      "Extracting from the screen is now part of the Text section: one text box, no separate input and output panels.",
+      "Extract from screen reads until you press Stop; the text lands in the box.",
+      "From the same box you can edit it, Copy it, or press Start to type it into another app.",
+    ],
+  },
+  {
     version: "1.1.17",
     date: "2026-11-26",
     title: "Screen text extraction that follows your scrolling",

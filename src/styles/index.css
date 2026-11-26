@@ -377,6 +377,7 @@ html.overlay body {
 
 /* ------------------------------------------------------------------ Auto Typer: extracting from the screen */
 .extract-seen { transition: border-color 0.25s, box-shadow 0.25s; }
+.extract-bar { transition: border-color 0.25s, box-shadow 0.25s; background: color-mix(in oklab, var(--text) 3%, transparent); }
 .extract-on { border-color: color-mix(in oklab, var(--success) 55%, transparent); box-shadow: 0 0 0 1px color-mix(in oklab, var(--success) 22%, transparent), 0 10px 30px -16px var(--success); }
 /* a line of light that travels down the reading, like a scanner */
 .extract-scan { position: absolute; left: 0; right: 0; top: 0; height: 28px; pointer-events: none; background: linear-gradient(180deg, transparent, color-mix(in oklab, var(--success) 22%, transparent) 85%, var(--success)); opacity: 0.55; animation: extract-scan 2.2s ease-in-out infinite; will-change: transform; }

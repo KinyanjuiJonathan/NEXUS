@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Check, Copy, Crosshair } from "lucide-react";
 import { Bold, Eraser, Heading, Italic, Keyboard, Lock, Mic, Play, Redo2, RemoveFormatting, ScanText, Square, Undo2 } from "lucide-react";
 import { useNexus, nexus } from "@/store";
 import { idleSeconds, native, typerShortcut } from "@/lib/platform";
@@ -7,7 +8,6 @@ import { useUI } from "@/store/ui";
 import { DEFAULT_TYPER, MAX_REPEAT, buildPlan, htmlToMarkup, markupToHtml, prepareText, type TyperOptions } from "@/lib/typer/engine";
 import { isBusy, useTyper } from "@/lib/typer/controller";
 import { LiveTyper } from "@/components/LiveTyper";
-import { ScreenExtract } from "@/components/ScreenExtract";
 import { useLive } from "@/lib/typer/liveController";
 import { Button, Card, CardHeader, Field, Input, Kbd, ProgressBar, Segmented, Select, Toggle, cx } from "@/components/ui";
 
@@ -139,6 +139,65 @@ function Editor({ value, onChange, literal, disabled, follow }: { value: string;
   );
 }
 
+/**
+ * Extraction from the screen, as one row above the editing pad. Press Extract,
+ * scroll the other window, press Stop: the text read off the screen is written
+ * into the pad below, where it can be edited, copied, or typed elsewhere with
+ * Start. The part of the screen being read is outlined on the screen itself.
+ */
+function ExtractBar({ text, literal, busy }: { text: string; literal: boolean; busy: boolean }) {
+  const live = useLive();
+  const running = live.running && live.source === "screen";
+  const other = live.running && !running;
+  const x = live.extract;
+  const [copied, setCopied] = useState(false);
+  const extract = async () => {
+    // the first time, the region is chosen on the way
+    if (!useLive.getState().region) await live.chooseRegion();
+    if (useLive.getState().region) await useLive.getState().startScreen(false);
+  };
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(literal ? text : prepareText(text, "strip").text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      nexus().toast({ kind: "warning", title: "Could not copy", body: "Select the text in the box and press Ctrl+C.", ttl: 5000 });
+    }
+  };
+  return (
+    <div className={cx("extract-bar rounded-xl border px-2.5 py-2 mb-2 flex flex-wrap items-center gap-2", running ? "extract-on" : "border-line")}>
+      {running ? (
+        <Button size="sm" variant="danger" icon={<Square size={13} />} onClick={() => void live.stop()} title="Stop extracting. The text stays in the box below.">Stop</Button>
+      ) : (
+        <Button size="sm" variant="soft" icon={<ScanText size={14} />} disabled={busy || other || !native} onClick={() => void extract()} title={native ? "Read text off a part of the screen into the box below. Keeps reading while you scroll, until you press Stop." : "Extracting from the screen runs in the NEXUS desktop app for Windows."}>
+          Extract from screen
+        </Button>
+      )}
+      {!running && live.region && (
+        <Button size="sm" variant="ghost" icon={<Crosshair size={13} />} disabled={busy || other} onClick={() => void live.chooseRegion()} title={`Region: ${live.region.w} × ${live.region.h} px. Click to mark a different part of the screen.`}>Change region</Button>
+      )}
+      <span role="status" aria-live="polite" className={cx("text-xs tabular min-w-0 truncate", running ? (x.added ? "text-success font-medium" : "text-accent font-medium") : "text-muted")}>
+        {running ? (
+          <>
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-current animate-pulse mr-1.5 align-middle" />
+            {x.added ? `+${x.added} new line${x.added === 1 ? "" : "s"}` : "Extracting… scroll the other window"} · {x.lines} line{x.lines === 1 ? "" : "s"} so far
+          </>
+        ) : live.error ? (
+          <span className="text-danger">{live.error}</span>
+        ) : x.done ? (
+          `Extracted ${x.lines} line${x.lines === 1 ? "" : "s"}. Edit, copy, or press Start to type it.`
+        ) : native ? (
+          "Reads the marked part of the screen as you scroll, without repeating text, until you press Stop. Keep NEXUS off that part."
+        ) : (
+          "Extracting from the screen runs in the Windows desktop app."
+        )}
+      </span>
+      <Button size="sm" variant="ghost" className="ml-auto" icon={copied ? <Check size={13} /> : <Copy size={13} />} disabled={!text.trim()} onClick={() => void copy()} title="Copy all the text in the box">{copied ? "Copied" : "Copy"}</Button>
+    </div>
+  );
+}
+
 function Num({ label, hint, value, min, max, step = 1, onChange, disabled }: { label: string; hint?: string; value: number; min: number; max: number; step?: number; onChange: (v: number) => void; disabled: boolean }) {
   return (
     <Field label={label} hint={hint}>
@@ -190,7 +249,7 @@ export default function TyperView() {
   // A rough length for the run; every run differs, so this is planned once per change and only as a guide.
   const [estimate, setEstimate] = useState<{ seconds: number; chars: number } | null>(null);
   // Where the text comes from: written here, spoken, or read off a part of the screen.
-  const [source, setSource] = useState<"text" | "voice" | "screen">("text");
+  const [source, setSource] = useState<"text" | "voice">("text");
   useEffect(() => {
     if (!text.trim() || text.length > 30_000) return setEstimate(null);
     const t = setTimeout(() => {
@@ -255,8 +314,8 @@ export default function TyperView() {
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,1fr)] items-start">
         <Card className="flex flex-col min-h-[420px]">
           <CardHeader
-            title={source === "text" ? "Text to type" : source === "voice" ? "Dictate: your voice in, typing out" : "Extract: text from the screen into the pad"}
-            icon={source === "text" ? <Keyboard size={16} /> : source === "voice" ? <Mic size={16} /> : <ScanText size={16} />}
+            title={source === "text" ? "Text to type" : "Dictate: your voice in, typing out"}
+            icon={source === "text" ? <Keyboard size={16} /> : <Mic size={16} />}
             right={
               <div className="flex items-center gap-3">
                 {source === "text" && estimate && <span className="text-xs text-muted tabular hidden md:inline">{estimate.chars.toLocaleString()} characters · about {clock(estimate.seconds)}</span>}
@@ -267,7 +326,6 @@ export default function TyperView() {
                   options={[
                     { value: "text", label: "Text", title: "Type text you wrote or pasted" },
                     { value: "voice", label: "Voice", title: "Speak, and NEXUS types what you say into another app" },
-                    { value: "screen", label: "Screen", title: "Select part of the screen and scroll it; the text is extracted into the pad, ready to edit or type elsewhere" },
                   ]}
                 />
               </div>
@@ -275,13 +333,12 @@ export default function TyperView() {
           />
           <div className="px-5 pb-5 flex flex-col flex-1 min-h-0">
             {source === "text" ? (
-              <Editor value={text} onChange={setText} literal={literal} disabled={busy} />
-            ) : source === "voice" ? (
-              <LiveTyper source="voice" />
-            ) : (
-              <ScreenExtract hasText={!!text.trim()} onType={() => { setSource("text"); void start(); }}>
+              <>
+                <ExtractBar text={text} literal={literal} busy={busy} />
                 <Editor value={text} onChange={setText} literal={literal} disabled={busy || extracting} follow={extracting} />
-              </ScreenExtract>
+              </>
+            ) : (
+              <LiveTyper source="voice" />
             )}
           </div>
         </Card>
@@ -295,7 +352,7 @@ export default function TyperView() {
                 {busy ? (
                   <Button variant="danger" size="lg" icon={<Square size={15} />} onClick={() => void stop()} disabled={status.locked} title={status.locked ? "Clicks are blocked while locked: use the keyboard to stop" : undefined}>Stop</Button>
                 ) : (
-                  <Button variant="primary" size="lg" icon={<Play size={16} />} onClick={() => void start()} disabled={!text.trim()}>Start</Button>
+                  <Button variant="primary" size="lg" icon={<Play size={16} />} onClick={() => void start()} disabled={!text.trim() || extracting} title={extracting ? "Stop the extraction first" : undefined}>Start</Button>
                 )}
                 <div className="min-w-0">
                   <p className="font-semibold text-fg flex items-center gap-1.5" role="status" aria-live="polite">
