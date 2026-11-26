@@ -223,6 +223,7 @@ pub fn run() {
             screen::screen_read,
             screen::region_pick,
             screen::region_done,
+            screen::region_frame,
             updates::update_check,
             updates::update_install,
             updates::open_external,

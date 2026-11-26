@@ -1,10 +1,11 @@
 import { create } from "zustand";
 import { nexus } from "@/store";
-import { native, pickRegion, screenRead, startDictation, typerStart, typerStop, type ScreenRegion } from "@/lib/platform";
+import { native, pickRegion, regionFrame, screenRead, startDictation, typerStart, typerStop, type ScreenRegion } from "@/lib/platform";
 import { listen } from "@/lib/voice/engine";
 import { buildPlan } from "./engine";
 import { isBusy, useTyper } from "./controller";
-import { NEW_DICTATION, ScreenFollower, backspaceEvents, dictate, type DictationState } from "./live";
+import { NEW_DICTATION, backspaceEvents, dictate, type DictationState } from "./live";
+import { Stitcher, layout, render } from "./extract";
 
 export type LiveSource = "voice" | "screen";
 export type LivePhase = "idle" | "listening" | "reading" | "typing";
@@ -15,6 +16,10 @@ interface LiveStore {
   phase: LivePhase;
   /** What came in: phrases heard, or the latest reading of the screen. */
   input: string[];
+  /** For each line of the latest screen reading: was it new text (true) or already extracted? */
+  fresh: boolean[];
+  /** Extraction from the screen: lines taken so far, how many the last reading added, readings made, and whether the text is ready to be typed. */
+  extract: { lines: number; added: number; readings: number; aligned: boolean; done: boolean };
   /** Everything typed so far in this session. */
   output: string;
   /** Text waiting to be typed. */
@@ -37,7 +42,8 @@ interface LiveStore {
   chooseRegion(): Promise<void>;
   readOnce(): Promise<void>;
   startVoice(): Promise<void>;
-  startScreen(): Promise<void>;
+  /** Start extracting from the region into the editing pad. `resume` carries on with the text already extracted. */
+  startScreen(resume?: boolean): Promise<void>;
   stop(): Promise<void>;
   clear(): void;
 }
@@ -56,6 +62,10 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 /** Bumped by every start and stop, so a loop from an earlier session ends itself. */
 let session = 0;
 let queue: Promise<void> = Promise.resolve();
+/** The document being extracted from the screen, kept between Stop and Continue. */
+const stitcher = new Stitcher();
+/** What was in the pad before the extraction began. */
+let padBase = "";
 /** Ends the native dictation session, when one is open. */
 let stopListening: (() => void) | null = null;
 
@@ -115,6 +125,8 @@ export const useLive = create<LiveStore>((set, get) => {
     running: false,
     phase: "idle",
     input: [],
+    fresh: [],
+    extract: { lines: 0, added: 0, readings: 0, aligned: true, done: false },
     output: "",
     waiting: 0,
     interim: "",
@@ -127,7 +139,10 @@ export const useLive = create<LiveStore>((set, get) => {
     fullStop: false,
     toApp: true,
     set: (patch) => set(patch),
-    clear: () => set({ input: [], output: "", interim: "", error: null }),
+    clear: () => {
+      stitcher.reset();
+      set({ input: [], fresh: [], output: "", interim: "", error: null, extract: { lines: 0, added: 0, readings: 0, aligned: true, done: false } });
+    },
 
     chooseRegion: async () => {
       try {
@@ -149,7 +164,8 @@ export const useLive = create<LiveStore>((set, get) => {
       const region = get().region;
       if (!region) return;
       try {
-        set({ input: await screenRead(region), error: null });
+        const seen = layout(await screenRead(region));
+        set({ input: seen.map((l) => l.text), fresh: seen.map(() => false), error: null });
       } catch (e) {
         set({ error: e instanceof Error ? e.message : String(e) });
       }
@@ -216,29 +232,44 @@ export const useLive = create<LiveStore>((set, get) => {
       finish(mine);
     },
 
-    startScreen: async () => {
+    startScreen: async (resume = false) => {
       if (get().running) return;
       const region = get().region;
       if (!region) {
-        set({ error: "Select the part of the screen to follow first." });
+        set({ error: "Select the part of the screen to extract from first." });
         return;
       }
       const mine = ++session;
-      queue = Promise.resolve();
-      set({ running: true, source: "screen", phase: "reading", error: null, output: "", waiting: 0 });
-      const follower = new ScreenFollower({ joiner: get().joiner, includeExisting: get().includeExisting });
+      const pad = useTyper.getState();
+      const marks = nexus().settings.typer.format !== "literal";
+      if (!resume || !stitcher.lines.length) {
+        stitcher.reset();
+        // what is already in the pad stays; the extraction is written after it
+        padBase = pad.text.trimEnd();
+      }
+      let written = "";
+      const write = () => {
+        const text = render(stitcher.lines, marks);
+        if (text === written) return;
+        written = text;
+        useTyper.getState().setText(padBase && text ? `${padBase}\n\n${text}` : padBase || text);
+      };
+      set((s) => ({ running: true, source: "screen", phase: "reading", error: null, waiting: 0, extract: { ...s.extract, lines: stitcher.lines.length, added: 0, done: false } }));
+      void regionFrame(region, "reading");
       let failures = 0;
       while (mine === session) {
         try {
-          const lines = await screenRead(region);
-          if (mine !== session) return;
+          const seen = layout(await screenRead(region));
+          if (mine !== session) break;
           failures = 0;
-          set({ input: lines, phase: get().waiting ? "typing" : "reading" });
-          send(follower.feed(lines), 0, mine);
+          const r = stitcher.feed(seen);
+          write();
+          set((s) => ({ input: seen.map((l) => l.text), fresh: r.fresh, phase: r.added ? "typing" : "reading", extract: { lines: stitcher.lines.length, added: r.added, readings: s.extract.readings + 1, aligned: r.aligned, done: false } }));
+          void regionFrame(region, r.added ? "found" : "reading");
         } catch (e) {
-          if (mine !== session) return;
+          if (mine !== session) break;
           if (++failures >= 3) {
-            await queue;
+            void regionFrame(null);
             return finish(mine, e instanceof Error ? e.message : String(e));
           }
         }
@@ -247,10 +278,12 @@ export const useLive = create<LiveStore>((set, get) => {
     },
 
     stop: async () => {
+      const wasScreen = get().source === "screen";
       session += 1;
       stopListening?.();
       stopListening = null;
-      set({ running: false, phase: "idle", source: null, interim: "" });
+      if (wasScreen) void regionFrame(null);
+      set((s) => ({ running: false, phase: "idle", source: null, interim: "", extract: wasScreen ? { ...s.extract, added: 0, done: stitcher.lines.length > 0 } : s.extract }));
       if (native && isBusy(useTyper.getState().status)) await typerStop().catch(() => {});
     },
   };

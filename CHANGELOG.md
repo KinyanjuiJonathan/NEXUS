@@ -2,6 +2,18 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.17 (26 November 2026)
+
+**Screen text extraction that follows your scrolling**
+- **Extract while scrolling.** In Auto Typer → Screen, select a region, press **Start extracting** and scroll the other window. Each reading is laid over what was read before: the overlapping part is recognised and skipped, and only the new text is added. Scrolling back up, or stopping on the same view, adds nothing.
+- **No repeats.** Text that was already scanned is not taken again, even when a few characters are misread the second time. Lines that genuinely repeat in the source (a closing bracket, a repeated sentence) are kept, because lines are matched by their place in the text, not just their wording. After a jump to a different part of the page, only text not read before is added.
+- **You can see what it is working on.** The region is outlined on the screen itself with a labelled frame that pulses while reading and flashes green when new text is taken; clicks and scrolling pass straight through it. In NEXUS, the "Reading this part of the screen" box shows the current reading with new lines in green and lines already extracted in grey, and a count of lines extracted.
+- **Output goes to the editing pad.** The extracted text is written into the normal Auto Typer pad as it comes in (after any text already there). Editing is paused while extracting and free again afterwards.
+- **Same layout as the source.** Indentation, paragraph gaps, text on the same row, and larger text (as headings) are kept. Bold, italic, colours and fonts cannot be recognised from a screen image, so those are not reproduced.
+- **Then type it elsewhere.** **Mark done** ends the extraction. Check or edit the text, then **Type it into another app** types it with your usual rhythm settings. **Continue** carries on the same extraction; **New extraction** starts another one.
+- Replaces the earlier Screen mode, which typed new lines straight into another app as they appeared.
+- Tip: scroll in steps that leave a few lines of the previous view visible. That overlap is what lets NEXUS know where it is.
+
 ## v1.1.16 (26 November 2026)
 
 **Full-screen calendar with a compact toolbar**

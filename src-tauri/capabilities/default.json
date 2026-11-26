@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Permissions for the NEXUS main window and the floating overlay",
-  "windows": ["main", "overlay", "region-*"],
+  "windows": ["main", "overlay", "region-*", "frame"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

@@ -74,8 +74,19 @@ fn doubled(pixels: &[u8], w: usize, h: usize) -> Vec<u8> {
     out
 }
 
-/// The text in a BGRA image, one string per recognised line, top to bottom.
-pub fn recognise(pixels: &[u8], w: i32, h: i32) -> Result<Vec<String>, String> {
+/// One recognised line and where it sits in the image (pixels of the region that was read),
+/// so the reader can keep indentation, paragraph gaps and larger text.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct Line {
+    pub text: String,
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+/// The text in a BGRA image, one entry per recognised line, top to bottom.
+pub fn recognise(pixels: &[u8], w: i32, h: i32) -> Result<Vec<Line>, String> {
     let fail = |e: windows::core::Error| format!("Text recognition is unavailable ({}). Add a language with text recognition in Windows Settings → Time & language.", e.message());
     // SAFETY: initialising the WinRT apartment for this worker thread; "already initialised" is fine.
     unsafe {
@@ -84,7 +95,9 @@ pub fn recognise(pixels: &[u8], w: i32, h: i32) -> Result<Vec<String>, String> {
     let engine = OcrEngine::TryCreateFromUserProfileLanguages().map_err(fail)?;
     let max = OcrEngine::MaxImageDimension().unwrap_or(2600) as i32;
     // enlarge unless that would exceed what the recogniser accepts
-    let (data, w, h) = if w * 2 <= max && h * 2 <= max { (doubled(pixels, w as usize, h as usize), w * 2, h * 2) } else { (pixels.to_vec(), w, h) };
+    let enlarge = w * 2 <= max && h * 2 <= max;
+    let scale = if enlarge { 2.0_f32 } else { 1.0 };
+    let (data, w, h) = if enlarge { (doubled(pixels, w as usize, h as usize), w * 2, h * 2) } else { (pixels.to_vec(), w, h) };
     if w > max || h > max {
         return Err("That region is too large for text recognition. Select a smaller part of the screen.".into());
     }
@@ -96,15 +109,28 @@ pub fn recognise(pixels: &[u8], w: i32, h: i32) -> Result<Vec<String>, String> {
     let mut lines = Vec::new();
     for line in result.Lines().map_err(fail)? {
         let text = line.Text().map_err(fail)?.to_string();
-        if !text.trim().is_empty() {
-            lines.push(text);
+        if text.trim().is_empty() {
+            continue;
         }
+        // a line's box is the box around its words
+        let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+        for word in line.Words().map_err(fail)? {
+            let r = word.BoundingRect().map_err(fail)?;
+            x0 = x0.min(r.X);
+            y0 = y0.min(r.Y);
+            x1 = x1.max(r.X + r.Width);
+            y1 = y1.max(r.Y + r.Height);
+        }
+        if x1 < x0 || y1 < y0 {
+            (x0, y0, x1, y1) = (0.0, 0.0, 0.0, 0.0);
+        }
+        lines.push(Line { text, x: x0 / scale, y: y0 / scale, w: (x1 - x0) / scale, h: (y1 - y0) / scale });
     }
     Ok(lines)
 }
 
 /// Capture a screen rectangle and read the text in it.
-pub fn read_region(x: i32, y: i32, w: i32, h: i32) -> Result<Vec<String>, String> {
+pub fn read_region(x: i32, y: i32, w: i32, h: i32) -> Result<Vec<Line>, String> {
     let pixels = capture(x, y, w, h)?;
     recognise(&pixels, w, h)
 }

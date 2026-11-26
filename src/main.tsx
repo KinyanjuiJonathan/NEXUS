@@ -7,10 +7,11 @@ import { isTauri } from "./data/backend";
 const App = lazy(() => import("./App"));
 const OverlayApp = lazy(() => import("./overlay/OverlayApp"));
 const RegionPicker = lazy(() => import("./region/RegionPicker"));
+const RegionFrame = lazy(() => import("./region/RegionFrame"));
 
-async function detectWindow(): Promise<"main" | "overlay" | "region"> {
+async function detectWindow(): Promise<"main" | "overlay" | "region" | "frame"> {
   // one picker window per monitor: region-0, region-1, …
-  const named = (label: string | null) => (label === "overlay" ? "overlay" : label?.startsWith("region") ? "region" : "main");
+  const named = (label: string | null) => (label === "overlay" ? "overlay" : label === "frame" ? "frame" : label?.startsWith("region") ? "region" : "main");
   if (isTauri()) {
     const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
     return named(getCurrentWebviewWindow().label);
@@ -21,6 +22,16 @@ async function detectWindow(): Promise<"main" | "overlay" | "region"> {
 async function boot() {
   const kind = await detectWindow();
   if (kind === "overlay") document.documentElement.classList.add("overlay");
+  if (kind === "frame") {
+    // The outline around the region being read: see-through, no data, no app shell.
+    document.documentElement.classList.add("overlay");
+    createRoot(document.getElementById("root")!).render(
+      <Suspense fallback={null}>
+        <RegionFrame />
+      </Suspense>,
+    );
+    return;
+  }
   if (kind === "region") {
     // The region picker is a see-through sheet over the screen: no data, no app shell.
     document.documentElement.classList.add("overlay");

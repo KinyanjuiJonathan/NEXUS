@@ -368,10 +368,18 @@ export interface ScreenRegion {
   h: number;
 }
 
-/** The text currently shown in a region of the screen, one string per line. */
-export async function screenRead(region: ScreenRegion): Promise<string[]> {
+/** The text currently shown in a region of the screen: one entry per line, with the line's box inside the region. */
+export async function screenRead(region: ScreenRegion): Promise<{ text: string; x: number; y: number; w: number; h: number }[]> {
   if (!native) throw new Error("Reading text from the screen runs in the NEXUS desktop app for Windows.");
-  return invokeSafe<string[]>("screen_read", { region });
+  return invokeSafe("screen_read", { region });
+}
+/**
+ * Outline the region being read, on the screen itself (null removes the outline). Clicks pass through it.
+ * `note`: "reading", "found" (new text was just taken) or "paused". Never throws: the outline is a help, not a requirement.
+ */
+export async function regionFrame(region: ScreenRegion | null, note?: "reading" | "found" | "paused"): Promise<void> {
+  if (!native) return;
+  await invokeSafe("region_frame", { region, note: note ?? null }).catch(() => {});
 }
 /** Open the full-screen picker; resolves with the region the user marks, or null when they cancel. */
 export async function pickRegion(): Promise<ScreenRegion | null> {

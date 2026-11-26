@@ -7,6 +7,7 @@ import { useUI } from "@/store/ui";
 import { DEFAULT_TYPER, MAX_REPEAT, buildPlan, htmlToMarkup, markupToHtml, prepareText, type TyperOptions } from "@/lib/typer/engine";
 import { isBusy, useTyper } from "@/lib/typer/controller";
 import { LiveTyper } from "@/components/LiveTyper";
+import { ScreenExtract } from "@/components/ScreenExtract";
 import { useLive } from "@/lib/typer/liveController";
 import { Button, Card, CardHeader, Field, Input, Kbd, ProgressBar, Segmented, Select, Toggle, cx } from "@/components/ui";
 
@@ -20,8 +21,13 @@ const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.ro
  * stored and typed is still the marked-up text, converted both ways here.
  * "Type exactly as written" uses a plain text box instead.
  */
-function Editor({ value, onChange, literal, disabled }: { value: string; onChange: (v: string) => void; literal: boolean; disabled: boolean }) {
+function Editor({ value, onChange, literal, disabled, follow }: { value: string; onChange: (v: string) => void; literal: boolean; disabled: boolean; /** Keep the end of the text in view while it is being filled in. */ follow?: boolean }) {
   const pad = useRef<HTMLDivElement>(null);
+  const plainPad = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!follow) return;
+    for (const el of [pad.current, plainPad.current]) if (el) el.scrollTop = el.scrollHeight;
+  }, [value, follow]);
   /** The markup this pad last produced: an outside change (Clear, loading) is anything else. */
   const emitted = useRef<string | null>(null);
   const [fmt, setFmt] = useState({ bold: false, italic: false, heading: false });
@@ -74,6 +80,7 @@ function Editor({ value, onChange, literal, disabled }: { value: string; onChang
           <Button size="sm" variant="ghost" className="ml-auto" icon={<Eraser size={14} />} disabled={disabled || !value} onClick={() => onChange("")}>Clear</Button>
         </div>
         <textarea
+          ref={plainPad}
           value={value}
           disabled={disabled}
           spellCheck={false}
@@ -151,6 +158,7 @@ export default function TyperView() {
   const busy = isBusy(status) || starting;
   const set = <K extends keyof TyperOptions>(k: K, v: TyperOptions[K]) => void nexus().setSetting("typer", { ...nexus().settings.typer, [k]: v });
   const literal = options.format === "literal";
+  const extracting = useLive((s) => s.running && s.source === "screen");
 
   // The start/stop key is only taken from other apps while this screen is open.
   useEffect(() => {
@@ -247,7 +255,7 @@ export default function TyperView() {
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,1fr)] items-start">
         <Card className="flex flex-col min-h-[420px]">
           <CardHeader
-            title={source === "text" ? "Text to type" : source === "voice" ? "Dictate: your voice in, typing out" : "Mirror: screen text in, typing out"}
+            title={source === "text" ? "Text to type" : source === "voice" ? "Dictate: your voice in, typing out" : "Extract: text from the screen into the pad"}
             icon={source === "text" ? <Keyboard size={16} /> : source === "voice" ? <Mic size={16} /> : <ScanText size={16} />}
             right={
               <div className="flex items-center gap-3">
@@ -259,14 +267,22 @@ export default function TyperView() {
                   options={[
                     { value: "text", label: "Text", title: "Type text you wrote or pasted" },
                     { value: "voice", label: "Voice", title: "Speak, and NEXUS types what you say into another app" },
-                    { value: "screen", label: "Screen", title: "Select part of the screen; text that appears there is typed into another app" },
+                    { value: "screen", label: "Screen", title: "Select part of the screen and scroll it; the text is extracted into the pad, ready to edit or type elsewhere" },
                   ]}
                 />
               </div>
             }
           />
           <div className="px-5 pb-5 flex flex-col flex-1 min-h-0">
-            {source === "text" ? <Editor value={text} onChange={setText} literal={literal} disabled={busy} /> : <LiveTyper source={source} />}
+            {source === "text" ? (
+              <Editor value={text} onChange={setText} literal={literal} disabled={busy} />
+            ) : source === "voice" ? (
+              <LiveTyper source="voice" />
+            ) : (
+              <ScreenExtract hasText={!!text.trim()} onType={() => { setSource("text"); void start(); }}>
+                <Editor value={text} onChange={setText} literal={literal} disabled={busy || extracting} follow={extracting} />
+              </ScreenExtract>
+            )}
           </div>
         </Card>
 

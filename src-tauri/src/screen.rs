@@ -27,20 +27,85 @@ pub struct CssRect {
     h: f64,
 }
 
-/// The text currently shown in a region of the screen, one string per line.
+/// One line of text read off the screen, with its box inside the region (physical pixels).
+#[cfg(windows)]
+pub type ScreenLine = crate::win_screen::Line;
+
+#[cfg(not(windows))]
+#[derive(Clone, Debug, Serialize)]
+pub struct ScreenLine {
+    pub text: String,
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+/// The text currently shown in a region of the screen, one entry per line, with where each line sits.
 #[tauri::command]
-pub async fn screen_read(region: Region) -> CmdResult<Vec<String>> {
+pub async fn screen_read(region: Region) -> CmdResult<Vec<ScreenLine>> {
     tauri::async_runtime::spawn_blocking(move || read(region)).await.map_err(friendly)?
 }
 
 #[cfg(windows)]
-fn read(r: Region) -> CmdResult<Vec<String>> {
+fn read(r: Region) -> CmdResult<Vec<ScreenLine>> {
     crate::win_screen::read_region(r.x, r.y, r.w, r.h)
 }
 
 #[cfg(not(windows))]
-fn read(_r: Region) -> CmdResult<Vec<String>> {
+fn read(_r: Region) -> CmdResult<Vec<ScreenLine>> {
     Err("Reading text from the screen uses Windows text recognition, so it only works in the Windows desktop app.".into())
+}
+
+const FRAME: &str = "frame";
+pub const FRAME_NOTE: &str = "nexus://frame";
+/// The outline is drawn in a margin around the region, never over it, so it is not read as text.
+const FRAME_MARGIN: f64 = 6.0;
+const FRAME_LABEL: f64 = 26.0;
+
+/// Show an outline around the region being read (or hide it with `None`). The outline is a
+/// see-through window that lets every click through, so it never gets in the way of scrolling.
+/// `note` is passed to it: "reading", "found" (new text was just taken) or "paused".
+#[tauri::command]
+pub async fn region_frame(app: AppHandle, region: Option<Region>, note: Option<String>) -> CmdResult<()> {
+    let Some(r) = region else {
+        if let Some(w) = app.get_webview_window(FRAME) {
+            let _ = w.close();
+        }
+        return Ok(());
+    };
+    let frame = match app.get_webview_window(FRAME) {
+        Some(w) => w,
+        None => {
+            let w = WebviewWindowBuilder::new(&app, FRAME, WebviewUrl::App("index.html?window=frame".into()))
+                .title("NEXUS: reading this area")
+                .decorations(false)
+                .transparent(true)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .resizable(false)
+                .shadow(false)
+                .focused(false)
+                .visible(false)
+                .build()
+                .map_err(friendly)?;
+            let _ = w.set_ignore_cursor_events(true);
+            w
+        }
+    };
+    // onto the region's monitor first, so the margin is measured at that monitor's scale
+    let _ = frame.set_position(PhysicalPosition::new(r.x, r.y));
+    let scale = frame.scale_factor().unwrap_or(1.0);
+    let margin = (FRAME_MARGIN * scale).round() as i32;
+    let label = (FRAME_LABEL * scale).round() as i32;
+    let _ = frame.set_size(PhysicalSize::new((r.w + 2 * margin).max(1) as u32, (r.h + 2 * margin + label).max(1) as u32));
+    let _ = frame.set_position(PhysicalPosition::new(r.x - margin, r.y - margin - label));
+    let _ = frame.set_ignore_cursor_events(true);
+    let _ = frame.show();
+    if let Some(note) = note {
+        let _ = app.emit(FRAME_NOTE, note);
+    }
+    Ok(())
 }
 
 fn pickers(app: &AppHandle) -> Vec<WebviewWindow> {

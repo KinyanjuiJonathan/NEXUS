@@ -11,6 +11,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.17",
+    date: "2026-11-26",
+    title: "Screen text extraction that follows your scrolling",
+    changes: [
+      "Auto Typer → Screen now extracts text as you scroll: it adds what comes into view and never takes the same text twice.",
+      "The area being read is outlined on the screen, and the panel shows which lines are new and which were already extracted.",
+      "The text is written into the main editing pad, keeping indentation, paragraph gaps and headings.",
+      "Mark done, check or edit the text, then Type it into another app.",
+    ],
+  },
+  {
     version: "1.1.16",
     date: "2026-11-26",
     title: "Full-screen calendar with a compact toolbar",
