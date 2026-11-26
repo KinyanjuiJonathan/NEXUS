@@ -61,6 +61,7 @@ const FRAME: &str = "frame";
 /// Sent to the frame: what just happened ("ready", "found:3", "none").
 pub const FRAME_NOTE: &str = "nexus://frame";
 /// Sent to NEXUS: the user right-clicked inside the region (payload: the region to read).
+#[cfg_attr(not(windows), allow(dead_code))]
 pub const CAPTURE: &str = "nexus://region-capture";
 /// Sent to NEXUS: the region was moved or resized (payload: the new region).
 pub const CHANGED: &str = "nexus://region-changed";
