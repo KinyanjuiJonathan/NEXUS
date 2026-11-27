@@ -2,6 +2,27 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.27 (27 November 2026)
+
+**Two-column tables are captured as "this - that" lines**
+- **Two columns: one row per line.** A table with two columns (a list of pairs, such as Scenario and Result) is now written with each row on its own line, the two cells joined by " - ", and a blank line between rows:
+
+  ```
+  Scheduled run with nobody logged in - Created the backup and removed old ones as configured
+
+  Existing rule cron trigger firing in the same minute - Fired. The webhook delivery itself was blocked by …
+
+  Manual backup - Works, and is refused at 10
+  ```
+
+  A cell that runs over two lines in the table is joined into one. The heading row ("Scenario", "Result") is not written.
+- **Three or more columns are unchanged:** each row is listed under the table's headings, as in v1.1.24.
+- **Tables drawn with lines are read.** The upright and horizontal lines of a drawn table (a terminal's box characters, a grid) are removed from the picture before reading, so they are not read as "|", "I" or "l" between the columns. Any that are still read as characters are dropped from the text. Light text on a dark screen is turned into dark on light first, as before.
+- **A heading row centred over its columns** is recognised as part of the table.
+- **Scrolling down a table still works:** the next capture adds only the rows that are new, and the text after the table is ordinary text again. A table first met part-way down, with its heading row out of view, keeps its first visible row as a row.
+- Rows of a table are told apart more reliably when most of them have a single line.
+- Everything that is not a table is captured exactly as before.
+
 ## v1.1.26 (27 November 2026)
 
 **Updating no longer interrupts what is running**

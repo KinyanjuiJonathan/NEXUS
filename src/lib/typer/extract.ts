@@ -53,7 +53,9 @@ export function layout(lines: OcrLine[], opts: { /** Height of the region read: 
   // it touches the edge and is clearly shorter than the other lines, because part of its letters is missing.
   const usual = median(lines.filter((l) => l.h > 0 && l.text.trim()).map((l) => l.h));
   const cut = (l: OcrLine) => opts.height != null && l.h > 0 && usual > 0 && lines.length > 1 && (l.y <= 1 || l.y + l.h >= opts.height - 1) && l.h < 0.72 * usual;
-  const clean = lines.filter((l) => !cut(l)).map((l) => ({ ...l, text: l.text.replace(/\s+/g, " ").trim() })).filter((l) => l.text);
+  // the upright lines of a drawn table, where the recogniser reads them as characters, are not text
+  const bare = (t: string) => t.replace(/[│┃┆┊¦]/g, " ").replace(/^(?:\|\s*)+|(?:\s*\|)+$/g, "").replace(/\s+/g, " ").trim();
+  const clean = lines.filter((l) => !cut(l)).map((l) => ({ ...l, text: bare(l.text) })).filter((l) => l.text);
   if (!clean.length) return [];
   const boxed = clean.some((l) => l.h > 0 && l.w > 0);
   if (!boxed) return clean.map((l) => ({ text: l.text, key: lineKey(l.text), gap: false, heading: false, seen: 1 }));
@@ -138,13 +140,19 @@ function joinCell(lines: string[]): string {
  * column is ordinary text, not a cell, and ends the table.
  */
 function findTables(rows: OcrLine[][], H: number): { from: number; to: number; columns: number[] }[] {
-  const tol = 0.9 * H;
+  const tol = 1.2 * H;
   const out: { from: number; to: number; columns: number[] }[] = [];
   const bottom = (row: OcrLine[]) => Math.max(...row.map((p) => p.y + p.h));
   const top = (row: OcrLine[]) => Math.min(...row.map((p) => p.y));
   for (let i = 0; i < rows.length; i++) {
     if (rows[i].length < 2) continue;
     let columns = rows[i].map((p) => p.x);
+    // A heading row is often centred over its columns, so its text starts elsewhere than the cells below it.
+    // When the next row has as many pieces, each under one of the headings, the cells give the columns.
+    const below = rows[i + 1];
+    if (below && below.length === rows[i].length && rows[i].every((p, c) => p.x + p.w / 2 >= below[c].x - tol && (c + 1 >= below.length || p.x + p.w / 2 < below[c + 1].x))) {
+      columns = below.map((p) => p.x);
+    }
     const fits = (row: OcrLine[], cols: number[]) =>
       row.every((p) => {
         const next = cols[columnOf(cols, p.x) + 1];
@@ -184,7 +192,10 @@ function tableRows(rows: OcrLine[][], H: number): OcrLine[][][] {
   const top = (row: OcrLine[]) => Math.min(...row.map((p) => p.y));
   const bottom = (row: OcrLine[]) => Math.max(...row.map((p) => p.y + p.h));
   const gaps = rows.slice(1).map((row, k) => top(row) - bottom(rows[k]));
-  const usual = median(gaps.filter((g) => g > 0));
+  // the gap between two lines of the same cell: the small ones (most rows of a table may have a single line,
+  // so the typical gap can be the larger one between rows)
+  const positive = gaps.filter((g) => g > 0).sort((a, b) => a - b);
+  const usual = positive.length ? positive[Math.floor(positive.length * 0.2)] : 0;
   const limit = Math.max(0.9 * H, 1.7 * usual);
   // Cells are aligned at the top, so the first line of a table row has text in several columns. A line with text
   // in only one column after a slightly wider gap (the second line of a heading in larger type) still belongs
@@ -389,7 +400,17 @@ export function tablesOf(lines: DocLine[]): ({ headers: string[]; isHeader: bool
       return null;
     }
     const cells = l.text.split("\t");
-    if (!headers || l.head || cells.length !== headers.length) {
+    if (l.head || (headers && cells.length !== headers.length)) {
+      headers = cells.map((c) => c.trim());
+      return { headers, isHeader: true };
+    }
+    if (!headers) {
+      // A table met part-way down, whose heading row was never in view: its first row is a row, not headings.
+      // (`head` is only ever false on purpose; a row that says nothing about it starts a table as before.)
+      if (l.head === false) {
+        headers = cells.map(() => "");
+        return { headers, isHeader: false };
+      }
       headers = cells.map((c) => c.trim());
       return { headers, isHeader: true };
     }
@@ -402,7 +423,8 @@ export function tablesOf(lines: DocLine[]): ({ headers: string[]; isHeader: bool
  * a heading and characters the pad would read as formatting are kept as
  * themselves; without, it is plain text exactly as read.
  *
- * A table is written out row by row as a list: for every row, each column's
+ * A table is written out row by row. With two columns, each row is one line:
+ * "first cell - second cell". With more, each row is a list: every column's
  * heading on a line of its own followed by that row's text for it. The
  * heading row itself is not written separately, unless it is all there is.
  *
@@ -413,7 +435,7 @@ export function render(lines: DocLine[], marks: boolean, from = 0): string {
   const tables = tablesOf(lines);
   const plain = (t: string) => (marks ? escapeMarks(t) : t);
   /** What a line contributes, or null when it contributes nothing (a heading row with rows under it). */
-  const piece = (i: number): { text: string; block: boolean } | null => {
+  const piece = (i: number): { text: string; block: boolean; pair?: boolean } | null => {
     const l = lines[i];
     const t = tables[i];
     if (!t) {
@@ -427,11 +449,16 @@ export function render(lines: DocLine[], marks: boolean, from = 0): string {
       return rowsFollow ? null : { text: plain(t.headers.filter(Boolean).join("    ")), block: true };
     }
     const cells = l.text.split("\t").map((c) => c.trim());
+    // Two columns are a list of pairs: each row on one line, "this - that".
+    if (t.headers.length === 2) {
+      const pair = cells.filter(Boolean).join(" - ");
+      return pair ? { text: plain(pair), block: true, pair: true } : null;
+    }
     const fields = t.headers.map((h, c) => (cells[c] ? `${plain(h || `Column ${c + 1}`)}:\n${plain(cells[c])}` : "")).filter(Boolean);
     return fields.length ? { text: fields.join("\n\n"), block: true } : null;
   };
   let out = "";
-  let last: { block: boolean } | null = null;
+  let last: { block: boolean; pair?: boolean } | null = null;
   // what comes before `from` only decides how the first written line is separated from it
   for (let i = from - 1; i >= 0 && !last; i--) {
     const p = piece(i);
@@ -443,7 +470,8 @@ export function render(lines: DocLine[], marks: boolean, from = 0): string {
     if (!p) continue;
     if (last) {
       // records of a table stand two lines apart; a table stands a line apart from text; text keeps its own spacing
-      const sep = p.block && last.block ? "\n\n\n" : p.block || last.block || lines[i].gap ? "\n\n" : "\n";
+      // (rows written as pairs are short: one line apart is enough)
+      const sep = p.block && last.block ? (p.pair && last.pair ? "\n\n" : "\n\n\n") : p.block || last.block || lines[i].gap ? "\n\n" : "\n";
       if (wrote) out += sep;
     }
     out += p.text;

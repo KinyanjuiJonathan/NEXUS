@@ -293,7 +293,8 @@ describe("tables", () => {
       ...[["Level", "Meaning"], ["High", "Blocks the task"], ["Low", "Cosmetic"]].flatMap((r, i) => r.map((text, c) => ({ text, x: [64, 223][c], y: 60 + i * 30, w: text.length * 6.2, h: 11 }))),
     ];
     capture(other);
-    expect(pad.endsWith("Severity levels\n\nLevel:\nHigh\n\nMeaning:\nBlocks the task\n\n\nLevel:\nLow\n\nMeaning:\nCosmetic")).toBe(true);
+    // (two columns: each row on one line)
+    expect(pad.endsWith("Severity levels\n\nHigh - Blocks the task\n\nLow - Cosmetic")).toBe(true);
     expect(pad.match(/Behavioral Issue:/g)).toHaveLength(2); // the earlier table is untouched
   });
 
@@ -305,5 +306,76 @@ describe("tables", () => {
     const count = s.lines.length;
     s.feed(layout(TABLE));
     expect(render(s.lines, false, count).startsWith("Behavioral Issue:\nCode Hallucinations\n\nDescription:\n")).toBe(true);
+  });
+
+  // The two-column table of the terminal screenshot: a centred heading row, cells of one or two lines.
+  const PAIRS: [string[], string[]][] = [
+    [["Scheduled run with nobody logged in"], ["Created the backup and removed old ones as configured"]],
+    [["Existing rule cron trigger firing in the", "same minute"], ["Fired. The webhook delivery itself was blocked by Squidex's", "private-address guard, so I didn't see the call arrive"]],
+    [["Manual backup"], ["Works, and is refused at 10"]],
+    [["Induced failure (read-only asset store)"], ["Run marked Failed, owner notified, next run succeeded and cleaned", "it up"]],
+    [["Full list of 10 older automatic backups"], ["New backup created, two oldest removed, files deleted"]],
+    [["10 manual backups"], ["Nothing created, nothing deleted, owner told the run couldn't be", "done; once a slot was freed the next run worked"]],
+    [["9 manual + 1 automatic"], ["Only the automatic one was replaced"]],
+    [["Hard kill mid-run, then restart"], ["Job cleaned up and owner alerted at startup, without anyone opening", "the page; next run worked"]],
+    [["Restart before the fire time"], ["Schedule survived and fired on time"]],
+    [["UI (save, reload, server restart, invalid", "cron, custom cron, disable)"], ["All passed"]],
+  ];
+  /** The rows `from`…`to` as the recogniser would give them, 9.6 px a letter, starting at `top`. */
+  const terminal = (from: number, to: number, top: number, withHeading: boolean): OcrLine[] => {
+    const out: OcrLine[] = [];
+    let y = top;
+    const put = (text: string, x: number) => out.push({ text, x, y, w: text.length * 9.6, h: 13 });
+    if (withHeading) {
+      put("Scenario", 174);
+      put("Result", 709);
+      y += 36;
+    }
+    for (const [left, right] of PAIRS.slice(from, to)) {
+      const lines = Math.max(left.length, right.length);
+      for (let k = 0; k < lines; k++) {
+        if (left[k]) put(left[k], 30);
+        // the terminal indents some wrapped lines by one letter
+        if (right[k]) put(right[k], right[k].startsWith("the page") ? 450 : 440);
+        y += 18;
+      }
+      y += 18; // the line between two rows
+    }
+    return out;
+  };
+  const EXPECTED = PAIRS.map(([l, r]) => `${l.join(" ")} - ${r.join(" ")}`);
+
+  it("a two-column table is written one row per line, as \"first - second\", without its heading row", () => {
+    const doc = layout(terminal(0, 9, 30, true));
+    expect(doc.map((l) => !!l.table)).toEqual(Array(10).fill(true));
+    expect(render(doc, false)).toBe(EXPECTED.slice(0, 9).join("\n\n"));
+  });
+
+  it("scrolling down the table and capturing again adds only the new row, and the text after it stays text", () => {
+    const s = new Stitcher(true);
+    s.feed(layout(terminal(0, 9, 30, true)));
+    // second screenshot: the heading and the first rows are out of view; the table starts at the top edge
+    const after: OcrLine = { text: "Unit tests: 1,560 backend tests pass, plus 16 new frontend tests and clean lint. The 2 backend failures are ffmpeg", x: 22, y: 0, w: 1060, h: 13 };
+    const second = terminal(3, 10, 4, false);
+    after.y = Math.max(...second.map((l) => l.y)) + 60;
+    const r = s.feed(layout([...second, after]));
+    expect(r.added).toBe(2); // the last row and the paragraph
+    expect(render(s.lines, false)).toBe([...EXPECTED, after.text].join("\n\n"));
+  });
+
+  it("a table first met part-way down keeps its first row as a row", () => {
+    // nothing captured before, and the heading row is not in view
+    expect(render(layout(terminal(3, 6, 4, false)), false)).toBe(EXPECTED.slice(3, 6).join("\n\n"));
+  });
+
+  it("the upright lines of a drawn table are not text", () => {
+    const doc = layout([
+      { text: "│ Manual backup", x: 20, y: 4, w: 150, h: 13 },
+      { text: "| Works, and is refused at 10 |", x: 414, y: 4, w: 300, h: 13 },
+      { text: "|", x: 1040, y: 4, w: 4, h: 13 },
+      { text: "│ 10 manual backups", x: 20, y: 40, w: 180, h: 13 },
+      { text: "│ Nothing created │", x: 414, y: 40, w: 200, h: 13 },
+    ]);
+    expect(render(doc, false)).toBe("Manual backup - Works, and is refused at 10\n\n10 manual backups - Nothing created");
   });
 });

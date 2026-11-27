@@ -221,24 +221,31 @@ fn ink_levels(img: &[u8], w: usize, h: usize, bw: usize, bh: usize) -> Vec<u8> {
     out
 }
 
-/// Take out thin horizontal rules: underlines under links and the borders of
-/// fields and table cells. A rule is a long unbroken run of ink in one row with
-/// nothing just above it or nothing just below it. A row through the middle of
-/// bold or tightly set text can also be one long run, but it has the rest of
-/// the letters above and below it, so it is left alone.
+/// Take out thin rules, so they are not read as part of the text: underlines under links, and
+/// the borders of fields, table cells and boxes drawn with lines (also the upright ones, which
+/// would otherwise be read as "|", "I" or "l" between the columns of a table).
+///
+/// A horizontal rule is a long unbroken run of ink in one row with nothing just above it or
+/// nothing just below it. A row through the middle of bold or tightly set text can also be one
+/// long run, but it has the rest of the letters above and below it, so it is left alone. An
+/// upright rule is the same thing turned: a run taller than any letter, with nothing just to
+/// one side of it.
 pub fn remove_rules(img: &mut [u8], w: usize, h: usize) {
     const INK: u8 = 200;
+    let before = img.to_vec();
+    let ink_at = |x: Option<usize>, y: Option<usize>| matches!((x, y), (Some(c), Some(r)) if c < w && r < h && before[r * w + c] < INK);
+
+    // across
     let min_run = 32.min(w);
-    let mut erase: Vec<(usize, usize, usize)> = Vec::new();
     for y in 0..h {
         let mut x = 0;
         while x < w {
-            if img[y * w + x] >= INK {
+            if before[y * w + x] >= INK {
                 x += 1;
                 continue;
             }
             let start = x;
-            while x < w && img[y * w + x] < INK {
+            while x < w && before[y * w + x] < INK {
                 x += 1;
             }
             let len = x - start;
@@ -247,24 +254,49 @@ pub fn remove_rules(img: &mut [u8], w: usize, h: usize) {
             }
             // mostly empty along the run, three rows away (beyond the edge of the picture counts as empty)
             let clear = |row: Option<usize>| match row {
-                Some(r) if r < h => img[r * w + start..r * w + x].iter().filter(|v| **v < INK).count() * 4 < len,
+                Some(r) if r < h => before[r * w + start..r * w + x].iter().filter(|v| **v < INK).count() * 4 < len,
                 _ => true,
             };
-            if clear(y.checked_sub(3)) || clear(Some(y + 3)) {
-                erase.push((y, start, x));
+            if !(clear(y.checked_sub(3)) || clear(Some(y + 3))) {
+                continue;
+            }
+            for c in start..x {
+                // Where a letter's stroke crosses the rule (the tail of a g, p or y through an underline) there is
+                // ink both above and below it: those pixels belong to the letter and stay.
+                if ink_at(Some(c), y.checked_sub(2)) && ink_at(Some(c), Some(y + 2)) {
+                    continue;
+                }
+                img[y * w + c] = 255;
             }
         }
     }
-    // Where a letter's stroke crosses the rule (the tail of a g, p or y through an underline) there is ink both
-    // above and below it: those pixels belong to the letter and stay.
-    let before = img.to_vec();
-    let ink_at = |x: usize, y: Option<usize>| matches!(y, Some(r) if r < h && before[r * w + x] < INK);
-    for (y, a, b) in erase {
-        for x in a..b {
-            if ink_at(x, y.checked_sub(2)) && ink_at(x, Some(y + 2)) {
+
+    // upright: taller than a line of text, so never a letter's stem
+    let min_tall = 40.min(h);
+    for x in 0..w {
+        let mut y = 0;
+        while y < h {
+            if before[y * w + x] >= INK {
+                y += 1;
                 continue;
             }
-            img[y * w + x] = 255;
+            let start = y;
+            while y < h && before[y * w + x] < INK {
+                y += 1;
+            }
+            let len = y - start;
+            if len < min_tall {
+                continue;
+            }
+            let clear = |col: Option<usize>| match col {
+                Some(c) if c < w => (start..y).filter(|r| before[r * w + c] < INK).count() * 4 < len,
+                _ => true,
+            };
+            if clear(x.checked_sub(3)) || clear(Some(x + 3)) {
+                for r in start..y {
+                    img[r * w + x] = 255;
+                }
+            }
         }
     }
 }
@@ -628,6 +660,21 @@ mod tests {
         let mut solid = page(96, 40, 255, &[(10, 10, 60, 14, 0)]);
         remove_rules(&mut solid, 96, 40);
         assert_eq!(solid[16 * 96 + 30], 0);
+    }
+
+    #[test]
+    fn the_lines_of_a_drawn_table_go_and_its_text_stays() {
+        // a box 100×60 drawn with 1 px lines, a divider down the middle, and a letter stem in each half
+        let mut img = page(120, 80, 255, &[(10, 10, 100, 1, 0), (10, 69, 100, 1, 0), (10, 10, 1, 60, 0), (109, 10, 1, 60, 0), (60, 10, 1, 60, 0), (30, 30, 3, 14, 0), (80, 30, 3, 14, 0)]);
+        remove_rules(&mut img, 120, 80);
+        assert_eq!(img[40 * 120 + 60], 255, "the divider is gone");
+        assert_eq!(img[40 * 120 + 10], 255, "the left side is gone");
+        assert_eq!(img[10 * 120 + 50], 255, "the top is gone");
+        assert!(img[36 * 120 + 31] == 0 && img[36 * 120 + 81] == 0, "the letters are whole");
+        // a tall filled shape is not a rule
+        let mut solid = page(120, 80, 255, &[(40, 10, 30, 60, 0)]);
+        remove_rules(&mut solid, 120, 80);
+        assert_eq!(solid[40 * 120 + 55], 0);
     }
 
     #[test]

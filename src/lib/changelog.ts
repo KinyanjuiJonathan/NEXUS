@@ -11,6 +11,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.27",
+    date: "2026-11-27",
+    title: "Two-column tables are captured as “this - that” lines",
+    changes: [
+      "A captured table with two columns is written one row per line: first cell, a dash, second cell. Its heading row is left out.",
+      "Tables drawn with lines (as in a terminal) are read: the box lines are removed before reading, and dark screens are handled.",
+      "Tables with three or more columns are still listed under their headings, as before.",
+    ],
+  },
+  {
     version: "1.1.26",
     date: "2026-11-27",
     title: "Updating no longer interrupts what is running",
