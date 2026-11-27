@@ -32,9 +32,10 @@ const BLOCK: usize = 16;
 /// Brightness (0–255) of each pixel of a BGRA picture.
 pub fn luminance(bgra: &[u8], w: usize, h: usize) -> Vec<u8> {
     let mut out = Vec::with_capacity(w * h);
-    for px in bgra.chunks_exact(4).take(w * h) {
+    for i in 0..(w * h).min(bgra.len() / 4) {
+        let (b, g, r) = (bgra[i * 4] as u32, bgra[i * 4 + 1] as u32, bgra[i * 4 + 2] as u32);
         // integer Rec. 601 weights
-        out.push(((px[2] as u32 * 299 + px[1] as u32 * 587 + px[0] as u32 * 114) / 1000) as u8);
+        out.push(((r * 299 + g * 587 + b * 114) / 1000) as u8);
     }
     out.resize(w * h, 255);
     out
@@ -346,7 +347,7 @@ mod tests {
         assert_eq!(row[11], 255);
         assert!(row.windows(2).all(|p| p[0] <= p[1]), "brightness only rises across the edge: {row:?}");
         assert!(row.iter().any(|v| *v > 0 && *v < 255), "there are in-between values: {row:?}");
-        assert!(big.chunks_exact(4).all(|p| p[3] == 255));
+        assert!(big.iter().skip(3).step_by(4).all(|alpha| *alpha == 255));
     }
 
     #[test]
