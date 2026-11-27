@@ -59,52 +59,21 @@ pub fn capture(x: i32, y: i32, w: i32, h: i32) -> Result<Vec<u8>, String> {
     }
 }
 
-/// Double the image (each pixel becomes a 2×2 square): small on-screen text is recognised far more reliably.
-fn doubled(pixels: &[u8], w: usize, h: usize) -> Vec<u8> {
-    let mut out = vec![0u8; w * h * 16];
-    for row in 0..h {
-        for col in 0..w {
-            let src = (row * w + col) * 4;
-            for (dr, dc) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
-                let dst = ((row * 2 + dr) * w * 2 + col * 2 + dc) * 4;
-                out[dst..dst + 4].copy_from_slice(&pixels[src..src + 4]);
-            }
-        }
-    }
-    out
-}
+pub use nexus_core::ocrprep::Line;
+use nexus_core::ocrprep::{merge, prepare, Strength};
 
-/// One recognised line and where it sits in the image (pixels of the region that was read),
-/// so the reader can keep indentation, paragraph gaps and larger text.
-#[derive(Clone, Debug, serde::Serialize)]
-pub struct Line {
-    pub text: String,
-    pub x: f32,
-    pub y: f32,
-    pub w: f32,
-    pub h: f32,
-}
-
-/// The text in a BGRA image, one entry per recognised line, top to bottom.
-pub fn recognise(pixels: &[u8], w: i32, h: i32) -> Result<Vec<Line>, String> {
-    let fail = |e: windows::core::Error| format!("Text recognition is unavailable ({}). Add a language with text recognition in Windows Settings → Time & language.", e.message());
-    // SAFETY: initialising the WinRT apartment for this worker thread; "already initialised" is fine.
-    unsafe {
-        let _ = RoInitialize(RO_INIT_MULTITHREADED);
+/// One reading of the picture, prepared at the given strength. Boxes are in pixels of the original picture.
+fn pass(engine: &OcrEngine, pixels: &[u8], w: usize, h: usize, max: usize, strength: Strength) -> Result<Vec<Line>, String> {
+    let fail = |e: windows::core::Error| format!("Text recognition failed ({}).", e.message());
+    let p = prepare(pixels, w, h, max, strength);
+    if p.w > max || p.h > max {
+        return Err("That region is too large for text recognition. Make the region smaller.".into());
     }
-    let engine = OcrEngine::TryCreateFromUserProfileLanguages().map_err(fail)?;
-    let max = OcrEngine::MaxImageDimension().unwrap_or(2600) as i32;
-    // enlarge unless that would exceed what the recogniser accepts
-    let enlarge = w * 2 <= max && h * 2 <= max;
-    let scale = if enlarge { 2.0_f32 } else { 1.0 };
-    let (data, w, h) = if enlarge { (doubled(pixels, w as usize, h as usize), w * 2, h * 2) } else { (pixels.to_vec(), w, h) };
-    if w > max || h > max {
-        return Err("That region is too large for text recognition. Select a smaller part of the screen.".into());
-    }
+    let scale = p.scale as f32;
     let writer = DataWriter::new().map_err(fail)?;
-    writer.WriteBytes(&data).map_err(fail)?;
+    writer.WriteBytes(&p.bgra).map_err(fail)?;
     let buffer: IBuffer = writer.DetachBuffer().map_err(fail)?;
-    let bitmap = SoftwareBitmap::CreateCopyWithAlphaFromBuffer(&buffer, BitmapPixelFormat::Bgra8, w, h, BitmapAlphaMode::Premultiplied).map_err(fail)?;
+    let bitmap = SoftwareBitmap::CreateCopyWithAlphaFromBuffer(&buffer, BitmapPixelFormat::Bgra8, p.w as i32, p.h as i32, BitmapAlphaMode::Premultiplied).map_err(fail)?;
     let result = engine.RecognizeAsync(&bitmap).map_err(fail)?.get().map_err(fail)?;
     let mut lines = Vec::new();
     for line in result.Lines().map_err(fail)? {
@@ -127,6 +96,26 @@ pub fn recognise(pixels: &[u8], w: i32, h: i32) -> Result<Vec<Line>, String> {
         lines.push(Line { text, x: x0 / scale, y: y0 / scale, w: (x1 - x0) / scale, h: (y1 - y0) / scale });
     }
     Ok(lines)
+}
+
+/// The text in a BGRA image, one entry per recognised line, top to bottom.
+///
+/// The picture is read twice: once with faint text (grey hints, placeholder text, disabled fields,
+/// coloured links) made as dark as the rest, and once cleaned up more gently. Lines only the second reading finds are added.
+pub fn recognise(pixels: &[u8], w: i32, h: i32) -> Result<Vec<Line>, String> {
+    let fail = |e: windows::core::Error| format!("Text recognition is unavailable ({}). Add a language with text recognition in Windows Settings → Time & language.", e.message());
+    // SAFETY: initialising the WinRT apartment for this worker thread; "already initialised" is fine.
+    unsafe {
+        let _ = RoInitialize(RO_INIT_MULTITHREADED);
+    }
+    let engine = OcrEngine::TryCreateFromUserProfileLanguages().map_err(fail)?;
+    let max = OcrEngine::MaxImageDimension().unwrap_or(2600) as usize;
+    let (w, h) = (w.max(0) as usize, h.max(0) as usize);
+    // The strong picture comes first: it makes grey hints, placeholder text and coloured links as dark as body text.
+    let main = pass(&engine, pixels, w, h, max, Strength::Faint)?;
+    // The gentler picture is a second opinion for anything the strong one lost; if it fails, the first still stands.
+    let plain = pass(&engine, pixels, w, h, max, Strength::Normal).unwrap_or_default();
+    Ok(merge(main, plain))
 }
 
 /// Capture a screen rectangle and read the text in it.

@@ -2,6 +2,20 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.20 (27 November 2026)
+
+**Screen capture reads grey text, links and small text**
+- **Fixed: parts of a form were missing or garbled.** Capturing a region skipped light-grey text (hints under a label, placeholder text and values inside fields, such as "C#"), turned an underlined link into nonsense, and misread small help text.
+- The captured picture is now prepared before it is read:
+  - every pixel is compared with the background around it, so grey text in a white field, text in a grey field, and coloured links all become dark text on white;
+  - light text on a dark page is turned into dark on light;
+  - thin horizontal rules (the underline of a link, the border of a field) are taken out, so they are not read as part of the letters;
+  - the picture is enlarged smoothly, up to three times, instead of by doubling each pixel.
+- The region is read twice, once with faint text strengthened and once more gently, and lines that only one reading finds are kept. A capture therefore takes a little longer than before.
+- Nothing else about the reading region changed: it still reads only on a right-click, and captured text is still only added to.
+- For the best results: capture at 100% zoom or larger (Ctrl + plus in a browser makes small text much easier to read), and keep the region to the part you need.
+- Still not possible: text inside a field that scrolls sideways is only read as far as it is visible, so a long link that is cut off by the edge of its field is captured cut off.
+
 ## v1.1.19 (26 November 2026)
 
 **Reading region: move, resize, right-click to capture**

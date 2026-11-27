@@ -11,6 +11,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.20",
+    date: "2026-11-27",
+    title: "Screen capture reads grey text, links and small text",
+    changes: [
+      "Light-grey text (hints, placeholder and field values), coloured links and small text are now picked up when capturing a region.",
+      "The picture is cleaned to dark-on-white, enlarged smoothly up to three times, and read twice; underlines and field borders are taken out first.",
+      "Light text on dark pages is handled the same way.",
+    ],
+  },
+  {
     version: "1.1.19",
     date: "2026-11-26",
     title: "Reading region: move, resize, right-click to capture",

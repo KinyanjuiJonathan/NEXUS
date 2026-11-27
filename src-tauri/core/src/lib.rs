@@ -7,6 +7,7 @@
 pub mod activity;
 pub mod migrations;
 pub mod models;
+pub mod ocrprep;
 pub mod perf;
 pub mod recovery;
 pub mod typer;
