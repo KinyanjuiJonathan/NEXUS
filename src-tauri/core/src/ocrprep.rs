@@ -219,12 +219,30 @@ pub fn enlarge_bgra(img: &[u8], w: usize, h: usize, s: usize) -> Vec<u8> {
     out
 }
 
-/// A picture ready for the recogniser: BGRA, its width and height, and how much it was enlarged.
+/// White space added on every side before reading, in pixels of the captured picture.
+/// Recognisers skip or misread text that touches the edge of a picture; with room around it,
+/// the first and last lines and anything against the left or right side are read like the rest.
+pub const PAD: usize = 14;
+
+/// The picture with a white border of `pad` pixels on every side.
+pub fn padded(img: &[u8], w: usize, h: usize, pad: usize) -> (Vec<u8>, usize, usize) {
+    let (pw, ph) = (w + 2 * pad, h + 2 * pad);
+    let mut out = vec![255u8; pw * ph];
+    for y in 0..h {
+        out[(y + pad) * pw + pad..(y + pad) * pw + pad + w].copy_from_slice(&img[y * w..(y + 1) * w]);
+    }
+    (out, pw, ph)
+}
+
+/// A picture ready for the recogniser: BGRA, its width and height, how much it was enlarged,
+/// and the white border around it (in pixels of the captured picture, before enlarging).
+/// A point (x, y) the recogniser reports is at (x / scale - pad, y / scale - pad) in the capture.
 pub struct Prepared {
     pub bgra: Vec<u8>,
     pub w: usize,
     pub h: usize,
     pub scale: usize,
+    pub pad: usize,
 }
 
 /// Everything above in one step.
@@ -232,8 +250,9 @@ pub fn prepare(bgra: &[u8], w: usize, h: usize, max_side: usize, strength: Stren
     let lum = luminance(bgra, w, h);
     let mut img = clean(&lum, w, h, strength);
     remove_rules(&mut img, w, h);
-    let scale = scale_for(w, h, max_side);
-    Prepared { bgra: enlarge_bgra(&img, w, h, scale), w: w * scale, h: h * scale, scale }
+    let (img, pw, ph) = padded(&img, w, h, PAD);
+    let scale = scale_for(pw, ph, max_side);
+    Prepared { bgra: enlarge_bgra(&img, pw, ph, scale), w: pw * scale, h: ph * scale, scale, pad: PAD }
 }
 
 fn overlap(a0: f32, a1: f32, b0: f32, b1: f32) -> f32 {
@@ -348,6 +367,20 @@ mod tests {
         assert!(row.windows(2).all(|p| p[0] <= p[1]), "brightness only rises across the edge: {row:?}");
         assert!(row.iter().any(|v| *v > 0 && *v < 255), "there are in-between values: {row:?}");
         assert!(big.iter().skip(3).step_by(4).all(|alpha| *alpha == 255));
+    }
+
+    #[test]
+    fn text_against_the_edge_gets_white_space_around_it() {
+        // ink in the very first row and column, and in the last
+        let img = page(40, 20, 255, &[(0, 0, 6, 8, 0), (34, 12, 6, 8, 0)]);
+        let (out, pw, ph) = padded(&img, 40, 20, PAD);
+        assert_eq!((pw, ph), (40 + 2 * PAD, 20 + 2 * PAD));
+        assert_eq!(out[PAD * pw + PAD], 0, "the ink moved in by the border");
+        assert_eq!(out[(PAD + 19) * pw + PAD + 39], 0);
+        assert!(out[..PAD * pw].iter().all(|v| *v == 255), "the border is white");
+        assert!((0..ph).all(|y| out[y * pw] == 255 && out[y * pw + pw - 1] == 255));
+        let p = prepare(&bgra(&img), 40, 20, 10_000, Strength::Normal);
+        assert_eq!((p.w, p.h, p.pad), ((40 + 2 * PAD) * p.scale, (20 + 2 * PAD) * p.scale, PAD));
     }
 
     #[test]

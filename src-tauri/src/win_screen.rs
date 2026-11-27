@@ -70,6 +70,7 @@ fn pass(engine: &OcrEngine, pixels: &[u8], w: usize, h: usize, max: usize, stren
         return Err("That region is too large for text recognition. Make the region smaller.".into());
     }
     let scale = p.scale as f32;
+    let pad = p.pad as f32;
     let writer = DataWriter::new().map_err(fail)?;
     writer.WriteBytes(&p.bgra).map_err(fail)?;
     let buffer: IBuffer = writer.DetachBuffer().map_err(fail)?;
@@ -93,7 +94,8 @@ fn pass(engine: &OcrEngine, pixels: &[u8], w: usize, h: usize, max: usize, stren
         if x1 < x0 || y1 < y0 {
             (x0, y0, x1, y1) = (0.0, 0.0, 0.0, 0.0);
         }
-        lines.push(Line { text, x: x0 / scale, y: y0 / scale, w: (x1 - x0) / scale, h: (y1 - y0) / scale });
+        // back to pixels of the captured region: undo the enlargement, then the white border
+        lines.push(Line { text, x: x0 / scale - pad, y: y0 / scale - pad, w: (x1 - x0) / scale, h: (y1 - y0) / scale });
     }
     Ok(lines)
 }

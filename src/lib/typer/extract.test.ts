@@ -150,9 +150,13 @@ describe("capturing section by section", () => {
     expect(pad).toBe(`My notes:\n\n${[PAGE[0].replace("getting started", "GETTING STARTED"), ...PAGE.slice(1, 5)].join("\n")}`);
   });
 
-  it("lines cut off by the edge of the region are left for the next capture", () => {
+  it("a line sliced through by the edge is left for the next capture, a whole line at the edge is kept", () => {
     const lines = view(0, 4).map((l) => ({ ...l, y: l.y + 6 }));
-    lines[3] = { ...lines[3], y: 100 - 12 }; // runs past the bottom edge of a 100 px region
+    // the last line runs past the bottom of a 100 px region: only the top 9 px of its letters are in the picture
+    lines[3] = { ...lines[3], y: 91, h: 9 };
     expect(layout(lines, { height: 100 }).map((l) => l.text)).toEqual(PAGE.slice(0, 3));
+    // whole lines right against the top and bottom edges are part of the capture
+    const flush = view(0, 4).map((l, i) => ({ ...l, y: i === 0 ? 0 : i === 3 ? 80 : l.y }));
+    expect(layout(flush, { height: 100 }).map((l) => l.text)).toEqual(PAGE.slice(0, 4));
   });
 });

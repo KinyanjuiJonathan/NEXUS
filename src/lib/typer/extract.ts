@@ -44,8 +44,11 @@ export const lineKey = (text: string) => text.replace(/\s+/g, " ").trim().toLowe
  * row joined, indentation as spaces, a gap flag where a paragraph break is,
  * and a heading flag on larger text.
  */
-export function layout(lines: OcrLine[], opts: { /** Height of the region read: lines cut off by its top or bottom edge are left out. */ height?: number } = {}): DocLine[] {
-  const cut = (l: OcrLine) => opts.height != null && l.h > 0 && (l.y <= 1 || l.y + l.h >= opts.height - 1);
+export function layout(lines: OcrLine[], opts: { /** Height of the region read: a line sliced through by its top or bottom edge is left out. */ height?: number } = {}): DocLine[] {
+  // A whole line that merely sits against the edge is kept. Only a line the edge cuts through is dropped:
+  // it touches the edge and is clearly shorter than the other lines, because part of its letters is missing.
+  const usual = median(lines.filter((l) => l.h > 0 && l.text.trim()).map((l) => l.h));
+  const cut = (l: OcrLine) => opts.height != null && l.h > 0 && usual > 0 && lines.length > 1 && (l.y <= 1 || l.y + l.h >= opts.height - 1) && l.h < 0.72 * usual;
   const clean = lines.filter((l) => !cut(l)).map((l) => ({ ...l, text: l.text.replace(/\s+/g, " ").trim() })).filter((l) => l.text);
   if (!clean.length) return [];
   const boxed = clean.some((l) => l.h > 0 && l.w > 0);

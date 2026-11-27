@@ -11,6 +11,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.21",
+    date: "2026-11-27",
+    title: "Screen capture reads right up to the edges",
+    changes: [
+      "Lines at the top, bottom and sides of the reading region are no longer missed.",
+      "White space is added around the capture before it is read, so text against the edge is read like the rest.",
+      "A whole line that sits against the edge is kept; only a line the edge slices through is left for the next capture.",
+    ],
+  },
+  {
     version: "1.1.20",
     date: "2026-11-27",
     title: "Screen capture reads grey text, links and small text",

@@ -2,6 +2,15 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.21 (27 November 2026)
+
+**Screen capture reads right up to the edges**
+- **Fixed: lines at the edges of the reading region were missed.** Two things caused it:
+  - Text recognition skips or misreads text that touches the border of the picture it is given. The capture now gets a band of white space on every side before it is read, so the first and last lines, and text against the left or right side, are read like the rest.
+  - NEXUS itself left out any line whose box touched the top or bottom edge, to avoid half-cut lines. That was too strict and dropped whole lines too. Now a line is only left out when the edge really cuts through it (it touches the edge and is clearly shorter than the other lines); a whole line against the edge is kept.
+- The frame's outline now sits one pixel further from the region, so it cannot show up in the capture as a stray mark at the edge.
+- A line that is sliced in half by the edge is still left for the next capture, so it is picked up whole after you scroll or enlarge the region.
+
 ## v1.1.20 (27 November 2026)
 
 **Screen capture reads grey text, links and small text**
