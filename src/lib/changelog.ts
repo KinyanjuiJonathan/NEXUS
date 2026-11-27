@@ -11,6 +11,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.23",
+    date: "2026-11-27",
+    title: "Screen capture understands tables",
+    changes: [
+      "A table in the reading region is captured row by row: each cell's text is kept together, with a tab between cells.",
+      "Paste the result into Excel, Sheets or a Word table and it lands in the right cells.",
+      "Header rows with light text on a coloured band are read too.",
+      "A table row cut off by the edge of the region is completed by the next capture. Ordinary text is captured as before.",
+    ],
+  },
+  {
     version: "1.1.22",
     date: "2026-11-27",
     title: "Screen capture: numbers no longer read as letters",

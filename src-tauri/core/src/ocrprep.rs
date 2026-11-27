@@ -64,39 +64,77 @@ pub fn is_dark(lum: &[u8]) -> bool {
     false
 }
 
-/// The background brightness around each pixel: the brightest value in its
-/// square (text is thin, so it rarely fills one), or in the squares around it
-/// when its own is nearly all ink.
-fn background(lum: &[u8], w: usize, h: usize) -> (Vec<u8>, usize, usize) {
-    let bw = w.div_ceil(BLOCK).max(1);
-    let bh = h.div_ceil(BLOCK).max(1);
-    let mut top = vec![0u8; bw * bh];
-    for y in 0..h {
-        let row = &lum[y * w..(y + 1) * w];
-        let by = y / BLOCK;
-        for (x, v) in row.iter().enumerate() {
-            let slot = &mut top[by * bw + x / BLOCK];
-            if *v > *slot {
-                *slot = *v;
-            }
+/// Brightness counts of one square of the picture.
+fn histogram(img: &[u8], w: usize, x0: usize, x1: usize, y0: usize, y1: usize) -> [u16; 256] {
+    let mut hist = [0u16; 256];
+    for y in y0..y1 {
+        for v in &img[y * w + x0..y * w + x1] {
+            hist[*v as usize] += 1;
         }
     }
-    let mut out = vec![0u8; bw * bh];
+    hist
+}
+
+/// The brightness below which `share` (0–1) of the counted pixels lie.
+fn level_at(hist: &[u16; 256], total: usize, share: f32) -> u8 {
+    let want = (total as f32 * share) as u32;
+    let mut seen = 0u32;
+    for (v, count) in hist.iter().enumerate() {
+        seen += *count as u32;
+        if seen > want {
+            return v as u8;
+        }
+    }
+    255
+}
+
+/// The ground each square of text sits on: the brightness most of the square has. Text is thin,
+/// so three quarters of a square's pixels are ground, whatever its colour; a grey field on a white
+/// page keeps its grey, and a coloured band keeps its colour.
+fn background(img: &[u8], w: usize, h: usize) -> (Vec<u8>, usize, usize) {
+    let bw = w.div_ceil(BLOCK).max(1);
+    let bh = h.div_ceil(BLOCK).max(1);
+    let mut out = vec![255u8; bw * bh];
     for by in 0..bh {
         for bx in 0..bw {
-            let mut best = 0u8;
-            for ny in by.saturating_sub(1)..(by + 2).min(bh) {
-                for nx in bx.saturating_sub(1)..(bx + 2).min(bw) {
-                    best = best.max(top[ny * bw + nx]);
-                }
+            let (x0, y0) = (bx * BLOCK, by * BLOCK);
+            let (x1, y1) = ((x0 + BLOCK).min(w), (y0 + BLOCK).min(h));
+            if x1 <= x0 || y1 <= y0 {
+                continue;
             }
-            // A square's own brightest pixel is its background (a grey field on a white page keeps its grey),
-            // unless the square is nearly all ink (large bold letters): then the surroundings decide.
-            let own = top[by * bw + bx];
-            out[by * bw + bx] = if own as u32 * 10 >= best as u32 * 6 { own } else { best };
+            let hist = histogram(img, w, x0, x1, y0, y1);
+            out[by * bw + bx] = level_at(&hist, (x1 - x0) * (y1 - y0), 0.75);
         }
     }
     (out, bw, bh)
+}
+
+/// Light text on a dark patch of an otherwise light picture (a table's coloured header row,
+/// a button) is turned into dark text on a light patch, square by square: where the ground of a
+/// square is clearly darker than the page and what is written on it is lighter than the ground.
+fn flip_dark_patches(img: &mut [u8], w: usize, h: usize) {
+    let mut y0 = 0;
+    while y0 < h {
+        let y1 = (y0 + BLOCK).min(h);
+        let mut x0 = 0;
+        while x0 < w {
+            let x1 = (x0 + BLOCK).min(w);
+            let hist = histogram(img, w, x0, x1, y0, y1);
+            let total = (y1 - y0) * (x1 - x0);
+            let ground = level_at(&hist, total, 0.5) as i32;
+            let lightest = level_at(&hist, total, 0.97) as i32;
+            let darkest = level_at(&hist, total, 0.03) as i32;
+            if ground < 200 && lightest - ground > 45 && lightest - ground > ground - darkest + 15 {
+                for y in y0..y1 {
+                    for v in &mut img[y * w + x0..y * w + x1] {
+                        *v = 255 - *v;
+                    }
+                }
+            }
+            x0 = x1;
+        }
+        y0 = y1;
+    }
 }
 
 /// How strongly text is darkened.
@@ -112,7 +150,8 @@ pub enum Strength {
 /// `lum` is `luminance`; the result has the same size.
 pub fn clean(lum: &[u8], w: usize, h: usize, strength: Strength) -> Vec<u8> {
     let dark = is_dark(lum);
-    let src: Vec<u8> = if dark { lum.iter().map(|v| 255 - v).collect() } else { lum.to_vec() };
+    let mut src: Vec<u8> = if dark { lum.iter().map(|v| 255 - v).collect() } else { lum.to_vec() };
+    flip_dark_patches(&mut src, w, h);
     let (bg, bw, _) = background(&src, w, h);
     // ratio to the background at which a pixel counts as plain background, and the curve below it
     let (white, power) = match strength {
@@ -253,6 +292,59 @@ pub fn prepare(bgra: &[u8], w: usize, h: usize, max_side: usize, strength: Stren
     let (img, pw, ph) = padded(&img, w, h, PAD);
     let scale = scale_for(pw, ph, max_side);
     Prepared { bgra: enlarge_bgra(&img, pw, ph, scale), w: pw * scale, h: ph * scale, scale, pad: PAD }
+}
+
+// ------------------------------------------------------------------ columns
+
+/// One recognised word and its box.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Word {
+    pub text: String,
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+/// The words of one recognised line, as one or more pieces: a recogniser often joins everything
+/// on the same height into one line, straight across the columns of a table. Where two words are
+/// much further apart than words in a sentence ever are, the line is split there, so each cell's
+/// text keeps its own box.
+pub fn split_columns(words: &[Word]) -> Vec<Line> {
+    let mut sorted: Vec<&Word> = words.iter().filter(|w| !w.text.trim().is_empty()).collect();
+    sorted.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
+    if sorted.is_empty() {
+        return Vec::new();
+    }
+    let height = sorted.iter().map(|w| w.h).fold(0.0_f32, f32::max).max(1.0);
+    let chars: usize = sorted.iter().map(|w| w.text.chars().count()).sum();
+    let char_w = sorted.iter().map(|w| w.w).sum::<f32>() / chars.max(1) as f32;
+    // a space between words is about a third of a letter's height; a column gap is several letters wide
+    let limit = (1.5 * height).max(3.0 * char_w);
+    let mut out: Vec<Line> = Vec::new();
+    let mut piece: Vec<&Word> = Vec::new();
+    let close = |piece: &mut Vec<&Word>, out: &mut Vec<Line>| {
+        if piece.is_empty() {
+            return;
+        }
+        let x0 = piece.iter().map(|w| w.x).fold(f32::MAX, f32::min);
+        let y0 = piece.iter().map(|w| w.y).fold(f32::MAX, f32::min);
+        let x1 = piece.iter().map(|w| w.x + w.w).fold(f32::MIN, f32::max);
+        let y1 = piece.iter().map(|w| w.y + w.h).fold(f32::MIN, f32::max);
+        let text = piece.iter().map(|w| w.text.trim()).collect::<Vec<_>>().join(" ");
+        out.push(Line { text, x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+        piece.clear();
+    };
+    for word in sorted {
+        if let Some(last) = piece.last() {
+            if word.x - (last.x + last.w) > limit {
+                close(&mut piece, &mut out);
+            }
+        }
+        piece.push(word);
+    }
+    close(&mut piece, &mut out);
+    out
 }
 
 // ------------------------------------------------------------------ digits read as letters
@@ -477,6 +569,37 @@ mod tests {
         assert!((0..ph).all(|y| out[y * pw] == 255 && out[y * pw + pw - 1] == 255));
         let p = prepare(&bgra(&img), 40, 20, 10_000, Strength::Normal);
         assert_eq!((p.w, p.h, p.pad), ((40 + 2 * PAD) * p.scale, (20 + 2 * PAD) * p.scale, PAD));
+    }
+
+    #[test]
+    fn a_line_that_runs_across_table_columns_is_split_at_the_gaps() {
+        let word = |text: &str, x: f32| Word { text: text.into(), x, y: 100.0, w: text.len() as f32 * 6.5, h: 11.0 };
+        // "Code Hallucinations" | "Invents or assumes" | "Invents a method on a real"
+        let words = vec![
+            word("Code", 64.0), word("Hallucinations", 94.0),
+            word("Invents", 223.0), word("or", 268.0), word("assumes", 285.0),
+            word("Invents", 382.0), word("a", 428.0), word("method", 438.0), word("on", 482.0), word("a", 498.0), word("real", 508.0),
+        ];
+        let pieces = split_columns(&words);
+        assert_eq!(pieces.iter().map(|l| l.text.as_str()).collect::<Vec<_>>(), ["Code Hallucinations", "Invents or assumes", "Invents a method on a real"]);
+        assert_eq!(pieces[1].x, 223.0);
+        assert!((pieces[1].w - (285.0 + 7.0 * 6.5 - 223.0)).abs() < 0.01);
+        // an ordinary sentence stays one line, even with a wider space after a full stop
+        let sentence = vec![word("Log", 10.0), word("an", 35.0), word("entry.", 53.0), word("Each", 104.0), word("entry", 136.0)];
+        assert_eq!(split_columns(&sentence).len(), 1);
+    }
+
+    #[test]
+    fn light_text_on_a_coloured_band_is_read_like_the_rest() {
+        // a white page with a dark blue band (a table header) holding white letters, and black letters below it
+        let img = page(96, 64, 255, &[(0, 16, 96, 16, 90), (20, 20, 3, 9, 250), (40, 20, 3, 9, 250), (20, 44, 3, 9, 0)]);
+        let lum = luminance(&bgra(&img), 96, 64);
+        assert!(!is_dark(&lum));
+        let out = clean(&lum, 96, 64, Strength::Faint);
+        assert!(out[24 * 96 + 21] < 80, "the header letter is dark: {}", out[24 * 96 + 21]);
+        assert!(out[24 * 96 + 70] > 200, "the band itself is light: {}", out[24 * 96 + 70]);
+        assert!(out[48 * 96 + 21] < 40, "ordinary text is still dark");
+        assert_eq!(out[56 * 96 + 70], 255);
     }
 
     #[test]

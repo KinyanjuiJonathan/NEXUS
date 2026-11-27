@@ -160,3 +160,78 @@ describe("capturing section by section", () => {
     expect(layout(flush, { height: 100 }).map((l) => l.text)).toEqual(PAGE.slice(0, 4));
   });
 });
+
+describe("tables", () => {
+  // The table in the screenshot: four columns, cells of several lines, a header row.
+  const COLS = [64, 223, 382, 541];
+  const cell = (col: number, y: number, text: string): OcrLine => ({ text, x: COLS[col], y, w: Math.min(150, text.length * 6.2), h: 11 });
+  const TABLE: OcrLine[] = [
+    { text: "Behavioral Issues Types table", x: 58, y: 138, w: 250, h: 15 },
+    // header (two lines in the third column)
+    cell(0, 173, "Behavioral Issue"), cell(1, 173, "Description"), cell(2, 173, "Example of what to"), cell(3, 173, "What to document"),
+    cell(2, 194, "watch for"),
+    // first row
+    cell(0, 226, "Code Hallucinations"), cell(1, 226, "Invents or assumes"), cell(2, 226, "Invents a method on a real"), cell(3, 226, "The specific hallucinated"),
+    cell(1, 242, "existence of functions, APIs,"), cell(2, 242, "class; invents API functions;"), cell(3, 242, "code element and what"),
+    cell(1, 258, "libraries, or code structures"), cell(2, 258, "creates imports from"), cell(3, 258, "actually exists"),
+    cell(1, 274, "that don't exist."), cell(2, 274, "non-"),
+    cell(2, 290, "existent modules"),
+    // second row
+    cell(0, 355, "Documentation Issues"), cell(1, 355, "Creates unwanted"), cell(2, 355, "Adds documentation when"), cell(3, 355, "What documentation was"),
+    cell(1, 371, "documentation"), cell(2, 371, "not requested"), cell(3, 371, "added"),
+  ];
+
+  it("a table comes out row by row, each cell whole, with tabs between the cells", () => {
+    const doc = layout(TABLE);
+    expect(doc.map((l) => l.text)).toEqual([
+      "Behavioral Issues Types table",
+      "Behavioral Issue\tDescription\tExample of what to watch for\tWhat to document",
+      "Code Hallucinations\tInvents or assumes existence of functions, APIs, libraries, or code structures that don't exist.\tInvents a method on a real class; invents API functions; creates imports from non-existent modules\tThe specific hallucinated code element and what actually exists",
+      "Documentation Issues\tCreates unwanted documentation\tAdds documentation when not requested\tWhat documentation was added",
+    ]);
+    expect(doc.map((l) => !!l.table)).toEqual([false, true, true, true]);
+    // the table stands apart from the heading above it; its rows follow one another
+    expect(doc.map((l) => l.gap)).toEqual([false, true, false, false]);
+  });
+
+  it("a simple table with one line per cell keeps one row per line", () => {
+    const rows = [["Name", "Hours", "Rate"], ["Amina", "12", "40"], ["Brian", "6", "54"]];
+    const doc = layout(rows.flatMap((r, i) => r.map((text, c) => ({ text, x: [20, 180, 300][c], y: 10 + i * 30, w: text.length * 7, h: 12 }))));
+    expect(doc.map((l) => l.text)).toEqual(["Name\tHours\tRate", "Amina\t12\t40", "Brian\t6\t54"]);
+  });
+
+  it("ordinary text is not mistaken for a table", () => {
+    // a label and its value on one row, then a paragraph: laid out as before
+    const doc = layout([
+      { text: "Total", x: 10, y: 0, w: 45, h: 20 },
+      { text: "5 * 3 = 15", x: 200, y: 1, w: 90, h: 20 },
+      { text: "This sentence is long enough to run across where the second column would begin.", x: 10, y: 28, w: 620, h: 20 },
+      { text: "And so is this one, which follows it on the next line of the paragraph.", x: 10, y: 56, w: 560, h: 20 },
+    ]);
+    expect(doc.every((l) => !l.table)).toBe(true);
+    expect(doc[0].text).toBe("Total    5 * 3 = 15");
+  });
+
+  it("the text after a table is ordinary text again", () => {
+    const after: OcrLine = { text: "Log an entry whenever one of these issues shows up in a run, with a quote and a severity.", x: 58, y: 420, w: 640, h: 11 };
+    const doc = layout([...TABLE, after]);
+    expect(doc.at(-1)).toMatchObject({ text: after.text, gap: true });
+    expect(doc.at(-1)!.table).toBeFalsy();
+  });
+
+  it("a row cut off by the edge is completed by the next capture, and nothing is repeated", () => {
+    const s = new Stitcher(true);
+    // first capture ends in the middle of the first row
+    s.feed(layout(TABLE.filter((l) => l.y <= 242)));
+    expect(s.lines.at(-1)!.text).toBe("Code Hallucinations\tInvents or assumes existence of functions, APIs,\tInvents a method on a real class; invents API functions;\tThe specific hallucinated code element and what");
+    // second capture, scrolled down: from the header's second line to the end
+    const r = s.feed(layout(TABLE.filter((l) => l.y >= 173)));
+    expect(r.added).toBe(2); // the completed row and the new one
+    expect(s.lines.map((l) => l.text.split("\t")[0])).toEqual(["Behavioral Issues Types table", "Behavioral Issue", "Code Hallucinations", "Documentation Issues"]);
+    expect(s.lines[2].text).toContain("non-existent modules");
+    // capturing the same place again changes nothing
+    const again = s.lines.map((l) => l.text);
+    expect(s.feed(layout(TABLE.filter((l) => l.y >= 173))).added).toBe(0);
+    expect(s.lines.map((l) => l.text)).toEqual(again);
+  });
+});

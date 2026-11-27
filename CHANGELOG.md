@@ -2,6 +2,20 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.23 (27 November 2026)
+
+**Screen capture understands tables**
+- **Tables are captured as tables.** Before, a table was read straight across: the first line of every cell, then the second line of every cell, so the columns were mixed together. Now NEXUS recognises the columns and rebuilds the table:
+  - one line of text per table row;
+  - each cell's text kept together, however many lines it has in the cell (a word split with a hyphen at the end of a line is joined again);
+  - a **tab** between cells, and an empty place for an empty cell.
+- **What you can do with it.** Copy the text and paste it into Excel, Google Sheets or a table in Word: every cell lands in its own cell. In the text box the cells of a row appear separated by wide gaps.
+- **Coloured header rows are read.** Light text on a coloured band (a table's header row, a button) is turned into dark text on white before reading, like the rest of the picture.
+- **A row cut off by the edge is completed.** If the bottom of the region slices through a table row, that row is captured as far as it shows. When the next capture shows the whole row, its cells are filled in, and nothing is repeated. This is the one case where captured text is added to in place.
+- **Everything else is unchanged.** Ordinary text, headings, indentation and paragraph gaps are captured as before. A label with its value on the same line, or a paragraph, is not treated as a table: a table needs at least two columns and at least two rows with text in more than one of them.
+- How it decides: text that starts at the same few horizontal positions over several rows is a table; inside a cell the lines are close together, and a new row begins after a larger gap with text in several columns.
+- Limits: merged cells and tables without clear gaps between columns may come out with cells shifted. Send me a screenshot when that happens.
+
 ## v1.1.22 (27 November 2026)
 
 **Screen capture: numbers no longer read as letters**

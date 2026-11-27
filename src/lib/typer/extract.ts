@@ -29,6 +29,8 @@ export interface DocLine {
   heading: boolean;
   /** How many readings have shown it. A line seen once may still be a partial or wrong reading. */
   seen: number;
+  /** A row of a table: its cells, separated by tabs. */
+  table?: boolean;
 }
 
 const median = (v: number[]) => {
@@ -63,29 +65,142 @@ export function layout(lines: OcrLine[], opts: { /** Height of the region read: 
     if (row && Math.abs(mid - (row[0].y + row[0].h / 2)) < 0.5 * Math.min(l.h || H, row[0].h || H)) row.push(l);
     else rows.push([l]);
   }
-  const merged = rows.map((row) => {
-    const parts = [...row].sort((a, b) => a.x - b.x);
-    const x = parts[0].x;
+  for (const row of rows) row.sort((a, b) => a.x - b.x);
+  const span = (parts: OcrLine[]) => {
+    const x = Math.min(...parts.map((p) => p.x));
     const y = Math.min(...parts.map((p) => p.y));
-    const bottom = Math.max(...parts.map((p) => p.y + p.h));
-    const right = Math.max(...parts.map((p) => p.x + p.w));
-    return { text: parts.map((p) => p.text).join("    "), x, y, w: right - x, h: bottom - y };
-  });
+    return { x, y, w: Math.max(...parts.map((p) => p.x + p.w)) - x, h: Math.max(...parts.map((p) => p.y + p.h)) - y };
+  };
+  // Tables are rebuilt row by row and cell by cell; everything else is laid out line by line as before.
+  const blocks = findTables(rows, H);
+  const merged: { text: string; x: number; y: number; w: number; h: number; table?: boolean }[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const block = blocks.find((b) => b.from === i);
+    if (!block) {
+      merged.push({ text: rows[i].map((p) => p.text).join("    "), ...span(rows[i]) });
+      continue;
+    }
+    for (const group of tableRows(rows.slice(block.from, block.to + 1), H)) {
+      const cells = block.columns.map(() => [] as string[]);
+      for (const row of group) for (const p of row) cells[columnOf(block.columns, p.x)].push(p.text);
+      merged.push({ text: cells.map((c) => joinCell(c)).join("\t"), ...span(group.flat()), table: true });
+    }
+    i = block.to;
+  }
   const charW = median(merged.filter((l) => l.text.length >= 4).map((l) => l.w / l.text.length)) || H * 0.5;
   const left = Math.min(...merged.map((l) => l.x));
   return merged.map((l, i) => {
     const prev = merged[i - 1];
+    // a table stands apart from the text before and after it; its rows follow one another directly
+    if (l.table) return { text: l.text, key: lineKey(l.text), gap: !!prev && !prev.table, heading: false, seen: 1, table: true };
     const indent = Math.min(40, Math.max(0, Math.round((l.x - left) / charW)));
     // a little offset is the recogniser's wobble, not indentation
     const pad = indent >= 2 ? " ".repeat(indent) : "";
     return {
       text: pad + l.text,
       key: lineKey(l.text),
-      gap: !!prev && l.y - (prev.y + prev.h) > 0.75 * H,
+      gap: !!prev && (!!prev.table || l.y - (prev.y + prev.h) > 0.75 * H),
       heading: l.h > 1.3 * H && l.text.length <= 90,
       seen: 1,
     };
   });
+}
+
+// ------------------------------------------------------------------ tables
+
+/** The column a piece of text starting at `x` belongs to: the nearest column start at or before it. */
+function columnOf(columns: number[], x: number): number {
+  let best = 0;
+  for (let c = 0; c < columns.length; c++) if (Math.abs(columns[c] - x) < Math.abs(columns[best] - x)) best = c;
+  return best;
+}
+
+/** The lines of one cell as one text; a word split with a hyphen at the end of a line is put back together. */
+function joinCell(lines: string[]): string {
+  let out = "";
+  for (const line of lines) {
+    if (!out) out = line;
+    else if (/[a-z]-$/.test(out) && /^[a-z]/.test(line)) out += line; // "non-" + "existent"
+    else out += ` ${line}`;
+  }
+  return out;
+}
+
+/**
+ * Where the tables are, among the text rows of a reading. A table is a run of rows whose
+ * pieces start at the same few places (its columns): at least two columns, and at least two
+ * rows with text in more than one of them. A piece that runs on past the start of the next
+ * column is ordinary text, not a cell, and ends the table.
+ */
+function findTables(rows: OcrLine[][], H: number): { from: number; to: number; columns: number[] }[] {
+  const tol = 0.9 * H;
+  const out: { from: number; to: number; columns: number[] }[] = [];
+  const bottom = (row: OcrLine[]) => Math.max(...row.map((p) => p.y + p.h));
+  const top = (row: OcrLine[]) => Math.min(...row.map((p) => p.y));
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].length < 2) continue;
+    let columns = rows[i].map((p) => p.x);
+    const fits = (row: OcrLine[], cols: number[]) =>
+      row.every((p) => {
+        const next = cols[columnOf(cols, p.x) + 1];
+        return next == null || p.x + p.w <= next - 0.2 * H;
+      });
+    let to = i;
+    let wide = 1;
+    while (to + 1 < rows.length) {
+      const row = rows[to + 1];
+      if (top(row) - bottom(rows[to]) > 5 * H) break;
+      const fresh = row.filter((p) => !columns.some((c) => Math.abs(c - p.x) <= tol)).map((p) => p.x);
+      // a new column may only appear in a row that also uses a known one
+      if (fresh.length && (row.length < 2 || fresh.length === row.length)) break;
+      const cols = [...columns, ...fresh].sort((a, b) => a - b);
+      if (!fits(row, cols)) break;
+      columns = cols;
+      if (row.length >= 2) wide++;
+      to++;
+    }
+    if (wide >= 2 && columns.length >= 2) {
+      out.push({ from: i, to, columns });
+      i = to;
+    }
+  }
+  return out;
+}
+
+/**
+ * The text rows of a table, grouped into the table's own rows. Inside a cell the lines follow
+ * each other closely; between two rows of the table there is the cells' padding and a rule, so
+ * the gap is clearly larger. When all gaps are alike, every text row is a row of the table.
+ */
+function tableRows(rows: OcrLine[][], H: number): OcrLine[][][] {
+  const top = (row: OcrLine[]) => Math.min(...row.map((p) => p.y));
+  const bottom = (row: OcrLine[]) => Math.max(...row.map((p) => p.y + p.h));
+  const gaps = rows.slice(1).map((row, k) => top(row) - bottom(rows[k]));
+  const usual = median(gaps.filter((g) => g > 0));
+  const limit = Math.max(0.9 * H, 1.7 * usual);
+  // Cells are aligned at the top, so the first line of a table row has text in several columns. A line with text
+  // in only one column after a slightly wider gap (the second line of a heading in larger type) still belongs
+  // to the row above, unless the gap is very large.
+  const starts = (k: number) => gaps[k - 1] > limit && (rows[k].length >= 2 || gaps[k - 1] > 3 * limit);
+  const split = gaps.some((_, i) => starts(i + 1)) ? starts : () => true;
+  const out: OcrLine[][][] = [];
+  rows.forEach((row, k) => {
+    if (k === 0 || split(k)) out.push([row]);
+    else out[out.length - 1].push(row);
+  });
+  return out;
+}
+
+/**
+ * `next` is the same table row as `old`, read in full: the same number of cells, and every
+ * cell of `old` is the beginning or the end of the matching cell of `next` (the row was cut
+ * off by the edge of the region the first time).
+ */
+export function completesRow(old: string, next: string): boolean {
+  if (!old.includes("\t") || next.length <= old.length) return false;
+  const a = old.split("\t").map((c) => lineKey(c));
+  const b = next.split("\t").map((c) => lineKey(c));
+  return a.length === b.length && a.every((cell, i) => !cell || b[i].startsWith(cell) || b[i].endsWith(cell));
 }
 
 /** Edit distance, given up early once it passes `limit`. */
@@ -188,6 +303,7 @@ export class Stitcher {
       const o = best.o;
       const lastBefore = doc.length - 1;
       const head: DocLine[] = [];
+      let completed = 0;
       reading.forEach((l, r) => {
         const di = r + o;
         if (di < 0) {
@@ -200,7 +316,16 @@ export class Stitcher {
           return;
         }
         if (di < doc.length) {
-          if (this.frozen) return; // already captured: left exactly as it is
+          if (this.frozen) {
+            // Already captured: left exactly as it is. The one exception is a table row the edge of the
+            // region cut off: when it is now read in full, the missing part of its cells is filled in.
+            if (completesRow(doc[di].text, l.text)) {
+              doc[di] = { ...l, gap: doc[di].gap };
+              fresh[r] = true;
+              completed++;
+            }
+            return;
+          }
           const cur = doc[di];
           if (sameLine(cur.key, l.key)) {
             cur.seen++;
@@ -217,7 +342,7 @@ export class Stitcher {
         added++;
       });
       if (head.length) doc.unshift(...head);
-      return { fresh, added, aligned, prepended: head.length };
+      return { fresh, added: added + completed, aligned, prepended: head.length };
     }
     // Nothing in common: add what has not been read before.
     const known = new Set(doc.slice(-600).map((l) => l.key));

@@ -60,7 +60,7 @@ pub fn capture(x: i32, y: i32, w: i32, h: i32) -> Result<Vec<u8>, String> {
 }
 
 pub use nexus_core::ocrprep::Line;
-use nexus_core::ocrprep::{merge, prepare, Strength};
+use nexus_core::ocrprep::{merge, prepare, split_columns, Strength, Word};
 
 /// One reading of the picture, prepared at the given strength. Boxes are in pixels of the original picture.
 fn pass(engine: &OcrEngine, pixels: &[u8], w: usize, h: usize, max: usize, strength: Strength) -> Result<Vec<Line>, String> {
@@ -78,24 +78,14 @@ fn pass(engine: &OcrEngine, pixels: &[u8], w: usize, h: usize, max: usize, stren
     let result = engine.RecognizeAsync(&bitmap).map_err(fail)?.get().map_err(fail)?;
     let mut lines = Vec::new();
     for line in result.Lines().map_err(fail)? {
-        let text = line.Text().map_err(fail)?.to_string();
-        if text.trim().is_empty() {
-            continue;
-        }
-        // a line's box is the box around its words
-        let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+        // every word with its box, back in pixels of the captured region: undo the enlargement, then the white border
+        let mut words = Vec::new();
         for word in line.Words().map_err(fail)? {
             let r = word.BoundingRect().map_err(fail)?;
-            x0 = x0.min(r.X);
-            y0 = y0.min(r.Y);
-            x1 = x1.max(r.X + r.Width);
-            y1 = y1.max(r.Y + r.Height);
+            words.push(Word { text: word.Text().map_err(fail)?.to_string(), x: r.X / scale - pad, y: r.Y / scale - pad, w: r.Width / scale, h: r.Height / scale });
         }
-        if x1 < x0 || y1 < y0 {
-            (x0, y0, x1, y1) = (0.0, 0.0, 0.0, 0.0);
-        }
-        // back to pixels of the captured region: undo the enlargement, then the white border
-        lines.push(Line { text, x: x0 / scale - pad, y: y0 / scale - pad, w: (x1 - x0) / scale, h: (y1 - y0) / scale });
+        // one entry per stretch of text: a line that runs across the columns of a table is split at the gaps
+        lines.extend(split_columns(&words));
     }
     Ok(lines)
 }
