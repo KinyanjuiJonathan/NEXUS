@@ -13,8 +13,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_ESCAPE, VK_LEFT, VK_RETURN, VK_RIGHT, VK_SHIFT, VK_TAB,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId, PostThreadMessageW, SetWindowsHookExW, UnhookWindowsHookEx,
-    HHOOK, MSG, WH_MOUSE_LL, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_QUIT,
+    CallNextHookEx, GetAncestor, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId, PostThreadMessageW, SetWindowsHookExW,
+    UnhookWindowsHookEx, WindowFromPoint, GA_ROOT, HHOOK, MSG, MSLLHOOKSTRUCT, WH_MOUSE_LL, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_QUIT,
     WM_RBUTTONDBLCLK, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_XBUTTONDBLCLK, WM_XBUTTONDOWN, WM_XBUTTONUP,
 };
 
@@ -180,14 +180,36 @@ unsafe extern "system" fn swallow_clicks(code: i32, wparam: WPARAM, lparam: LPAR
             WM_MBUTTONDBLCLK, WM_XBUTTONDOWN, WM_XBUTTONUP, WM_XBUTTONDBLCLK,
         ];
         if click.contains(&msg) {
-            return LRESULT(1);
+            // SAFETY: for WH_MOUSE_LL with code >= 0, lparam points to an MSLLHOOKSTRUCT for the duration of the call.
+            let info = &*(lparam.0 as *const MSLLHOOKSTRUCT);
+            // A click on NEXUS itself goes through, so Stop can always be pressed. The window under the pointer
+            // is the web view (another process), so the test is on the top-level window that holds it.
+            if !on_own_window(info.pt) {
+                return LRESULT(1);
+            }
         }
     }
     CallNextHookEx(HHOOK::default(), code, wparam, lparam)
 }
 
-/// While this exists, mouse clicks are ignored system-wide (the pointer still
+/// Whether the screen point is over one of this app's own windows.
+fn on_own_window(pt: windows::Win32::Foundation::POINT) -> bool {
+    // SAFETY: plain window queries; a null or foreign window simply answers "no".
+    unsafe {
+        let under = WindowFromPoint(pt);
+        if under.0.is_null() {
+            return false;
+        }
+        let top = GetAncestor(under, GA_ROOT);
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(if top.0.is_null() { under } else { top }, Some(&mut pid));
+        pid == std::process::id()
+    }
+}
+
+/// While this exists, mouse clicks on other apps are ignored (the pointer still
 /// moves), so a stray click can't take the caret out of the target text box.
+/// Clicks on NEXUS itself still work.
 pub struct ClickBlocker {
     thread_id: u32,
     thread: Option<JoinHandle<()>>,

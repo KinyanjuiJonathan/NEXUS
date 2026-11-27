@@ -278,7 +278,7 @@ export default function TyperView() {
       break;
     case "typing":
       headline = `Typing… ${Math.round(status.progress * 100)}%`;
-      detail = status.locked ? <>Locked onto the text box: mouse clicks are ignored. Press {stopKeys} to stop.</> : <>Press {stopKeys} to stop.</>;
+      detail = status.locked ? <>Locked onto the text box: clicks on other apps are ignored. Click Stop here, or press {stopKeys}.</> : <>Press {stopKeys} to stop.</>;
       break;
     case "paused":
       headline = "Paused";
@@ -349,7 +349,7 @@ export default function TyperView() {
             <div className="p-5 flex flex-col gap-3">
               <div className="flex items-center gap-3">
                 {busy ? (
-                  <Button variant="danger" size="lg" icon={<Square size={15} />} onClick={() => void stop()} disabled={status.locked} title={status.locked ? "Clicks are blocked while locked: use the keyboard to stop" : undefined}>Stop</Button>
+                  <Button variant="danger" size="lg" icon={<Square size={15} />} onClick={() => void stop()} title={status.locked ? "Stops the typing. Clicks on NEXUS work even while locked onto the text box." : undefined}>Stop</Button>
                 ) : (
                   <Button variant="primary" size="lg" icon={<Play size={16} />} onClick={() => void start()} disabled={!text.trim()}>Start</Button>
                 )}
@@ -396,7 +396,7 @@ export default function TyperView() {
           <Card>
             <CardHeader title="Behaviour" right={<Button size="sm" variant="ghost" disabled={busy} onClick={() => void nexus().setSetting("typer", DEFAULT_TYPER)}>Reset</Button>} />
             <div className="px-5 pb-4 flex flex-col">
-              <Toggle checked={options.lock} disabled={busy} onChange={(v) => set("lock", v)} label="Lock onto the text box" description="Ignores mouse clicks while typing, so a click can't move the cursor to another box, and pauses if the window changes." />
+              <Toggle checked={options.lock} disabled={busy} onChange={(v) => set("lock", v)} label="Lock onto the text box" description="Ignores mouse clicks on other apps while typing, so a click can't move the cursor to another box, and pauses if the window changes. Clicks on NEXUS still work, so you can always press Stop." />
               <Toggle checked={options.revise} disabled={busy} onChange={(v) => set("revise", v)} label="Revise with arrow keys" description="Off: corrections use Backspace only (safer in apps with autocomplete)." />
               <Toggle checked={options.usShift} disabled={busy} onChange={(v) => set("usShift", v)} label="US keyboard layout" description="Holds Shift for symbols like a person would. Turn off for other layouts." />
               <Toggle checked={options.enterAfter} disabled={busy} onChange={(v) => set("enterAfter", v)} label="Press Enter after each repeat" />

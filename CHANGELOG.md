@@ -2,6 +2,14 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.29 (27 November 2026)
+
+**Auto Typer: Stop can be clicked while locked**
+- **Stop works with the lock on.** With "Lock onto the text box" switched on, every mouse click was ignored while typing, including a click on NEXUS's own Stop button, which was shown greyed out. Now clicks on NEXUS itself go through, and Stop is always available.
+- **The lock still protects the text box.** Clicks on any other app are ignored as before, so a stray click cannot move the cursor out of the box being typed in.
+- Clicking NEXUS takes the focus away from the text box, so typing pauses at that moment, as it does whenever the window changes. Press Stop to end it; to carry on instead, go back to the text box with Alt+Tab (clicks on it are still ignored while locked).
+- The keyboard ways of stopping are unchanged: the start/stop shortcut, or Esc.
+
 ## v1.1.28 (27 November 2026)
 
 **Reading region: drag to mark it, every time**

@@ -11,6 +11,15 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.29",
+    date: "2026-11-27",
+    title: "Auto Typer: Stop can be clicked while locked",
+    changes: [
+      "With “Lock onto the text box” on, the Stop button in NEXUS can now be clicked.",
+      "The lock still ignores clicks on every other app; only clicks on NEXUS itself go through.",
+    ],
+  },
+  {
     version: "1.1.28",
     date: "2026-11-27",
     title: "Reading region: drag to mark it, every time",
