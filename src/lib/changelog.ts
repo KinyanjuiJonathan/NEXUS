@@ -11,6 +11,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.24",
+    date: "2026-11-27",
+    title: "Captured tables are listed row by row under their headings",
+    changes: [
+      "A captured table is written as a list: for each row, every column's heading followed by that row's text.",
+      "Continuing down the same table in the next capture keeps the same headings, even when the header has scrolled out of view.",
+      "A new table gets its own headings. Text that is not a table is captured exactly as before.",
+    ],
+  },
+  {
     version: "1.1.23",
     date: "2026-11-27",
     title: "Screen capture understands tables",

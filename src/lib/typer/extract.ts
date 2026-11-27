@@ -31,6 +31,8 @@ export interface DocLine {
   seen: number;
   /** A row of a table: its cells, separated by tabs. */
   table?: boolean;
+  /** The first row of a table as it was seen on screen (its header), rather than a row met while continuing down a table. */
+  head?: boolean;
 }
 
 const median = (v: number[]) => {
@@ -73,18 +75,21 @@ export function layout(lines: OcrLine[], opts: { /** Height of the region read: 
   };
   // Tables are rebuilt row by row and cell by cell; everything else is laid out line by line as before.
   const blocks = findTables(rows, H);
-  const merged: { text: string; x: number; y: number; w: number; h: number; table?: boolean }[] = [];
+  const merged: { text: string; x: number; y: number; w: number; h: number; table?: boolean; head?: boolean }[] = [];
   for (let i = 0; i < rows.length; i++) {
     const block = blocks.find((b) => b.from === i);
     if (!block) {
       merged.push({ text: rows[i].map((p) => p.text).join("    "), ...span(rows[i]) });
       continue;
     }
-    for (const group of tableRows(rows.slice(block.from, block.to + 1), H)) {
+    // A table that begins right at the top edge of the region, with nothing above it, is one that was
+    // scrolled into: its first visible row is a row like any other, not its header.
+    const scrolledInto = block.from === 0 && Math.min(...rows[block.from].map((p) => p.y)) <= 1.2 * H;
+    tableRows(rows.slice(block.from, block.to + 1), H).forEach((group, n) => {
       const cells = block.columns.map(() => [] as string[]);
       for (const row of group) for (const p of row) cells[columnOf(block.columns, p.x)].push(p.text);
-      merged.push({ text: cells.map((c) => joinCell(c)).join("\t"), ...span(group.flat()), table: true });
-    }
+      merged.push({ text: cells.map((c) => joinCell(c)).join("\t"), ...span(group.flat()), table: true, head: n === 0 && !scrolledInto });
+    });
     i = block.to;
   }
   const charW = median(merged.filter((l) => l.text.length >= 4).map((l) => l.w / l.text.length)) || H * 0.5;
@@ -92,7 +97,7 @@ export function layout(lines: OcrLine[], opts: { /** Height of the region read: 
   return merged.map((l, i) => {
     const prev = merged[i - 1];
     // a table stands apart from the text before and after it; its rows follow one another directly
-    if (l.table) return { text: l.text, key: lineKey(l.text), gap: !!prev && !prev.table, heading: false, seen: 1, table: true };
+    if (l.table) return { text: l.text, key: lineKey(l.text), gap: !!prev && !prev.table, heading: false, seen: 1, table: true, head: !!l.head };
     const indent = Math.min(40, Math.max(0, Math.round((l.x - left) / charW)));
     // a little offset is the recogniser's wobble, not indentation
     const pad = indent >= 2 ? " ".repeat(indent) : "";
@@ -159,7 +164,10 @@ function findTables(rows: OcrLine[][], H: number): { from: number; to: number; c
       if (row.length >= 2) wide++;
       to++;
     }
-    if (wide >= 2 && columns.length >= 2) {
+    // A single row in three or more columns at the very end of a reading is taken as a table's heading row
+    // whose rows are still out of view, so that the next capture continues the same table.
+    const headingOnly = wide === 1 && columns.length >= 3 && to === rows.length - 1;
+    if ((wide >= 2 || headingOnly) && columns.length >= 2) {
       out.push({ from: i, to, columns });
       i = to;
     }
@@ -182,7 +190,9 @@ function tableRows(rows: OcrLine[][], H: number): OcrLine[][][] {
   // in only one column after a slightly wider gap (the second line of a heading in larger type) still belongs
   // to the row above, unless the gap is very large.
   const starts = (k: number) => gaps[k - 1] > limit && (rows[k].length >= 2 || gaps[k - 1] > 3 * limit);
-  const split = gaps.some((_, i) => starts(i + 1)) ? starts : () => true;
+  // No such start anywhere: a plain table with one line per cell (every line has text in several columns,
+  // each its own row), or else a single row whose cells run over several lines.
+  const split = gaps.some((_, i) => starts(i + 1)) ? starts : (k: number) => rows[k].length >= 2 && rows.every((r) => r.length >= 2);
   const out: OcrLine[][][] = [];
   rows.forEach((row, k) => {
     if (k === 0 || split(k)) out.push([row]);
@@ -363,18 +373,83 @@ export class Stitcher {
 const escapeMarks = (t: string) => t.replace(/([*_])/g, "\\$1");
 
 /**
+ * For each line: null for ordinary text, or for a row of a table the headings of that table
+ * and whether this row is the heading row itself.
+ *
+ * A table is a run of table rows that follow one another in the document. Its first row gives
+ * the headings. The run carries on across captures: rows added later, further down the same
+ * table, are still under the same headings. A new table begins where a row is marked as a
+ * table's first row, or has a different number of cells.
+ */
+export function tablesOf(lines: DocLine[]): ({ headers: string[]; isHeader: boolean } | null)[] {
+  let headers: string[] | null = null;
+  return lines.map((l) => {
+    if (!l.table) {
+      headers = null;
+      return null;
+    }
+    const cells = l.text.split("\t");
+    if (!headers || l.head || cells.length !== headers.length) {
+      headers = cells.map((c) => c.trim());
+      return { headers, isHeader: true };
+    }
+    return { headers, isHeader: false };
+  });
+}
+
+/**
  * The document as text for the editing pad. With `marks`, larger text becomes
  * a heading and characters the pad would read as formatting are kept as
  * themselves; without, it is plain text exactly as read.
+ *
+ * A table is written out row by row as a list: for every row, each column's
+ * heading on a line of its own followed by that row's text for it. The
+ * heading row itself is not written separately, unless it is all there is.
+ *
+ * `from`: write only the lines from this one on (for text added to the end),
+ * still under the headings of the table they belong to.
  */
-export function render(lines: DocLine[], marks: boolean): string {
+export function render(lines: DocLine[], marks: boolean, from = 0): string {
+  const tables = tablesOf(lines);
+  const plain = (t: string) => (marks ? escapeMarks(t) : t);
+  /** What a line contributes, or null when it contributes nothing (a heading row with rows under it). */
+  const piece = (i: number): { text: string; block: boolean } | null => {
+    const l = lines[i];
+    const t = tables[i];
+    if (!t) {
+      if (!marks) return { text: l.text, block: false };
+      if (l.heading) return { text: `# ${escapeMarks(l.text.trim())}`, block: false };
+      return { text: escapeMarks(l.text).replace(/^(\s*)#(?=[ \t])/, "$1\\#"), block: false };
+    }
+    if (t.isHeader) {
+      // shown as it is only while no row of the table has been captured yet
+      const rowsFollow = !!tables[i + 1] && !tables[i + 1]!.isHeader;
+      return rowsFollow ? null : { text: plain(t.headers.filter(Boolean).join("    ")), block: true };
+    }
+    const cells = l.text.split("\t").map((c) => c.trim());
+    const fields = t.headers.map((h, c) => (cells[c] ? `${plain(h || `Column ${c + 1}`)}:\n${plain(cells[c])}` : "")).filter(Boolean);
+    return fields.length ? { text: fields.join("\n\n"), block: true } : null;
+  };
   let out = "";
-  lines.forEach((l, i) => {
-    if (i) out += l.gap ? "\n\n" : "\n";
-    if (!marks) out += l.text;
-    else if (l.heading) out += `# ${escapeMarks(l.text.trim())}`;
-    else out += escapeMarks(l.text).replace(/^(\s*)#(?=[ \t])/, "$1\\#");
-  });
+  let last: { block: boolean } | null = null;
+  // what comes before `from` only decides how the first written line is separated from it
+  for (let i = from - 1; i >= 0 && !last; i--) {
+    const p = piece(i);
+    if (p) last = p;
+  }
+  let wrote = false;
+  for (let i = from; i < lines.length; i++) {
+    const p = piece(i);
+    if (!p) continue;
+    if (last) {
+      // records of a table stand two lines apart; a table stands a line apart from text; text keeps its own spacing
+      const sep = p.block && last.block ? "\n\n\n" : p.block || last.block || lines[i].gap ? "\n\n" : "\n";
+      if (wrote) out += sep;
+    }
+    out += p.text;
+    wrote = true;
+    last = p;
+  }
   return out;
 }
 
@@ -385,11 +460,11 @@ export function render(lines: DocLine[], marks: boolean): string {
  * still holds `before` as it was written, it is exchanged for `after` (which
  * is the same text with the additions around it), so text from above lands
  * above. If the user has edited that text since, nothing of theirs is
- * replaced: the new lines are simply added at the end.
+ * replaced: the new lines are simply added at the end, after `sep`.
  */
-export function mergeIntoPad(pad: string, before: string, after: string, tail: string): string {
+export function mergeIntoPad(pad: string, before: string, after: string, tail: string, sep = "\n"): string {
   if (!before) return pad.trim() ? `${pad.replace(/\s+$/, "")}\n\n${after}` : after;
   const at = pad.lastIndexOf(before);
   if (at >= 0) return pad.slice(0, at) + after + pad.slice(at + before.length);
-  return tail ? `${pad.replace(/\s+$/, "")}\n${tail}` : pad;
+  return tail ? `${pad.replace(/\s+$/, "")}${sep}${tail}` : pad;
 }

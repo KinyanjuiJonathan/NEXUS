@@ -267,8 +267,10 @@ export const useLive = create<LiveStore>((set, get) => {
           if (!get().regionOpen) return; // closed while reading: nothing is added
           const r = stitcher.feed(seen);
           if (r.added) {
-            const tail = r.added - r.prepended > 0 ? render(stitcher.lines.slice(count + r.prepended), marks) : "";
-            useTyper.getState().setText(mergeIntoPad(pad, before, render(stitcher.lines, marks), tail));
+            const tail = r.added - r.prepended > 0 ? render(stitcher.lines, marks, count + r.prepended) : "";
+            // a table's row is set two lines apart from the one before it
+            const sep = stitcher.lines[count + r.prepended]?.table ? "\n\n\n" : "\n";
+            useTyper.getState().setText(mergeIntoPad(pad, before, render(stitcher.lines, marks), tail, sep));
           }
           set((s) => ({ input: seen.map((l) => l.text), fresh: r.fresh, extract: { lines: stitcher.lines.length, added: r.added, readings: s.extract.readings + 1, aligned: r.aligned, done: stitcher.lines.length > 0 } }));
           void regionNote(seen.length ? (r.added ? `found:${r.added}` : "none") : "empty");

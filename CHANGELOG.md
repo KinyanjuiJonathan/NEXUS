@@ -2,6 +2,39 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.24 (27 November 2026)
+
+**Captured tables are listed row by row under their headings**
+- **A table is written as a list.** Instead of one tab-separated line per row, each row of a table is now written out under the table's own headings:
+
+  ```
+  Behavioral Issue:
+  Code Hallucinations
+
+  Description:
+  Invents or assumes existence of functions, APIs, libraries, …
+
+  Example of what to watch for:
+  Invents a method on a real class; invents API functions; …
+
+  What to document:
+  The specific hallucinated code element and what actually exists, …
+
+
+  Behavioral Issue:
+  Documentation Issues
+
+  Description:
+  …
+  ```
+
+  One blank line between the fields of a row, two between rows. The heading row is not written on its own. A cell that is empty is left out.
+- **The same table continues under the same headings.** When you scroll down and capture the next part of a table, NEXUS lines the capture up with the rows it already has (the overlap) and recognises that it is still in the same table, so the new rows get the same headings, even though the header row is no longer on screen. A table that starts right at the top edge of the region, with nothing above it, is treated as one that was scrolled into, never as a new table.
+- **A new table gets its own headings.** A table that begins after other text, or has a different number of columns, starts afresh with its first row as the headings.
+- **A row cut off by the edge** is still completed by the next capture, as in v1.1.23.
+- If only the heading row of a table is in view, it is shown as one line until a row is captured; it then turns into the headings of that row.
+- **Unchanged:** everything that is not a table (paragraphs, headings, lists, indentation, paragraph gaps) is captured exactly as before, and captured text is still only added to.
+
 ## v1.1.23 (27 November 2026)
 
 **Screen capture understands tables**

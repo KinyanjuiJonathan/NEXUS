@@ -234,4 +234,76 @@ describe("tables", () => {
     expect(s.feed(layout(TABLE.filter((l) => l.y >= 173))).added).toBe(0);
     expect(s.lines.map((l) => l.text)).toEqual(again);
   });
+
+  it("a table is written as a list: every row under the table's headings", () => {
+    expect(render(layout(TABLE), false)).toBe(
+      [
+        "Behavioral Issues Types table",
+        "",
+        "Behavioral Issue:",
+        "Code Hallucinations",
+        "",
+        "Description:",
+        "Invents or assumes existence of functions, APIs, libraries, or code structures that don't exist.",
+        "",
+        "Example of what to watch for:",
+        "Invents a method on a real class; invents API functions; creates imports from non-existent modules",
+        "",
+        "What to document:",
+        "The specific hallucinated code element and what actually exists",
+        "",
+        "",
+        "Behavioral Issue:",
+        "Documentation Issues",
+        "",
+        "Description:",
+        "Creates unwanted documentation",
+        "",
+        "Example of what to watch for:",
+        "Adds documentation when not requested",
+        "",
+        "What to document:",
+        "What documentation was added",
+      ].join("\n"),
+    );
+  });
+
+  it("continuing down the same table keeps its headings, and a new table gets its own", () => {
+    const s = new Stitcher(true);
+    let pad = "";
+    const capture = (lines: OcrLine[]) => {
+      const before = render(s.lines, false);
+      const count = s.lines.length;
+      const r = s.feed(layout(lines));
+      const tail = r.added - r.prepended > 0 ? render(s.lines, false, count + r.prepended) : "";
+      pad = mergeIntoPad(pad, before, render(s.lines, false), tail, s.lines[count + r.prepended]?.table ? "\n\n\n" : "\n");
+    };
+    // 1: the heading row and the first row
+    capture(TABLE.filter((l) => l.y < 340));
+    // 2: scrolled down, the header is out of view: the first row again (for the overlap) and the second, starting at the top edge
+    const scrolled = TABLE.filter((l) => l.y >= 226).map((l) => ({ ...l, y: l.y - 222 }));
+    expect(layout(scrolled)[0].head).toBe(false);
+    capture(scrolled);
+    expect(pad.match(/Behavioral Issue:/g)).toHaveLength(2);
+    expect(pad).toContain("Behavioral Issue:\nDocumentation Issues\n\nDescription:\nCreates unwanted documentation");
+    expect(pad).not.toContain("Code Hallucinations:"); // the first row was never mistaken for headings
+    // 3: text after the table, then another table with its own headings
+    const other: OcrLine[] = [
+      { text: "Severity levels", x: 58, y: 20, w: 120, h: 15 },
+      ...[["Level", "Meaning"], ["High", "Blocks the task"], ["Low", "Cosmetic"]].flatMap((r, i) => r.map((text, c) => ({ text, x: [64, 223][c], y: 60 + i * 30, w: text.length * 6.2, h: 11 }))),
+    ];
+    capture(other);
+    expect(pad.endsWith("Severity levels\n\nLevel:\nHigh\n\nMeaning:\nBlocks the task\n\n\nLevel:\nLow\n\nMeaning:\nCosmetic")).toBe(true);
+    expect(pad.match(/Behavioral Issue:/g)).toHaveLength(2); // the earlier table is untouched
+  });
+
+  it("only the headings are shown until a row is captured, and edited text gets the next row under the right headings", () => {
+    const s = new Stitcher(true);
+    s.feed(layout(TABLE.filter((l) => l.y < 215)));
+    expect(render(s.lines, false)).toBe("Behavioral Issues Types table\n\nBehavioral Issue    Description    Example of what to watch for    What to document");
+    // rows added later, written on their own (the pad was edited meanwhile): still under the table's headings
+    const count = s.lines.length;
+    s.feed(layout(TABLE));
+    expect(render(s.lines, false, count).startsWith("Behavioral Issue:\nCode Hallucinations\n\nDescription:\n")).toBe(true);
+  });
 });
