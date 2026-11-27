@@ -44,8 +44,25 @@ interface UIState {
   openReschedule(item: MissedItem | null): void;
 }
 
+const VIEW_KEY = "nexus.view";
+const VIEWS: View[] = ["dashboard", "tasks", "calendar", "focus", "clocks", "assistant", "insights", "history", "typer", "accounts", "settings"];
+/** The page that was open last time, so closing and reopening NEXUS (for an update, say) comes back to the same place. */
+function lastView(): View {
+  try {
+    const v = localStorage.getItem(VIEW_KEY) as View | null;
+    return v && VIEWS.includes(v) ? v : "dashboard";
+  } catch {
+    return "dashboard";
+  }
+}
+/** Ambient mode moves between pages by itself; those moves are not the user's place and are not remembered. */
+let remember = true;
+export const rememberView = (on: boolean) => {
+  remember = on;
+};
+
 export const useUI = create<UIState>((set) => ({
-  view: "dashboard",
+  view: lastView(),
   taskEditor: { open: false, taskId: null },
   eventEditor: { open: false, eventId: null },
   command: { open: false, listen: false },
@@ -62,7 +79,15 @@ export const useUI = create<UIState>((set) => ({
   openWorkPlan: (workPlan) => set({ workPlan }),
   snoozeWorkPlan: (workPlanSnooze) => set({ workPlanSnooze }),
   openRescheduleAll: (rescheduleAll) => set({ rescheduleAll }),
-  setView: (view) => set({ view }),
+  setView: (view) => {
+    set({ view });
+    if (!remember) return;
+    try {
+      localStorage.setItem(VIEW_KEY, view);
+    } catch {
+      /* not essential */
+    }
+  },
   ambientPreview: 0,
   previewAmbient: () => set((s) => ({ ambientPreview: s.ambientPreview + 1 })),
   openTask: (taskId, defaults) => set({ taskEditor: { open: true, taskId, defaults } }),

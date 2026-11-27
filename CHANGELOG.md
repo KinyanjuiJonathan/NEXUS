@@ -2,6 +2,16 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.26 (27 November 2026)
+
+**Updating no longer interrupts what is running**
+- **The work clock carries on through an update.** Until now, if installing a new version kept NEXUS closed for more than a minute and a half, that time was treated like the PC having been switched off: the clock was paused from the moment NEXUS closed and you were welcomed back with "… of inactivity wasn't counted". Now the first start of a new version is recognised as an update: the clock keeps the session it had, with no pause put in, and the minutes the installer took count like any others.
+- **Everything that was running continues.** The task under way and its clocked time, the active task, and focus and countdown timers are exactly as they were. A break or pause that was on when you updated is still on afterwards.
+- **The same page.** NEXUS now reopens on the page you were on (after an update or any restart), instead of always on the Dashboard. Pages shown by the wallpaper effect are not remembered.
+- The "Updated to NEXUS …" notice says that everything carried on.
+- The limit: this applies when NEXUS was closed for up to 30 minutes around the update. If it was closed for longer (shut down in the evening, updated the next morning), the time away is still not counted, as before.
+- This takes effect from the next update onward: it is the new version that has to recognise the update when it starts.
+
 ## v1.1.25 (27 November 2026)
 
 **Screen capture: misread words fixed**

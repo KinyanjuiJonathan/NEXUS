@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Sparkles } from "lucide-react";
 import { useNexus, nexus } from "@/store";
-import { useUI, type View } from "@/store/ui";
+import { rememberView, useUI, type View } from "@/store/ui";
 import { ambientMove, canStartAmbient, nextAmbientView, type AmbientMove } from "@/lib/ambient";
 
 export interface AmbientState {
@@ -30,7 +30,10 @@ export function useAmbient(): AmbientState {
   const advance = () => {
     r.step++;
     r.switched = Date.now();
+    // the tour's pages are not where the user was: not remembered for the next start
+    rememberView(false);
     useUI.getState().setView(nextAmbientView(cfgRef.current, useUI.getState().view));
+    rememberView(true);
     setState({ active: true, step: r.step });
   };
   const start = () => {

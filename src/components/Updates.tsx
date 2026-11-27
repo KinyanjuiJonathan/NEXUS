@@ -54,7 +54,7 @@ export function useUpdates() {
       void (async () => {
         if (last) {
           await s.setSetting("previousVersion", last);
-          s.toast({ kind: "success", title: `Updated to NEXUS ${__APP_VERSION__}`, body: `Your data from ${last} was kept. Tell us how the new version behaves from Settings → About → Send feedback.`, ttl: 12_000 });
+          s.toast({ kind: "success", title: `Updated to NEXUS ${__APP_VERSION__}`, body: `Everything carried on from where it was: your work clock, the task under way and your timers. Your data from ${last} was kept.`, ttl: 12_000 });
         }
         await s.setSetting("lastVersion", __APP_VERSION__);
       })();

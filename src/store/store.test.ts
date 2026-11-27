@@ -16,9 +16,9 @@ let clock = at("2026-11-17T10:00");
 let seq = 0;
 let kv: KV;
 
-function makeStore(shared?: KV) {
+function makeStore(shared?: KV, version: string | null = null) {
   kv = shared ?? memoryKV();
-  const s = createNexusStore({ backend: createLocalBackend(kv), now: () => clock, id: () => `id${++seq}` });
+  const s = createNexusStore({ backend: createLocalBackend(kv), now: () => clock, id: () => `id${++seq}`, version });
   return s;
 }
 
@@ -584,6 +584,51 @@ describe("automatic work clock", () => {
     await again.getState().init();
     expect(openPause(activeSession(again.getState().workSessions))).toBeNull();
     expect(await worked(again)).toBe(55 * MIN);
+  });
+
+  it("an update is not a break: the work clock, the active task and a running timer carry on", async () => {
+    const store = makeStore(undefined, "1.1.25");
+    await store.getState().init();
+    await store.getState().setSetting("lastVersion", "1.1.25");
+    const t0 = clock;
+    await store.getState().handleActivity({ kind: "back", at: t0 });
+    const task = await store.getState().addTask({ title: "Write report" }, { autoPlace: false });
+    await store.getState().setActiveTask(task.id);
+    const timer = await store.getState().startTimer({ kind: "countdown", minutes: 60, taskId: task.id });
+    // 20 minutes in, NEXUS is closed and the new version is installed, which takes 6 minutes
+    await createLocalBackend(kv).setSetting("workHeartbeat", t0 + 20 * MIN);
+    clock = t0 + 26 * MIN;
+    const updated = makeStore(kv, "1.1.26");
+    await updated.getState().init();
+    const { activeSession, openPause } = await import("@/lib/work");
+    const w = activeSession(updated.getState().workSessions)!;
+    expect(w.endedAt).toBeNull();
+    expect(openPause(w)).toBeNull(); // no pause was put in for the time the update took
+    expect(await worked(updated)).toBe(26 * MIN);
+    expect(updated.getState().settings.activeTaskId).toBe(task.id);
+    const running = updated.getState().timers.find((x) => x.id === timer.id)!;
+    expect(running).toMatchObject({ state: "running", startedAt: timer.startedAt });
+
+    // closed for a whole evening and then updated: that is not "the update", the time away is not counted
+    await createLocalBackend(kv).setSetting("workHeartbeat", clock);
+    await createLocalBackend(kv).setSetting("lastVersion", "1.1.26");
+    const before = clock;
+    clock += 5 * 60 * MIN;
+    const later = makeStore(kv, "1.1.27");
+    await later.getState().init();
+    expect(openPause(activeSession(later.getState().workSessions))).toMatchObject({ start: before, reason: "idle" });
+
+    // a break that was on when the update happened is still on afterwards
+    const paused = makeStore(undefined, "1.1.25");
+    await paused.getState().init();
+    await paused.getState().setSetting("lastVersion", "1.1.25");
+    await paused.getState().handleActivity({ kind: "back", at: clock });
+    await paused.getState().pauseWork();
+    await createLocalBackend(kv).setSetting("workHeartbeat", clock);
+    clock += 4 * MIN;
+    const after = makeStore(kv, "1.1.26");
+    await after.getState().init();
+    expect(openPause(activeSession(after.getState().workSessions))).toMatchObject({ reason: "manual", end: null });
   });
 });
 

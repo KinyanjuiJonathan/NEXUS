@@ -280,7 +280,13 @@ export interface StoreDeps {
   backend: Backend;
   now?: () => number;
   id?: () => string;
+  /** The version of NEXUS that is running, to recognise the first start after an update. */
+  version?: string | null;
 }
+
+/** NEXUS can be closed this long for an update and carry on as if it had never stopped. */
+export const UPDATE_GRACE_MS = 30 * 60_000;
+const RUNNING_VERSION: string | null = typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : null;
 
 function mergeSettings(raw: Partial<Settings>): Settings {
   const s = { ...DEFAULT_SETTINGS, ...raw, shortcuts: { ...DEFAULT_SHORTCUTS, ...(raw.shortcuts ?? {}) }, typer: { ...DEFAULT_TYPER, ...(raw.typer ?? {}) },
@@ -296,7 +302,7 @@ function mergeSettings(raw: Partial<Settings>): Settings {
   return s;
 }
 
-export function createNexusStore({ backend, now = () => Date.now(), id = () => crypto.randomUUID() }: StoreDeps) {
+export function createNexusStore({ backend, now = () => Date.now(), id = () => crypto.randomUUID(), version = RUNNING_VERSION }: StoreDeps) {
   const store = createStore<NexusState>()((set, get) => {
     const fail = (e: unknown, what: string) => {
       const msg = e instanceof Error ? e.message : String(e);
@@ -493,11 +499,17 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
      * NEXUS was not running since `heartbeat` (closed, crashed, PC off) while a
      * session was open: that gap is not work, so it becomes a pause.
      */
-    const reconcileWork = async (heartbeat: unknown) => {
+    const reconcileWork = async (heartbeat: unknown, updatedFrom: string | null = null) => {
       const hb = typeof heartbeat === "number" ? heartbeat : NaN;
       const w = activeSession(get().workSessions);
       const ts = now();
       if (!w || openPause(w) || !Number.isFinite(hb) || hb <= 0 || ts - hb < RESTART_GAP_MS) return;
+      // Closed only to be updated: installing a new version is not a break. The work clock, the task under way
+      // and the timers carry on exactly as they were, and the minutes the installer took count like any others.
+      if (updatedFrom && ts - hb <= UPDATE_GRACE_MS) {
+        get().log("resumed", "Carried on after the update", `${updatedFrom} → ${version}: the work clock kept counting through the ${humanDuration(ts - hb)} it took`, w.id);
+        return;
+      }
       const start = Math.min(ts, Math.max(w.startedAt, hb));
       await saveWork({ ...w, pauses: [...w.pauses, { start, end: null, reason: "idle" }], updatedAt: ts });
     };
@@ -800,7 +812,10 @@ export function createNexusStore({ backend, now = () => Date.now(), id = () => c
             get().log("clock_out", "Work clock corrected", `${strays} session${strays === 1 ? " was" : "s were"} left open by mistake and counting in the background; closed where the work really stopped`);
             get().toast({ kind: "info", title: "Work clock corrected", body: `${strays} work session${strays === 1 ? " was" : "s were"} left open and kept counting in the background. ${strays === 1 ? "It has" : "They have"} been closed where the work really stopped, so today's total is accurate again.`, ttl: 0 });
           }
-          await reconcileWork((snap.settings as Record<string, unknown> | undefined)?.workHeartbeat).catch(() => {});
+          // The first start of a new version: what was running before the update simply continues.
+          const last = (snap.settings as Record<string, unknown> | undefined)?.lastVersion;
+          const updatedFrom = typeof last === "string" && version && last !== version ? last : null;
+          await reconcileWork((snap.settings as Record<string, unknown> | undefined)?.workHeartbeat, updatedFrom).catch(() => {});
           await tidySchedule().catch(() => {});
         } catch (e) {
           // Not ready: nothing is shown as if it were the user's (empty) data, and nothing schedules or saves on top of it.

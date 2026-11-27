@@ -11,6 +11,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.26",
+    date: "2026-11-27",
+    title: "Updating no longer interrupts what is running",
+    changes: [
+      "After an update the work clock carries on counting from where it was; the time the installer took is not turned into a break.",
+      "The task under way, the active task and running timers continue unchanged. A break that was on stays on.",
+      "NEXUS reopens on the page you were on.",
+    ],
+  },
+  {
     version: "1.1.25",
     date: "2026-11-27",
     title: "Screen capture: misread words fixed",
