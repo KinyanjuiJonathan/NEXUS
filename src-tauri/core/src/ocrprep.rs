@@ -152,36 +152,83 @@ pub fn clean(lum: &[u8], w: usize, h: usize, strength: Strength) -> Vec<u8> {
     let dark = is_dark(lum);
     let mut src: Vec<u8> = if dark { lum.iter().map(|v| 255 - v).collect() } else { lum.to_vec() };
     flip_dark_patches(&mut src, w, h);
-    let (bg, bw, _) = background(&src, w, h);
-    // ratio to the background at which a pixel counts as plain background, and the curve below it
-    let (white, power) = match strength {
-        Strength::Normal => (0.90_f32, 1.0_f32),
-        Strength::Faint => (0.95_f32, 2.6_f32),
-    };
+    let (bg, bw, bh) = background(&src, w, h);
     let mut out = vec![255u8; w * h];
-    for y in 0..h {
-        for x in 0..w {
-            let b = bg[(y / BLOCK) * bw + x / BLOCK].max(1) as f32;
-            let ratio = (src[y * w + x] as f32 / b).min(1.0);
-            if ratio >= white {
+    match strength {
+        // Brightness relative to the ground, nothing more: black text stays exactly as sharp as it was.
+        Strength::Normal => {
+            for y in 0..h {
+                for x in 0..w {
+                    let b = bg[(y / BLOCK) * bw + x / BLOCK].max(1) as f32;
+                    let ratio = (src[y * w + x] as f32 / b).min(1.0);
+                    if ratio < 0.90 {
+                        out[y * w + x] = (ratio / 0.90 * 255.0) as u8;
+                    }
+                }
+            }
+        }
+        // Contrast stretched to what the text there actually uses: grey text on white becomes black on white,
+        // and black text is left as it is. Letters are not thickened: the soft edge of a letter keeps the same
+        // share of the way from ink to ground that it had.
+        Strength::Faint => {
+            let ink = ink_levels(&src, w, h, bw, bh);
+            for y in 0..h {
+                for x in 0..w {
+                    let at = (y / BLOCK) * bw + x / BLOCK;
+                    let b = bg[at] as f32;
+                    let k = ink[at] as f32;
+                    // too little difference to be text: plain ground
+                    if b - k < 22.0 {
+                        continue;
+                    }
+                    let t = ((src[y * w + x] as f32 - k) / (b - k)).clamp(0.0, 1.0);
+                    if t < 0.92 {
+                        out[y * w + x] = (t / 0.92 * 255.0) as u8;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// How dark the ink is in each square: its darkest few pixels, or those of the squares beside it on the
+/// same row when they are darker (the end of a word reaches into a square with only its soft edge;
+/// measured alone, that edge would be stretched to black and the letter would grow).
+fn ink_levels(img: &[u8], w: usize, h: usize, bw: usize, bh: usize) -> Vec<u8> {
+    let mut own = vec![255u8; bw * bh];
+    for by in 0..bh {
+        for bx in 0..bw {
+            let (x0, y0) = (bx * BLOCK, by * BLOCK);
+            let (x1, y1) = ((x0 + BLOCK).min(w), (y0 + BLOCK).min(h));
+            if x1 <= x0 || y1 <= y0 {
                 continue;
             }
-            // 0 = as dark as it gets, 1 = background
-            let level = (ratio / white).powf(power);
-            out[y * w + x] = (level * 255.0) as u8;
+            let hist = histogram(img, w, x0, x1, y0, y1);
+            own[by * bw + bx] = level_at(&hist, (x1 - x0) * (y1 - y0), 0.03);
+        }
+    }
+    let mut out = own.clone();
+    for by in 0..bh {
+        for bx in 0..bw {
+            let mut k = own[by * bw + bx];
+            for nx in bx.saturating_sub(2)..(bx + 3).min(bw) {
+                k = k.min(own[by * bw + nx]);
+            }
+            out[by * bw + bx] = k;
         }
     }
     out
 }
 
 /// Take out thin horizontal rules: underlines under links and the borders of
-/// fields. A rule is a long unbroken run of ink in one row that is not part of
-/// a filled shape. Letters are short runs, so they are left alone (a descender
-/// loses a pixel or two where it crosses an underline).
+/// fields and table cells. A rule is a long unbroken run of ink in one row with
+/// nothing just above it or nothing just below it. A row through the middle of
+/// bold or tightly set text can also be one long run, but it has the rest of
+/// the letters above and below it, so it is left alone.
 pub fn remove_rules(img: &mut [u8], w: usize, h: usize) {
-    // anything clearly darker than the white background: rules are often thin and blended to a light grey
-    const INK: u8 = 215;
-    let min_run = 28.min(w);
+    const INK: u8 = 200;
+    let min_run = 32.min(w);
     let mut erase: Vec<(usize, usize, usize)> = Vec::new();
     for y in 0..h {
         let mut x = 0;
@@ -198,21 +245,26 @@ pub fn remove_rules(img: &mut [u8], w: usize, h: usize) {
             if len < min_run {
                 continue;
             }
-            // A run this long in one row is not part of a letter. It is a rule unless it is the inside or the
-            // edge of a filled shape (a button, an icon): there the rows above or below are solid along it too.
-            // Letters sitting on an underline cover only part of the row above it, so they do not count as solid.
-            let solid = |row: Option<usize>| match row {
-                Some(r) if r < h => img[r * w + start..r * w + x].iter().filter(|v| **v < INK).count() * 10 >= len * 7,
-                _ => false,
+            // mostly empty along the run, three rows away (beyond the edge of the picture counts as empty)
+            let clear = |row: Option<usize>| match row {
+                Some(r) if r < h => img[r * w + start..r * w + x].iter().filter(|v| **v < INK).count() * 4 < len,
+                _ => true,
             };
-            if !solid(y.checked_sub(3)) && !solid(Some(y + 3)) {
+            if clear(y.checked_sub(3)) || clear(Some(y + 3)) {
                 erase.push((y, start, x));
             }
         }
     }
+    // Where a letter's stroke crosses the rule (the tail of a g, p or y through an underline) there is ink both
+    // above and below it: those pixels belong to the letter and stay.
+    let before = img.to_vec();
+    let ink_at = |x: usize, y: Option<usize>| matches!(y, Some(r) if r < h && before[r * w + x] < INK);
     for (y, a, b) in erase {
-        for v in &mut img[y * w + a..y * w + b] {
-            *v = 255;
+        for x in a..b {
+            if ink_at(x, y.checked_sub(2)) && ink_at(x, Some(y + 2)) {
+                continue;
+            }
+            img[y * w + x] = 255;
         }
     }
 }
@@ -499,10 +551,44 @@ mod tests {
         let normal = clean(&lum, 64, 32, Strength::Normal);
         let faint = clean(&lum, 64, 32, Strength::Faint);
         assert!(normal[12 * 64 + 11] > 150, "the normal pass leaves it light: {}", normal[12 * 64 + 11]);
-        assert!(faint[12 * 64 + 11] < 120, "the faint pass darkens it: {}", faint[12 * 64 + 11]);
+        assert!(faint[12 * 64 + 11] < 30, "the faint pass makes it black: {}", faint[12 * 64 + 11]);
         // the background stays white in both
         assert_eq!(normal[2 * 64 + 2], 255);
         assert_eq!(faint[2 * 64 + 2], 255);
+    }
+
+    #[test]
+    fn strengthening_does_not_thicken_black_text() {
+        // a black stem with a soft edge beside it (half-way grey), as letters are drawn on screen
+        let img = page(64, 32, 255, &[(20, 8, 2, 14, 0), (22, 8, 1, 14, 128), (19, 8, 1, 14, 128)]);
+        let lum = luminance(&bgra(&img), 64, 32);
+        let faint = clean(&lum, 64, 32, Strength::Faint);
+        assert_eq!(faint[12 * 64 + 20], 0);
+        let edge = faint[12 * 64 + 22];
+        assert!((120..=150).contains(&edge), "the soft edge stays half-way, it does not turn black: {edge}");
+        // grey text keeps the same proportions once stretched: stem 180, edge 218 on white
+        let grey = page(64, 32, 255, &[(20, 8, 2, 14, 180), (22, 8, 1, 14, 218)]);
+        let out = clean(&luminance(&bgra(&grey), 64, 32), 64, 32, Strength::Faint);
+        assert!(out[12 * 64 + 20] < 10, "the grey stem is black: {}", out[12 * 64 + 20]);
+        assert!((110..=160).contains(&out[12 * 64 + 22]), "its edge is still half-way: {}", out[12 * 64 + 22]);
+    }
+
+    #[test]
+    fn a_row_through_bold_text_is_not_taken_for_a_rule() {
+        // bold letters set so tightly that one row of them is unbroken ink for 60 px, with the letters' bodies above and below
+        let mut img = page(120, 40, 255, &[(10, 12, 60, 1, 0)]);
+        for i in 0..10 {
+            for (x, y, w, h) in [(10 + i * 6, 6, 4, 14)] {
+                for yy in y..y + h {
+                    for xx in x..x + w {
+                        img[yy * 120 + xx] = 0;
+                    }
+                }
+            }
+        }
+        let before = img.clone();
+        remove_rules(&mut img, 120, 40);
+        assert_eq!(img, before, "nothing was cut out of the word");
     }
 
     #[test]
@@ -533,6 +619,11 @@ mod tests {
         remove_rules(&mut img, 96, 40);
         assert!(img[24 * 96 + 30] == 255, "the underline is gone");
         assert!(img[15 * 96 + 21] == 0 && img[15 * 96 + 41] == 0, "the letters are untouched");
+        // the tail of a letter that goes through an underline is kept
+        let mut tail = page(96, 40, 255, &[(10, 24, 60, 1, 0), (30, 14, 3, 16, 0)]);
+        remove_rules(&mut tail, 96, 40);
+        assert_eq!(tail[24 * 96 + 31], 0, "the stroke is whole where it crosses");
+        assert_eq!(tail[24 * 96 + 50], 255, "the underline is gone beside it");
         // a filled block (an icon, a button) is not a rule
         let mut solid = page(96, 40, 255, &[(10, 10, 60, 14, 0)]);
         remove_rules(&mut solid, 96, 40);

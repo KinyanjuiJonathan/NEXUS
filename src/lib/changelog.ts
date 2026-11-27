@@ -11,6 +11,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.25",
+    date: "2026-11-27",
+    title: "Screen capture: misread words fixed",
+    changes: [
+      "Fixed words coming out wrong in captures (“Desel” for Description, “dwamentatlon”, “æll”): two preparation steps were damaging the letters.",
+      "Removing underlines no longer cuts slices out of bold or tightly set text.",
+      "Grey text is now strengthened by stretching its contrast, which leaves black text exactly as sharp as it was.",
+    ],
+  },
+  {
     version: "1.1.24",
     date: "2026-11-27",
     title: "Captured tables are listed row by row under their headings",

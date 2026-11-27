@@ -2,6 +2,15 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.25 (27 November 2026)
+
+**Screen capture: misread words fixed**
+- **Fixed: words in a capture came out wrong** ("Desel" for "Description", "dwamentatlon" for "documentation", "æll" for "call", "Ad&ess" for "Address"). The picture preparation added in v1.1.20–v1.1.23 was damaging letters in two ways:
+  - **Underline removal cut into text.** A row of pixels through the middle of bold or tightly set text can be one unbroken line of ink, and it was being taken for an underline and erased, slicing the word in two. A run of ink is now only removed when there is nothing just above it or nothing just below it (an underline, a field or table border). The tail of a letter that passes through an underline is kept.
+  - **Strengthening thickened letters.** To make grey text readable, everything darker than the background was pushed towards black, including the soft edges of ordinary black letters, so neighbouring letters ran together. Contrast is now stretched to what the text in that spot actually uses: grey text becomes black, and black text is left exactly as it was.
+- Grey hints, placeholder text, coloured links and light-on-colour header rows are still made readable, as before.
+- Table output is as introduced in v1.1.24: each row listed under the table's headings. (A capture made with v1.1.23 shows one tab-separated line per row instead.)
+
 ## v1.1.24 (27 November 2026)
 
 **Captured tables are listed row by row under their headings**
