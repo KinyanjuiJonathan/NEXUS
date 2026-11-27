@@ -1,7 +1,7 @@
 {
   "name": "nexus",
   "private": true,
-  "version": "1.1.21",
+  "version": "1.1.22",
   "description": "NEXUS — futuristic AI productivity & time management command center for Windows",
   "type": "module",
   "scripts": {

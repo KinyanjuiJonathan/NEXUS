@@ -11,6 +11,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.22",
+    date: "2026-11-27",
+    title: "Screen capture: numbers no longer read as letters",
+    changes: [
+      "Numbers the recogniser reads as letters are put right: “IO” becomes 10, “2O24” becomes 2024, “1Oth” becomes 10th.",
+      "Where the two readings of a line disagree and one saw a number, the number is used.",
+      "Real words are left alone: “I/O”, and “IO” where no number is expected.",
+    ],
+  },
+  {
     version: "1.1.21",
     date: "2026-11-27",
     title: "Screen capture reads right up to the edges",

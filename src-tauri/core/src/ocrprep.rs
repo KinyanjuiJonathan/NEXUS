@@ -255,6 +255,97 @@ pub fn prepare(bgra: &[u8], w: usize, h: usize, max_side: usize, strength: Stren
     Prepared { bgra: enlarge_bgra(&img, pw, ph, scale), w: pw * scale, h: ph * scale, scale, pad: PAD }
 }
 
+// ------------------------------------------------------------------ digits read as letters
+
+/// The digit a character is commonly mistaken for ("O" for 0, "I", "l" and "|" for 1), if any.
+fn as_digit(c: char) -> Option<char> {
+    match c {
+        '0'..='9' => Some(c),
+        'O' | 'o' => Some('0'),
+        'I' | 'l' | '|' => Some('1'),
+        _ => None,
+    }
+}
+
+/// A word split into what surrounds it and its core: "(IO)." → "(", "IO", ").".
+fn core_of(word: &str) -> (&str, &str, &str) {
+    let start = word.find(|c: char| c.is_alphanumeric() || c == '|').unwrap_or(word.len());
+    let end = word.rfind(|c: char| c.is_alphanumeric() || c == '|').map(|i| i + word[i..].chars().next().map_or(0, char::len_utf8)).unwrap_or(start);
+    (&word[..start], &word[start..end.max(start)], &word[end.max(start)..])
+}
+
+/// Words after which a number is expected: "full at 10", "more than 10", "limit of 10".
+const BEFORE_A_NUMBER: [&str; 30] = [
+    "at", "to", "of", "is", "than", "by", "from", "over", "under", "about", "around", "exactly", "only", "max", "min", "limit", "top", "first", "last",
+    "next", "every", "after", "before", "until", "within", "was", "are", "were", "reaches", "equals",
+];
+
+/// Put right the numbers a recogniser reads as letters: "IO" for 10, "2O24" for 2024, "1Oth" for 10th.
+///
+/// A word is only changed when it can be nothing but a number:
+/// * it is made of digits and digit look-alikes and has at least one real digit ("1O", "l0", "2O24", "1Oth");
+/// * or it is only look-alikes shaped like 10, 100, 1000 ("IO", "lOO") and follows a word that
+///   introduces a number ("at", "than", "of"…). "I/O" and a lone "IO" elsewhere are left alone.
+pub fn fix_digits(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut previous = String::new();
+    for (i, word) in line.split(' ').enumerate() {
+        if i > 0 {
+            out.push(' ');
+        }
+        let (lead, core, tail) = core_of(word);
+        // an ordinal keeps its ending: 1Oth
+        let lower = core.to_lowercase();
+        let (stem, ending) = ["st", "nd", "rd", "th"].iter().find(|e| lower.ends_with(*e) && core.len() > e.len()).map_or((core, ""), |e| core.split_at(core.len() - e.len()));
+        let digits: Option<String> = stem.chars().map(as_digit).collect();
+        let real = stem.chars().filter(char::is_ascii_digit).count();
+        let count = stem.chars().count();
+        let fixed = match digits {
+            // digits with look-alikes among them
+            Some(d) if real >= 1 && real < count && count >= 2 => Some(d),
+            // only look-alikes: a one followed by noughts, where a number is expected
+            Some(d) if real == 0 && ending.is_empty() && count >= 2 && d.starts_with('1') && d[1..].chars().all(|c| c == '0') && !word.contains('/') && BEFORE_A_NUMBER.contains(&previous.as_str()) => Some(d),
+            _ => None,
+        };
+        match fixed {
+            Some(d) => {
+                out.push_str(lead);
+                out.push_str(&d);
+                out.push_str(ending);
+                out.push_str(tail);
+            }
+            None => out.push_str(word),
+        }
+        previous = lower;
+    }
+    out
+}
+
+/// Two readings of the same line, word by word: where the first has a word of digit look-alikes
+/// and the second read the same shape as a number, the number is taken ("IO" and "10" → "10").
+pub fn agree_on_digits(main: &str, other: &str) -> String {
+    let a: Vec<&str> = main.split_whitespace().collect();
+    let b: Vec<&str> = other.split_whitespace().collect();
+    if a.len() != b.len() {
+        return main.to_string();
+    }
+    let fold = |w: &str| -> String { w.chars().map(|c| as_digit(c).unwrap_or(c)).collect() };
+    let words: Vec<&str> = a
+        .iter()
+        .zip(&b)
+        .map(|(x, y)| {
+            // the other reading must be a plain number ("10", "1,000", "10%"), not a word with a stray digit in it
+            let number = y.chars().any(|c| c.is_ascii_digit()) && y.chars().all(|c| c.is_ascii_digit() || !c.is_alphanumeric());
+            if x != y && number && fold(x) == fold(y) {
+                *y
+            } else {
+                *x
+            }
+        })
+        .collect();
+    words.join(" ")
+}
+
 fn overlap(a0: f32, a1: f32, b0: f32, b1: f32) -> f32 {
     (a1.min(b1) - a0.max(b0)).max(0.0)
 }
@@ -268,14 +359,19 @@ pub fn merge(main: Vec<Line>, extra: Vec<Line>) -> Vec<Line> {
         if e.text.trim().chars().filter(|c| c.is_alphanumeric()).count() == 0 {
             continue; // specks read as punctuation
         }
-        let covered = out[..known].iter().any(|m| {
+        let same = out[..known].iter().position(|m| {
             let rows = overlap(m.y, m.y + m.h, e.y, e.y + e.h);
             let cols = overlap(m.x, m.x + m.w, e.x, e.x + e.w);
             rows > 0.4 * e.h.min(m.h).max(1.0) && cols > 0.2 * e.w.min(m.w).max(1.0)
         });
-        if !covered {
-            out.push(e);
+        match same {
+            // the same line read twice: the second reading settles numbers the first read as letters
+            Some(i) => out[i].text = agree_on_digits(&out[i].text, &e.text),
+            None => out.push(e),
         }
+    }
+    for line in &mut out {
+        line.text = fix_digits(&line.text);
     }
     out.sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal).then(a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal)));
     out
@@ -381,6 +477,20 @@ mod tests {
         assert!((0..ph).all(|y| out[y * pw] == 255 && out[y * pw + pw - 1] == 255));
         let p = prepare(&bgra(&img), 40, 20, 10_000, Strength::Normal);
         assert_eq!((p.w, p.h, p.pad), ((40 + 2 * PAD) * p.scale, (20 + 2 * PAD) * p.scale, PAD));
+    }
+
+    #[test]
+    fn numbers_read_as_letters_are_put_right() {
+        assert_eq!(fix_digits("List already full at IO"), "List already full at 10");
+        assert_eq!(fix_digits("JobsState.EnsureCanStart throws at IO before anything is deleted"), "JobsState.EnsureCanStart throws at 10 before anything is deleted");
+        assert_eq!(fix_digits("so the 1Ith backup, in 2O24, cost 1OO (l0 more than IOO)."), "so the 11th backup, in 2024, cost 100 (10 more than 100).");
+        // real words and abbreviations stay
+        assert_eq!(fix_digits("Disk I/O is slow; the IO layer and Ohio (OH) to Illinois"), "Disk I/O is slow; the IO layer and Ohio (OH) to Illinois");
+        assert_eq!(fix_digits("I like it. Is it 0ecfe2fc or Io?"), "I like it. Is it 0ecfe2fc or Io?");
+        assert_eq!(fix_digits("10 items, 3 left"), "10 items, 3 left");
+        // two readings of one line: the one that saw the number wins for that word only
+        assert_eq!(agree_on_digits("Keep IO backups and lOO logs", "Keep 10 backups and 100 1ogs"), "Keep 10 backups and 100 logs");
+        assert_eq!(agree_on_digits("Keep IO backups", "Keep 10 old backups"), "Keep IO backups");
     }
 
     #[test]

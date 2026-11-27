@@ -2,6 +2,16 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.22 (27 November 2026)
+
+**Screen capture: numbers no longer read as letters**
+- **Fixed: "10" was captured as "IO".** In many screen fonts a one looks like a capital I or a small L, and a nought like a capital O, so the recogniser sometimes returns letters for a number. Captured text is now checked for that in three ways:
+  - **Two readings.** Each capture is already read twice. Where the readings of a line differ only in this way and one of them saw a plain number, the number is used.
+  - **Mixed digits and look-alikes.** A word made only of digits and look-alikes, with at least one real digit, is a number: "1O" → 10, "l0" → 10, "2O24" → 2024, "1OO" → 100, "1Oth" → 10th.
+  - **Look-alikes where a number is expected.** "IO", "lOO", "IOOO" become 10, 100, 1000 when they follow a word that introduces a number, such as "at", "of", "than", "to", "limit", "every" ("full at IO" → "full at 10").
+- **Left alone on purpose:** "I/O", and "IO" where nothing suggests a number ("the IO layer"). Words, names and codes with other letters in them are never touched.
+- The limit of this: a lone "IO" after a word that is not on the list stays as it was read, because it cannot be told from the abbreviation. Tell me the phrases where that happens and I will add them.
+
 ## v1.1.21 (27 November 2026)
 
 **Screen capture reads right up to the edges**
