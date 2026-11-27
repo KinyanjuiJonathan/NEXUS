@@ -11,6 +11,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "1.1.28",
+    date: "2026-11-27",
+    title: "Reading region: drag to mark it, every time",
+    changes: [
+      "Opening the reading region now starts with marking it: press where it starts, drag to the opposite corner, release.",
+      "The region is not remembered: each time you open it, you mark it afresh.",
+      "NEXUS stays out of the way while you capture; the frame has a NEXUS button to bring it back, and closing the region brings it back too.",
+    ],
+  },
+  {
     version: "1.1.27",
     date: "2026-11-27",
     title: "Two-column tables are captured as “this - that” lines",

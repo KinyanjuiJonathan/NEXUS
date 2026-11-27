@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { closeRegion, listenTo } from "@/lib/platform";
+import { closeRegion, listenTo, showMainWindow } from "@/lib/platform";
 
 type Edge = "North" | "South" | "East" | "West" | "NorthEast" | "NorthWest" | "SouthEast" | "SouthWest";
 
@@ -57,6 +57,7 @@ export default function RegionFrame() {
       <div className={`frame-bar${note?.tone === "ok" ? " frame-ok" : ""}`} onMouseDown={move} title="Drag to move the reading region">
         <span className="frame-grip" aria-hidden>⠿</span>
         <span className="frame-text">{note ? note.text : "Right-click inside to capture"}</span>
+        <button type="button" className="frame-app" onMouseDown={(e) => e.stopPropagation()} onClick={() => void showMainWindow()} title="Show NEXUS, with the text captured so far">NEXUS</button>
         <button type="button" className="frame-x" onMouseDown={(e) => e.stopPropagation()} onClick={() => void closeRegion()} title="Close the reading region" aria-label="Close the reading region">×</button>
       </div>
       <div key={flash} className={`frame-box${flash ? " frame-flash" : ""}`} />

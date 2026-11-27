@@ -166,7 +166,7 @@ function ExtractBar({ text, literal, busy }: { text: string; literal: boolean; b
       {open ? (
         <Button size="sm" variant="danger" icon={<Square size={13} />} onClick={() => void live.closeRegion()} title="Take the reading region off the screen. Nothing more is captured.">Close region</Button>
       ) : (
-        <Button size="sm" variant="soft" icon={<ScanText size={14} />} disabled={busy || !native} onClick={() => void live.openRegion()} title={native ? "Put a reading region on the screen. Drag it, resize it, and right-click inside it to capture the text it shows." : "The reading region runs in the NEXUS desktop app for Windows."}>
+        <Button size="sm" variant="soft" icon={<ScanText size={14} />} disabled={busy || !native} onClick={() => void live.openRegion()} title={native ? "Mark a reading region on the screen: NEXUS steps aside, you press where the region starts, drag to the opposite corner and let go. Then right-click inside it to capture the text it shows." : "The reading region runs in the NEXUS desktop app for Windows."}>
           Reading region
         </Button>
       )}
@@ -187,7 +187,7 @@ function ExtractBar({ text, literal, busy }: { text: string; literal: boolean; b
         ) : x.done ? (
           `Captured ${x.lines} line${x.lines === 1 ? "" : "s"}. Edit, copy, or press Start to type it.`
         ) : native ? (
-          "Capture text from the screen: open the region, then right-click inside it. Nothing is read otherwise."
+          "Capture text from the screen: mark the region by dragging, then right-click inside it. Nothing is read otherwise."
         ) : (
           "Capturing from the screen runs in the Windows desktop app."
         )}

@@ -67,7 +67,7 @@ export default function RegionPicker() {
       )}
       {!rect && (
         <div className="absolute top-8 left-1/2 -translate-x-1/2 rounded-xl px-4 py-2.5 text-sm text-white" style={{ background: "rgba(7, 10, 18, 0.9)", border: "1px solid rgba(34, 211, 238, 0.5)", boxShadow: "0 12px 40px rgba(0,0,0,0.5)" }}>
-          <b>Drag a rectangle</b> around the text to follow. <span style={{ opacity: 0.7 }}>Esc or right-click cancels.</span>
+          <b>Mark the reading region:</b> press where it starts, drag to the opposite corner, and let go. <span style={{ opacity: 0.7 }}>Esc or right-click cancels.</span>
         </div>
       )}
     </div>

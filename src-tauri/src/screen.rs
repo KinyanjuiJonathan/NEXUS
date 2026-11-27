@@ -142,6 +142,8 @@ pub fn region_close(app: AppHandle) -> CmdResult<()> {
     if let Some(w) = app.get_webview_window(FRAME) {
         let _ = w.close();
     }
+    // the reading is over: NEXUS, with the captured text, comes back
+    show_main(&app);
     Ok(())
 }
 
@@ -220,6 +222,24 @@ fn rewatch(_r: Region) {}
 #[cfg(not(windows))]
 fn unwatch() {}
 
+/// Whether NEXUS stays minimised after a region has been marked (see `region_pick`).
+static STAY_ASIDE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn show_main(app: &AppHandle) {
+    if let Some(m) = app.get_webview_window("main") {
+        let _ = m.unminimize();
+        let _ = m.show();
+        let _ = m.set_focus();
+    }
+}
+
+/// Bring NEXUS back to the front (the button on the reading region's bar).
+#[tauri::command]
+pub fn region_show_main(app: AppHandle) -> CmdResult<()> {
+    show_main(&app);
+    Ok(())
+}
+
 fn pickers(app: &AppHandle) -> Vec<WebviewWindow> {
     app.webview_windows().into_iter().filter(|(label, _)| label.starts_with(PICKER)).map(|(_, w)| w).collect()
 }
@@ -229,7 +249,10 @@ fn pickers(app: &AppHandle) -> Vec<WebviewWindow> {
 /// user can see what they want to mark. The answer arrives as the
 /// `nexus://region-picked` event.
 #[tauri::command]
-pub async fn region_pick(app: AppHandle) -> CmdResult<()> {
+pub async fn region_pick(app: AppHandle, aside: Option<bool>) -> CmdResult<()> {
+    // `aside`: once a region is marked, NEXUS stays out of the way (minimised) instead of coming back
+    // in front of what was just marked. It returns when the reading region is closed or asked for.
+    STAY_ASIDE.store(aside.unwrap_or(false), std::sync::atomic::Ordering::SeqCst);
     let main = app.get_webview_window("main");
     let mut monitors = app.available_monitors().unwrap_or_default();
     if monitors.is_empty() {
@@ -293,10 +316,9 @@ pub fn region_done(app: AppHandle, win: WebviewWindow, rect: Option<CssRect>) ->
     for w in pickers(&app) {
         let _ = w.close();
     }
-    if let Some(m) = app.get_webview_window("main") {
-        let _ = m.unminimize();
-        let _ = m.show();
-        let _ = m.set_focus();
+    // back to NEXUS, unless a region was marked for reading and NEXUS is to stay out of its way
+    if picked.is_none() || !STAY_ASIDE.load(std::sync::atomic::Ordering::SeqCst) {
+        show_main(&app);
     }
     app.emit(PICKED, picked).map_err(friendly)
 }

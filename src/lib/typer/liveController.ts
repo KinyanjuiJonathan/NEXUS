@@ -70,6 +70,8 @@ let session = 0;
 let queue: Promise<void> = Promise.resolve();
 /** What has been captured from the screen while the region is open. Captured text is never changed, only added to. */
 const stitcher = new Stitcher(true);
+/** The user is marking a region right now. */
+let picking = false;
 /** Stops listening to the reading region. */
 let stopRegion: (() => void) | null = null;
 /** Ends the native dictation session, when one is open. */
@@ -241,9 +243,19 @@ export const useLive = create<LiveStore>((set, get) => {
     },
 
     openRegion: async () => {
-      if (get().regionOpen) return;
-      // where it was last time, or a comfortable size near the top left of the main screen
-      const start = get().region ?? { x: 160, y: 160, w: 900, h: 520 };
+      if (get().regionOpen || picking) return;
+      // The region is marked afresh every time: NEXUS steps aside, the user presses where the region starts,
+      // drags to the opposite corner and lets go. Esc or a right-click cancels.
+      let start: ScreenRegion | null = null;
+      picking = true;
+      try {
+        start = await pickRegion(true);
+      } catch (e) {
+        set({ error: e instanceof Error ? e.message : String(e) });
+      } finally {
+        picking = false;
+      }
+      if (!start) return;
       const remember = (region: ScreenRegion) => {
         set({ region });
         try {

@@ -394,12 +394,14 @@ export async function openRegion(region: ScreenRegion, on: { capture(region: Scr
   }
   return off;
 }
+/** Bring the NEXUS window back to the front (from the reading region's bar). */
+export const showMainWindow = () => invokeSafe<void>("region_show_main").catch(() => {});
 /** Close the reading region: the frame goes away and nothing more can be captured. */
 export const closeRegion = () => invokeSafe<void>("region_close").catch(() => {});
 /** Tell the frame what the last capture did ("found:3", "none", "error"), to show for a moment. */
 export const regionNote = (note: string) => invokeSafe<void>("region_note", { note }).catch(() => {});
 /** Open the full-screen picker; resolves with the region the user marks, or null when they cancel. */
-export async function pickRegion(): Promise<ScreenRegion | null> {
+export async function pickRegion(aside = false): Promise<ScreenRegion | null> {
   if (!native) throw new Error("Selecting a region of the screen runs in the NEXUS desktop app for Windows.");
   return new Promise<ScreenRegion | null>((resolve, reject) => {
     let off: (() => void) | null = null;
@@ -408,7 +410,8 @@ export async function pickRegion(): Promise<ScreenRegion | null> {
       resolve(r);
     }).then((u) => {
       off = u;
-      return invokeSafe<void>("region_pick");
+      // aside: once a region is marked, NEXUS stays minimised instead of coming back in front of it
+      return invokeSafe<void>("region_pick", { aside });
     }).catch((e) => {
       off?.();
       reject(e);

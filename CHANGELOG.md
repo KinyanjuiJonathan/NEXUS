@@ -2,6 +2,15 @@
 
 NEXUS stays on version 1: every release is a 1.x.y number, raised by one step each time. Installing any release over an older one keeps your tasks, schedule, history and settings (they live in `%APPDATA%\com.nexus.productivity`, which the installer never touches, and the database is backed up before any change to its format).
 
+## v1.1.28 (27 November 2026)
+
+**Reading region: drag to mark it, every time**
+- **Mark the region by dragging.** Pressing **Reading region** no longer puts the frame where it was last time. NEXUS steps aside and the screen dims slightly: press the mouse where the region should start, drag to the opposite corner, and let go. The size is shown while you drag. The frame appears exactly around what you marked. Esc or a right-click cancels, and works across all your monitors.
+- **Set up afresh each time.** The region is not remembered. When you close it and open it again, you mark a new one.
+- **Fine-tuning still works.** Once the frame is there you can still drag its bar to move it and its edges or corners to resize it, and right-click inside it to capture.
+- **NEXUS stays out of the way.** After you mark the region, NEXUS stays minimised so it does not cover what you want to read. The frame's bar has a **NEXUS** button that brings the window back with the text captured so far, and closing the region (× on the frame) brings it back as well. If you cancel the marking, NEXUS comes straight back.
+- Capturing itself is unchanged: only on a right-click inside the region, added in reading order, without changing what was already captured.
+
 ## v1.1.27 (27 November 2026)
 
 **Two-column tables are captured as "this - that" lines**

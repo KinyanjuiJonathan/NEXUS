@@ -229,6 +229,7 @@ pub fn run() {
             screen::region_open,
             screen::region_close,
             screen::region_note,
+            screen::region_show_main,
             updates::update_check,
             updates::update_install,
             updates::open_external,
